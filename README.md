@@ -31,19 +31,6 @@ MCP-Compose allows you to:
 
 ## Installation
 
-### Binary Installation
-
-Download the latest release for your platform from the [releases page](https://github.com/phildougherty/mcp-compose/releases).
-
-```bash
-# Linux/macOS
-chmod +x mcp-compose
-sudo mv mcp-compose /usr/local/bin/
-
-# Windows
-# Add the executable to your PATH
-```
-
 ### Building from Source
 
 ```bash
