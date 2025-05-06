@@ -40,7 +40,7 @@ MCP-Compose allows you to:
 ```bash
 git clone https://github.com/phildougherty/mcp-compose.git
 cd mcp-compose
-go build -o mcp-compose cmd/mcp-compose/main.go
+make build
 ```
 
 ## Core Concepts
