@@ -1,0 +1,52 @@
+# Git files
+.git/
+.gitignore
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+mcp-compose
+
+# Test files
+*.test
+*.out
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Client config directories
+client-config/
+client-configs/
+
+# Generated files
+*.generated.*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# Development files
+.github/
+.editorconfig
+.golangci.yml
+
+# Test data
+testdata/

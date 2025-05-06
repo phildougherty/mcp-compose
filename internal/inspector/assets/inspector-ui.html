@@ -1,0 +1,294 @@
+<!-- internal/inspector/assets/inspector-ui.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MCP Inspector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .server-list {
+            width: 250px;
+            float: left;
+            border-right: 1px solid #eee;
+            padding-right: 20px;
+        }
+        .server-item {
+            padding: 10px;
+            margin-bottom: 5px;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .server-item:hover {
+            background-color: #f5f5f5;
+        }
+        .server-item.selected {
+            background-color: #e0e0e0;
+        }
+        .server-details {
+            margin-left: 280px;
+        }
+        .capability-tag {
+            display: inline-block;
+            background-color: #e1f5fe;
+            color: #0277bd;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-right: 5px;
+        }
+        .method-list {
+            margin-top: 20px;
+        }
+        .method-item {
+            padding: 10px;
+            margin-bottom: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .method-name {
+            font-weight: bold;
+        }
+        .request-area, .response-area {
+            width: 100%;
+            height: 200px;
+            margin-top: 10px;
+            font-family: monospace;
+        }
+        .button {
+            padding: 8px 16px;
+            background-color: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #1565c0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MCP Inspector</h1>
+        </div>
+        <div class="server-list">
+            <h2>Servers</h2>
+            <div id="servers"></div>
+        </div>
+        <div class="server-details" id="serverDetails">
+            <h2>Server Details</h2>
+            <div id="serverInfo">
+                <p>Select a server from the list</p>
+            </div>
+            <div class="method-list" id="methodList" style="display: none;">
+                <h3>Available Methods</h3>
+                <div id="methods"></div>
+            </div>
+            <div id="requestSection" style="display: none;">
+                <h3>Request</h3>
+                <textarea id="request" class="request-area"></textarea>
+                <button id="sendRequest" class="button">Send Request</button>
+                
+                <h3>Response</h3>
+                <textarea id="response" class="response-area" readonly></textarea>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Fetch servers
+        fetch('/api/servers')
+            .then(response => response.json())
+            .then(servers => {
+                const serversDiv = document.getElementById('servers');
+                Object.entries(servers).forEach(([name, server]) => {
+                    const div = document.createElement('div');
+                    div.className = 'server-item';
+                    div.textContent = name;
+                    div.onclick = () => selectServer(name, server);
+                    serversDiv.appendChild(div);
+                });
+            });
+        
+        function selectServer(name, server) {
+            // Update selection
+            document.querySelectorAll('.server-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            event.target.classList.add('selected');
+            
+            // Display server info
+            const serverInfo = document.getElementById('serverInfo');
+            let html = `<h3>${name}</h3>`;
+            html += '<div>';
+            if (server.capabilities && server.capabilities.length > 0) {
+                server.capabilities.forEach(cap => {
+                    html += `<span class="capability-tag">${cap}</span>`;
+                });
+            }
+            html += '</div>';
+            if (server.command) {
+                html += `<p><strong>Command:</strong> ${server.command} ${server.args ? server.args.join(' ') : ''}</p>`;
+            }
+            if (server.image) {
+                html += `<p><strong>Image:</strong> ${server.image}</p>`;
+            }
+            html += '<button id="connectButton" class="button">Connect</button>';
+            serverInfo.innerHTML = html;
+            
+            document.getElementById('connectButton').onclick = () => connectToServer(name);
+        }
+        
+        function connectToServer(name) {
+            fetch('/api/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ server: name })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                // Show methods
+                document.getElementById('methodList').style.display = 'block';
+                document.getElementById('requestSection').style.display = 'block';
+                
+                const methodsDiv = document.getElementById('methods');
+                methodsDiv.innerHTML = '';
+                
+                // Add standard methods
+                addMethod('initialize', 'Initialize the server');
+                addMethod('shutdown', 'Shutdown the server');
+                
+                // Add capability-specific methods
+                if (data.capabilities && data.capabilities.resources) {
+                    addMethod('resources/list', 'List resources');
+                    addMethod('resources/get', 'Get resource content');
+                }
+                if (data.capabilities && data.capabilities.tools) {
+                    addMethod('tools/list', 'List available tools');
+                    addMethod('tools/execute', 'Execute a tool');
+                }
+                if (data.capabilities && data.capabilities.prompts) {
+                    addMethod('prompts/list', 'List available prompts');
+                    addMethod('prompts/render', 'Render a prompt template');
+                }
+            })
+            .catch(err => alert('Failed to connect: ' + err));
+        }
+        
+        function addMethod(name, description) {
+            const methodsDiv = document.getElementById('methods');
+            const div = document.createElement('div');
+            div.className = 'method-item';
+            div.innerHTML = `
+                <div class="method-name">${name}</div>
+                <div class="method-description">${description}</div>
+            `;
+            div.onclick = () => selectMethod(name);
+            methodsDiv.appendChild(div);
+        }
+        
+        function selectMethod(name) {
+            // Prepare a request template
+            let request = {
+                jsonrpc: "2.0",
+                id: 1,
+                method: name,
+                params: {}
+            };
+            
+            switch (name) {
+                case 'initialize':
+                    request.params = {
+                        protocolVersion: "2024-11-05",
+                        capabilities: {
+                            resources: { listChanged: true, subscribe: true },
+                            tools: { listChanged: true },
+                            prompts: { listChanged: true }
+                        },
+                        clientInfo: {
+                            name: "MCP Inspector",
+                            version: "1.0.0"
+                        }
+                    };
+                    break;
+                case 'resources/list':
+                    request.params = { path: "/" };
+                    break;
+                case 'resources/get':
+                    request.params = { path: "/example.txt" };
+                    break;
+                case 'tools/list':
+                    request.params = {};
+                    break;
+                case 'tools/execute':
+                    request.params = {
+                        name: "exampleTool",
+                        parameters: { key: "value" }
+                    };
+                    break;
+                case 'prompts/list':
+                    request.params = {};
+                    break;
+                case 'prompts/render':
+                    request.params = {
+                        name: "examplePrompt",
+                        variables: { key: "value" }
+                    };
+                    break;
+            }
+            
+            document.getElementById('request').value = JSON.stringify(request, null, 2);
+        }
+        
+        document.getElementById('sendRequest').onclick = function() {
+            const requestText = document.getElementById('request').value;
+            let request;
+            try {
+                request = JSON.parse(requestText);
+            } catch (e) {
+                alert('Invalid JSON: ' + e);
+                return;
+            }
+            
+            fetch('/api/request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: requestText
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('response').value = JSON.stringify(data, null, 2);
+            })
+            .catch(err => {
+                document.getElementById('response').value = 'Error: ' + err;
+            });
+        };
+    </script>
+</body>
+</html>
