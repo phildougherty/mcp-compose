@@ -2,6 +2,10 @@
 
 MCP-Compose is a powerful tool for defining, configuring, and managing Model Context Protocol (MCP) servers. It simplifies the process of setting up and orchestrating multiple MCP servers that can be used with AI models like Claude, GPT, and other LLM clients.
 
+
+!!! DISCLAIMER !!! 
+This is a work in progress and things are likely broken
+
 ## Table of Contents
 
 - [Overview](#overview)
