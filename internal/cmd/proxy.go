@@ -171,7 +171,6 @@ func startContainerizedProxy(cfg *config.ComposeConfig, projectName string, port
 }
 
 // createProxyScript creates the Python proxy server script
-// createProxyScript creates the Python proxy server script
 func createProxyScript(scriptPath string) error {
 	scriptContent := `#!/usr/bin/env python3
 import os
@@ -191,12 +190,10 @@ API_KEY = os.environ.get('MCP_API_KEY', '')
 
 class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'  # Force HTTP/1.1 instead of HTTP/0.9
-    
     # Cache for discovered tools
     _tools_cache = {}
     _tools_cache_time = 0
     _tools_cache_ttl = 60  # Cache TTL in seconds
-    
     def get_mcp_servers(self):
         """Dynamically discover MCP servers using Docker"""
         try:
@@ -221,7 +218,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     if server_name == "proxy" or container_name == "mcp-compose-proxy":
                         self.log_message(f"Skipping proxy container: {container_name}")
                         continue
-                    
                     # Check if the container is actually running and not restarting
                     try:
                         status_result = subprocess.run(
@@ -237,25 +233,20 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     except Exception as e:
                         self.log_message(f"Error checking container status for {server_name}: {str(e)}")
                         continue
-                    
                     servers[server_name] = container_name
             return servers
         except Exception as e:
             self.log_message("Error discovering MCP servers: %s", str(e))
             return {}
-    
     def discover_tools(self, force_refresh=False):
         """Discover all tools from all MCP servers with caching"""
         current_time = time.time()
-        
         # Return cached tools if available and not expired
         if not force_refresh and self._tools_cache and (current_time - self._tools_cache_time) < self._tools_cache_ttl:
             return self._tools_cache
-        
         servers = self.get_mcp_servers()
         all_tools = {}
         server_info = {}
-        
         for server_name, container_name in servers.items():
             try:
                 # Initialize the server to get its tools
@@ -272,14 +263,11 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                         }
                     }
                 }
-                
                 # Execute the initialize request
                 cmd = ["docker", "exec", "-i", container_name, "npx", "-y", f"@modelcontextprotocol/server-{server_name}"]
                 if server_name == "filesystem":
                     cmd.append("/tmp")
-                    
                 self.log_message(f"Initializing server {server_name} with command: {' '.join(cmd)}")
-                
                 process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
@@ -287,20 +275,23 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                
                 stdout, stderr = process.communicate(input=json.dumps(init_request) + "\n", timeout=10)
-                
                 if process.returncode != 0:
                     self.log_message(f"Error initializing server {server_name}: {stderr}")
                     continue
-                
                 try:
-                    init_response = json.loads(stdout)
+                    # Check if the response is in SSE format (starts with "data: ")
+                    if stdout.startswith("data: "):
+                        # Extract the JSON part from the SSE format
+                        json_part = stdout.replace("data: ", "").strip()
+                        init_response = json.loads(json_part)
+                    else:
+                        # Regular JSON response
+                        init_response = json.loads(stdout)
                     if "result" in init_response and "serverInfo" in init_response["result"]:
                         server_info[server_name] = init_response["result"]["serverInfo"]
                 except json.JSONDecodeError:
                     self.log_message(f"Error parsing initialize response for {server_name}: {stdout}")
-                
                 # Now get the tools
                 tools_request = {
                     "jsonrpc": "2.0",
@@ -308,7 +299,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     "method": "tools/list",
                     "params": {}
                 }
-                
                 process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
@@ -316,15 +306,19 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                
                 stdout, stderr = process.communicate(input=json.dumps(tools_request) + "\n", timeout=10)
-                
                 if process.returncode != 0:
                     self.log_message(f"Error listing tools for server {server_name}: {stderr}")
                     continue
-                
                 try:
-                    response = json.loads(stdout)
+                    # Check if the response is in SSE format (starts with "data: ")
+                    if stdout.startswith("data: "):
+                        # Extract the JSON part from the SSE format
+                        json_part = stdout.replace("data: ", "").strip()
+                        response = json.loads(json_part)
+                    else:
+                        # Regular JSON response
+                        response = json.loads(stdout)
                     if "result" in response and "tools" in response["result"]:
                         server_tools = response["result"]["tools"]
                         for tool in server_tools:
@@ -342,32 +336,26 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self.log_message(f"Error discovering tools for {server_name}: {str(e)}")
                 self.log_message(traceback.format_exc())
-        
         # Update cache
         self._tools_cache = all_tools
         self._tools_cache_time = current_time
-        
         return all_tools
 
     def check_api_key(self):
         """Check if the API key is valid"""
         if not API_KEY:
             return True  # No API key configured, allow all requests
-            
         # Skip API key check for OPTIONS requests
         if self.command == "OPTIONS":
             return True
-            
         auth_header = self.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
             self.send_error(401, "Unauthorized: Missing or invalid Authorization header")
             return False
-            
         token = auth_header[7:]  # Remove 'Bearer ' prefix
         if token != API_KEY:
             self.send_error(403, "Forbidden: Invalid API key")
             return False
-            
         return True
 
     def add_cors_headers(self):
@@ -387,12 +375,10 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         # Check API key if configured
         if not self.check_api_key():
             return
-            
         # Handle GET request - show available servers or OpenAPI schema
         if self.path == "/" or self.path == "":
             # Discover tools
             all_tools = self.discover_tools()
-            
             # Group tools by server
             tools_by_server = {}
             for tool_path, tool_info in all_tools.items():
@@ -400,12 +386,9 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 if server_name not in tools_by_server:
                     tools_by_server[server_name] = []
                 tools_by_server[server_name].append(tool_info["tool"]["name"])
-            
             response = "<html><body><h1>MCP Proxy</h1>"
-            
             # Add OpenAPI schema link
             response += "<p><a href='/openapi.json'>OpenAPI Schema</a> - <a href='/docs'>API Documentation</a></p>"
-            
             # List servers and their tools
             response += "<h2>Available MCP Servers and Tools:</h2><ul>"
             for server_name, tools in tools_by_server.items():
@@ -414,9 +397,7 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     response += f"<li>{tool_name}</li>"
                 response += "</ul></li>"
             response += "</ul></body></html>"
-            
             response_bytes = response.encode("utf-8")
-            
             self.send_response(200)
             self.add_cors_headers()
             self.send_header("Content-type", "text/html")
@@ -444,7 +425,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         """Generate and serve the OpenAPI schema with individual tools"""
         # Discover all tools from all servers
         all_tools = self.discover_tools()
-        
         # Create a basic OpenAPI schema
         schema = {
             "openapi": "3.0.0",
@@ -475,13 +455,11 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 }
             ]
         }
-        
         # Add paths for each tool
         for tool_path, tool_info in all_tools.items():
             server_name = tool_info["server"]
             tool = tool_info["tool"]
             tool_name = tool["name"]
-            
             # Create path for this specific tool
             schema["paths"][f"/{server_name}/{tool_name}"] = {
                 "post": {
@@ -508,7 +486,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     }
                 }
             }
-            
             # Add input schema to components if it has a title
             input_schema = tool.get("inputSchema", {})
             if "title" in input_schema:
@@ -518,7 +495,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 schema["paths"][f"/{server_name}/{tool_name}"]["post"]["requestBody"]["content"]["application/json"]["schema"] = {
                     "$ref": f"#/components/schemas/{schema_name}"
                 }
-            
             # Add output schema to components if it has a title
             output_schema = tool.get("outputSchema", {})
             if "title" in output_schema:
@@ -528,10 +504,8 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 schema["paths"][f"/{server_name}/{tool_name}"]["post"]["responses"]["200"]["content"]["application/json"]["schema"] = {
                     "$ref": f"#/components/schemas/{schema_name}"
                 }
-        
         # Convert schema to JSON
         schema_json = json.dumps(schema)
-        
         self.send_response(200)
         self.add_cors_headers()
         self.send_header("Content-type", "application/json")
@@ -543,17 +517,13 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         """Generate and serve the OpenAPI schema for a specific server"""
         # Discover all tools from all servers
         all_tools = self.discover_tools()
-        
         # Filter tools for this server
         server_tools = {k: v for k, v in all_tools.items() if v["server"] == server_name}
-        
         if not server_tools:
             self.send_error(404, f"No tools found for server {server_name}")
             return
-        
         # Get server info
         server_info = next(iter(server_tools.values()))["server_info"]
-        
         # Create a basic OpenAPI schema
         schema = {
             "openapi": "3.0.0",
@@ -584,12 +554,10 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 }
             ]
         }
-        
         # Add paths for each tool
         for tool_path, tool_info in server_tools.items():
             tool = tool_info["tool"]
             tool_name = tool["name"]
-            
             # Create path for this specific tool
             schema["paths"][f"/{tool_name}"] = {
                 "post": {
@@ -616,7 +584,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                     }
                 }
             }
-            
             # Add input schema to components if it has a title
             input_schema = tool.get("inputSchema", {})
             if "title" in input_schema:
@@ -626,7 +593,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 schema["paths"][f"/{tool_name}"]["post"]["requestBody"]["content"]["application/json"]["schema"] = {
                     "$ref": f"#/components/schemas/{schema_name}"
                 }
-            
             # Add output schema to components if it has a title
             output_schema = tool.get("outputSchema", {})
             if "title" in output_schema:
@@ -636,10 +602,8 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 schema["paths"][f"/{tool_name}"]["post"]["responses"]["200"]["content"]["application/json"]["schema"] = {
                     "$ref": f"#/components/schemas/{schema_name}"
                 }
-        
         # Convert schema to JSON
         schema_json = json.dumps(schema)
-        
         self.send_response(200)
         self.add_cors_headers()
         self.send_header("Content-type", "application/json")
@@ -680,7 +644,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
           return req;
         }
       });
-      
       // Add API key input field
       const topbarEl = document.querySelector('.topbar');
       if (topbarEl) {
@@ -689,11 +652,9 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         apiKeyContainer.style.display = 'flex';
         apiKeyContainer.style.alignItems = 'center';
         apiKeyContainer.style.marginRight = '1em';
-        
         const apiKeyLabel = document.createElement('label');
         apiKeyLabel.innerText = 'API Key: ';
         apiKeyLabel.style.marginRight = '0.5em';
-        
         const apiKeyInput = document.createElement('input');
         apiKeyInput.type = 'text';
         apiKeyInput.value = localStorage.getItem('swagger_api_key') || '';
@@ -703,7 +664,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
           // Reload to apply the new API key
           window.location.reload();
         });
-        
         apiKeyContainer.appendChild(apiKeyLabel);
         apiKeyContainer.appendChild(apiKeyInput);
         topbarEl.appendChild(apiKeyContainer);
@@ -753,7 +713,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
           return req;
         }}
       }});
-      
       // Add API key input field
       const topbarEl = document.querySelector('.topbar');
       if (topbarEl) {{
@@ -762,11 +721,9 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         apiKeyContainer.style.display = 'flex';
         apiKeyContainer.style.alignItems = 'center';
         apiKeyContainer.style.marginRight = '1em';
-        
         const apiKeyLabel = document.createElement('label');
         apiKeyLabel.innerText = 'API Key: ';
         apiKeyLabel.style.marginRight = '0.5em';
-        
         const apiKeyInput = document.createElement('input');
         apiKeyInput.type = 'text';
         apiKeyInput.value = localStorage.getItem('swagger_api_key') || '';
@@ -776,7 +733,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
           // Reload to apply the new API key
           window.location.reload();
         }});
-        
         apiKeyContainer.appendChild(apiKeyLabel);
         apiKeyContainer.appendChild(apiKeyInput);
         topbarEl.appendChild(apiKeyContainer);
@@ -797,35 +753,28 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         # Check API key if configured
         if not self.check_api_key():
             return
-            
         # Parse the path to get server name and possibly tool name
         path_parts = urlparse(self.path).path.strip("/").split("/")
         if not path_parts:
             self.send_error(404, "No server specified")
             return
-        
         server_name = path_parts[0]
         tool_name = path_parts[1] if len(path_parts) > 1 else None
-        
         # Get the current list of MCP servers
         servers = self.get_mcp_servers()
         if server_name not in servers:
             self.send_error(404, f"Unknown server: {server_name}")
             return
-            
         # Get the container name
         container_name = servers[server_name]
-        
         # Read the request body
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8")
-        
         # If a specific tool is requested, create a tools/call request
         if tool_name:
             try:
                 # Parse the request body as the tool arguments
                 arguments = json.loads(body)
-                
                 # Create a tools/call request
                 mcp_request = {
                     "jsonrpc": "2.0",
@@ -836,7 +785,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                         "arguments": arguments
                     }
                 }
-                
                 # Convert to JSON
                 body = json.dumps(mcp_request) + "\n"
             except json.JSONDecodeError:
@@ -846,19 +794,14 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             # Ensure the request ends with a newline for direct server requests
             if not body.endswith('\n'):
                 body += '\n'
-        
         self.log_message("Request to %s: %s", server_name, body[:100] + "..." if len(body) > 100 else body)
-        
         try:
             # Use the container-native approach to communicate with the MCP server
             cmd = ["docker", "exec", "-i", container_name, "npx", "-y", f"@modelcontextprotocol/server-{server_name}"]
-            
             # Add additional arguments for specific servers
             if server_name == "filesystem":
                 cmd.append("/tmp")
-                
             self.log_message("Executing command: %s", " ".join(cmd))
-            
             # Execute the command
             process = subprocess.Popen(
                 cmd,
@@ -867,44 +810,42 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 stderr=subprocess.PIPE,
                 text=False  # Use binary mode for stdin/stdout
             )
-            
             # Send the request to the container
             stdout, stderr = process.communicate(input=body.encode("utf-8"), timeout=10)
-            
             stderr_text = stderr.decode("utf-8", errors="ignore")
             if stderr_text and "Secure MCP Filesystem Server running on stdio" not in stderr_text:
                 self.log_message("STDERR: %s", stderr_text)
-                
             self.log_message("Process return code: %d", process.returncode)
-            
             if process.returncode != 0:
                 self.send_error(500, f"Error communicating with container (code {process.returncode}): {stderr_text}")
                 return
-                
             # Get the response
             response_data = stdout.decode("utf-8", errors="ignore")
             
+            # Always remove SSE format if present before further processing
+            if response_data.startswith("data: "):
+                response_data = response_data.replace("data: ", "").strip()
+                stdout = response_data.encode("utf-8")
+                
             # Log a snippet of the response
             self.log_message("Response from %s: %s", server_name, 
                              response_data[:100] + "..." if len(response_data) > 100 else response_data)
-            
             # Process the response if it's a tool call
             if tool_name:
                 try:
+                    # Parse the JSON response (already cleaned from SSE format)
                     response_json = json.loads(response_data)
-                    
+                        
                     # Check for error
                     if "error" in response_json:
                         error_code = response_json["error"].get("code", 500)
                         error_message = response_json["error"].get("message", "Unknown error")
                         self.send_error(500, f"MCP error: {error_message} (code {error_code})")
                         return
-                    
                     # Extract result from tools/call response
                     if "result" in response_json and "content" in response_json["result"]:
                         content = response_json["result"]["content"]
                         processed_response = []
-                        
                         for item in content:
                             if "text" in item:
                                 # Try to parse as JSON
@@ -920,18 +861,16 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                                     "mimeType": item["mimeType"],
                                     "data": item["data"]
                                 })
-                        
                         # If there's only one item, return it directly
                         if len(processed_response) == 1:
                             processed_response = processed_response[0]
-                        
                         # Convert to JSON
                         response_data = json.dumps(processed_response)
                         stdout = response_data.encode("utf-8")
                 except json.JSONDecodeError:
                     # If we can't parse the response, just return it as-is
                     pass
-                             
+                    
             # Send the response
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -940,7 +879,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(stdout)))
             self.end_headers()
             self.wfile.write(stdout)
-            
         except subprocess.TimeoutExpired:
             self.send_error(504, "Timeout communicating with container")
         except Exception as e:
@@ -973,14 +911,12 @@ def main():
     except Exception as e:
         print(f"Warning: Error discovering initial MCP servers: {str(e)}")
         server_list = []
-        
     print(f"Starting MCP proxy server at http://0.0.0.0:{PORT}")
     if API_KEY:
         print("API key authentication is enabled")
     else:
         print("API key authentication is disabled")
     print(f"Available endpoints: {', '.join('/' + s for s in server_list)}")
-    
     # Test Docker connectivity
     try:
         result = subprocess.run(["docker", "ps"], capture_output=True, text=True)
@@ -992,7 +928,6 @@ def main():
             print(f"Error: {result.stderr}")
     except Exception as e:
         print(f"Docker connectivity test failed: {str(e)}")
-        
     server_class = socketserver.ThreadingTCPServer
     server_class.allow_reuse_address = True
     try:
