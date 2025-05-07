@@ -200,28 +200,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.log_message("Error discovering MCP servers: %s", str(e))
             return {}
     
-    def get_server_command(self, container_name):
-        """Get the command used to start the MCP server in the container"""
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", container_name, "--format", "{{.Config.Cmd}}"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            # Parse the command from the output
-            cmd_str = result.stdout.strip()
-            # The format is typically [bash -c command arg1 arg2 ...]
-            # We need to extract the actual command after bash -c
-            match = re.match(r'\[bash -c (.*)\]', cmd_str)
-            if match:
-                return match.group(1)
-            return None
-        except Exception as e:
-            self.log_message("Error getting server command: %s", str(e))
-            return None
-    
     def do_GET(self):
         # Handle GET request - just show available servers
         if self.path == "/" or self.path == "":
@@ -275,21 +253,12 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.log_message("Request to %s: %s", server_name, body[:100] + "..." if len(body) > 100 else body)
         
         try:
-            # Get the command used to start the server
-            server_cmd = self.get_server_command(container_name)
+            # Use the container-native approach to communicate with the MCP server
+            cmd = ["docker", "exec", "-i", container_name, "npx", "-y", f"@modelcontextprotocol/server-{server_name}"]
             
-            if server_cmd:
-                # Use the server's own command to communicate with it
-                cmd = ["docker", "exec", "-i", container_name] + server_cmd.split()
-            else:
-                # Fallback to a generic approach
-                if server_name == "filesystem":
-                    cmd = ["docker", "exec", "-i", container_name, "npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-                elif server_name == "memory":
-                    cmd = ["docker", "exec", "-i", container_name, "npx", "-y", "@modelcontextprotocol/server-memory"]
-                else:
-                    # Default fallback
-                    cmd = ["docker", "exec", "-i", container_name, "cat"]
+            # Add additional arguments for specific servers
+            if server_name == "filesystem":
+                cmd.append("/tmp")
             
             self.log_message("Executing command: %s", " ".join(cmd))
             
