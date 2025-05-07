@@ -1,93 +1,438 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Inspector</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
     <style>
+        /* Enhanced CSS - paste the entire CSS from above here */
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            color: #333;
+            background-color: #f8f9fa;
             line-height: 1.6;
         }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
+            padding: 20px;
         }
+
+        /* Header styles */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
+            background-color: #fff;
+            margin-bottom: 30px;
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
         }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        #connection-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            background-color: #e5e7eb;
+            color: #4b5563;
+        }
+
+        #connection-status.connected {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        #connection-status.connecting {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        #connection-status.failed {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+
+        /* Layout */
+        .main-content {
+            display: flex;
+            gap: 30px;
+        }
+
+        /* Server list styles */
         .server-list {
-            width: 250px;
-            float: left;
-            border-right: 1px solid #eee;
-            padding-right: 20px;
+            width: 280px;
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            min-height: 500px;
         }
+
+        .server-list h2 {
+            margin-top: 0;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 18px;
+            color: #1f2937;
+        }
+
         .server-item {
-            padding: 10px;
-            margin-bottom: 5px;
-            border: 1px solid #ddd;
+            padding: 12px 15px;
+            margin-bottom: 8px;
+            border-radius: 6px;
             cursor: pointer;
-            border-radius: 4px;
+            transition: all 0.2s ease;
+            background-color: #f9fafb;
+            border-left: 3px solid transparent;
         }
+
         .server-item:hover {
-            background-color: #f5f5f5;
+            background-color: #f3f4f6;
+            border-left: 3px solid #60a5fa;
+            transform: translateX(2px);
         }
+
         .server-item.selected {
-            background-color: #e0e0e0;
+            background-color: #eff6ff;
+            border-left: 3px solid #3b82f6;
+            font-weight: 500;
         }
+
+        /* Server details styles */
         .server-details {
-            margin-left: 280px;
+            flex: 1;
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
         }
+
+        .server-details h2 {
+            margin-top: 0;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 18px;
+            color: #1f2937;
+        }
+
+        #serverInfo {
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px dashed #e5e7eb;
+        }
+
+        #serverInfo h3 {
+            margin-top: 0;
+            font-size: 20px;
+            color: #111827;
+        }
+
         .capability-tag {
             display: inline-block;
-            background-color: #e1f5fe;
-            color: #0277bd;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            margin-right: 5px;
+            background-color: #dbeafe;
+            color: #1e40af;
+            padding: 4px 10px;
+            border-radius: 16px;
+            font-size: 13px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            font-weight: 500;
         }
-        .method-list {
-            margin-top: 20px;
+
+        .capability-tag[data-type="resources"] {
+            background-color: #d1fae5;
+            color: #065f46;
         }
-        .method-item {
-            padding: 10px;
-            margin-bottom: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+
+        .capability-tag[data-type="tools"] {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+
+        .capability-tag[data-type="prompts"] {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .capability-tag[data-type="sampling"] {
+            background-color: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .capability-tag[data-type="logging"] {
+            background-color: #f3e8ff;
+            color: #6b21a8;
+        }
+
+        /* Button styles */
+        .button {
+            padding: 10px 16px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
             cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.15s ease;
+            font-size: 14px;
         }
+
+        .button:hover {
+            background-color: #2563eb;
+        }
+
+        .button:active {
+            background-color: #1d4ed8;
+            transform: translateY(1px);
+        }
+
+        .button-secondary {
+            background-color: #f3f4f6;
+            color: #4b5563;
+            border: 1px solid #d1d5db;
+        }
+
+        .button-secondary:hover {
+            background-color: #e5e7eb;
+            color: #1f2937;
+        }
+
+        /* Methods list */
+        .method-list {
+            margin: 24px 0;
+        }
+
+        .method-list h3 {
+            font-size: 17px;
+            color: #374151;
+            margin-bottom: 16px;
+        }
+
+        .methods-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .method-item {
+            padding: 12px 16px;
+            border-radius: 6px;
+            background-color: #f9fafb;
+            border-left: 3px solid #9ca3af;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            width: calc(50% - 18px);
+            box-sizing: border-box;
+        }
+
+        .method-item:hover {
+            background-color: #f3f4f6;
+            transform: translateX(2px);
+        }
+
+        .method-item[data-category="basic"] {
+            border-left-color: #9ca3af;
+        }
+
+        .method-item[data-category="resources"] {
+            border-left-color: #10b981;
+        }
+
+        .method-item[data-category="tools"] {
+            border-left-color: #3b82f6;
+        }
+
+        .method-item[data-category="prompts"] {
+            border-left-color: #f59e0b;
+        }
+
         .method-name {
-            font-weight: bold;
+            font-weight: 600;
+            font-size: 15px;
+            color: #111827;
+            margin-bottom: 4px;
         }
+
+        .method-description {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        /* Request/Response section */
+        #requestSection {
+            margin-top: 30px;
+        }
+
         .request-area, .response-area {
             width: 100%;
             height: 200px;
-            margin-top: 10px;
-            font-family: monospace;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-family: "Fira Code", "Menlo", "Monaco", "Courier New", monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: vertical;
+            box-sizing: border-box;
+            background-color: #f8fafc;
         }
-        .button {
-            padding: 8px 16px;
-            background-color: #1976d2;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
+
+        .response-area {
+            background-color: #f1f5f9;
         }
-        .button:hover {
-            background-color: #1565c0;
+
+        .action-bar {
+            margin: 15px 0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
         }
+
+        /* Debug panel */
         .debug-panel {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #f5f5f5;
+            margin-top: 30px;
+            padding: 16px;
+            background-color: #f8fafc;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .debug-panel h3 {
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-size: 16px;
+            color: #475569;
+            font-weight: 600;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 8px;
+        }
+
+        .debug-info {
+            font-family: "Fira Code", "Menlo", "Monaco", "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .debug-info div {
+            margin-bottom: 8px;
+        }
+
+        .debug-label {
+            display: inline-block;
+            width: 120px;
+            font-weight: 500;
+            color: #64748b;
+        }
+
+        .session-id {
+            padding: 4px 8px;
+            background-color: #e2e8f0;
             border-radius: 4px;
-            font-family: monospace;
+            font-size: 12px;
+            color: #334155;
+        }
+
+        /* Responsive styles */
+        @media (max-width: 920px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .server-list {
+                width: 100%;
+                margin-bottom: 20px;
+            }
+            
+            .method-item {
+                width: 100%;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .server-details {
+            animation: fadeIn 0.3s ease;
+        }
+
+        .method-item {
+            animation: slideIn 0.2s ease;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+
+        .toast {
+            background-color: #fff;
+            padding: 12px 16px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast-success {
+            border-left: 4px solid #10b981;
+        }
+
+        .toast-error {
+            border-left: 4px solid #ef4444;
+        }
+
+        .toast-warning {
+            border-left: 4px solid #f59e0b;
+        }
+
+        .toast-info {
+            border-left: 4px solid #3b82f6;
+        }
+
+        .toast-message {
+            margin-left: 10px;
+            font-size: 14px;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -99,42 +444,123 @@
                 <span id="connection-status">Not connected</span>
             </div>
         </div>
-        <div class="server-list">
-            <h2>Servers</h2>
-            <div id="servers"></div>
-        </div>
-        <div class="server-details" id="serverDetails">
-            <h2>Server Details</h2>
-            <div id="serverInfo">
-                <p>Select a server from the list</p>
+        
+        <div class="main-content">
+            <div class="server-list">
+                <h2>Servers</h2>
+                <div id="servers"></div>
             </div>
-            <div class="method-list" id="methodList" style="display: none;">
-                <h3>Available Methods</h3>
-                <div id="methods"></div>
-            </div>
-            <div id="requestSection" style="display: none;">
-                <h3>Request</h3>
-                <textarea id="request" class="request-area"></textarea>
-                <button id="sendRequest" class="button">Send Request</button>
+            
+            <div class="server-details" id="serverDetails">
+                <h2>Server Details</h2>
+                <div id="serverInfo">
+                    <p>Select a server from the list</p>
+                </div>
                 
-                <h3>Response</h3>
-                <textarea id="response" class="response-area" readonly></textarea>
-            </div>
-            <div class="debug-panel" id="debugPanel">
-                <h3>Debug Info</h3>
-                <div>Session ID: <span id="sessionId">None</span></div>
+                <div class="method-list" id="methodList" style="display: none;">
+                    <h3>Available Methods</h3>
+                    <div class="methods-container" id="methods"></div>
+                </div>
+                
+                <div id="requestSection" style="display: none;">
+                    <h3>Request</h3>
+                    <textarea id="request" class="request-area"></textarea>
+                    
+                    <div class="action-bar">
+                        <button id="formatRequest" class="button button-secondary">Format</button>
+                        <button id="sendRequest" class="button">Send Request</button>
+                    </div>
+                    
+                    <h3>Response</h3>
+                    <textarea id="response" class="response-area" readonly></textarea>
+                </div>
+                
+                <div class="debug-panel" id="debugPanel">
+                    <h3>Debug Info</h3>
+                    <div class="debug-info">
+                        <div>
+                            <span class="debug-label">Session ID:</span>
+                            <span class="session-id" id="sessionId">None</span>
+                        </div>
+                        <div>
+                            <span class="debug-label">Last Activity:</span>
+                            <span id="lastActivity">-</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
+        
+        <div class="toast-container" id="toastContainer"></div>
     </div>
+    
     <script>
         // Global state
         let currentSessionId = null;
+        let lastActivityTime = null;
+        
+        // Helper functions
+        function showToast(message, type = 'info') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<div class="toast-message">${message}</div>`;
+            toastContainer.appendChild(toast);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+        
+        function updateConnectionStatus(status, message = '') {
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = status;
+            
+            switch(status) {
+                case 'connecting':
+                    statusEl.innerHTML = `<span class="spinner"></span> Connecting...`;
+                    break;
+                case 'connected':
+                    statusEl.textContent = `Connected to ${message}`;
+                    break;
+                case 'failed':
+                    statusEl.textContent = 'Connection failed';
+                    break;
+                default:
+                    statusEl.textContent = 'Not connected';
+            }
+        }
+        
+        function updateLastActivity() {
+            lastActivityTime = new Date();
+            document.getElementById('lastActivity').textContent = lastActivityTime.toLocaleTimeString();
+        }
+        
+        function formatJSON(jsonString) {
+            try {
+                const obj = JSON.parse(jsonString);
+                return JSON.stringify(obj, null, 2);
+            } catch (e) {
+                showToast('Invalid JSON: ' + e.message, 'error');
+                return jsonString;
+            }
+        }
         
         // Fetch servers
         fetch('/api/servers')
             .then(response => response.json())
             .then(servers => {
                 const serversDiv = document.getElementById('servers');
+                
+                if (Object.keys(servers).length === 0) {
+                    serversDiv.innerHTML = '<p>No MCP servers available</p>';
+                    return;
+                }
+                
                 Object.entries(servers).forEach(([name, server]) => {
                     const div = document.createElement('div');
                     div.className = 'server-item';
@@ -146,7 +572,7 @@
             .catch(err => {
                 console.error("Error fetching servers:", err);
                 document.getElementById('servers').innerHTML = 
-                    '<p style="color: red">Error loading servers: ' + err.message + '</p>';
+                    '<p style="color: #ef4444">Error loading servers: ' + err.message + '</p>';
             });
         
         function selectServer(name, server) {
@@ -156,30 +582,53 @@
             });
             event.target.classList.add('selected');
             
+            // Reset connection status
+            updateConnectionStatus('default');
+            
             // Display server info
             const serverInfo = document.getElementById('serverInfo');
             let html = `<h3>${name}</h3>`;
-            html += '<div>';
+            
+            // Add capabilities
             if (server.capabilities && server.capabilities.length > 0) {
+                html += '<div>';
                 server.capabilities.forEach(cap => {
-                    html += `<span class="capability-tag">${cap}</span>`;
+                    html += `<span class="capability-tag" data-type="${cap}">${cap}</span>`;
                 });
+                html += '</div>';
             }
-            html += '</div>';
+            
+            // Add server details
+            html += '<div style="margin-top: 15px;">';
             if (server.command) {
                 html += `<p><strong>Command:</strong> ${server.command} ${server.args ? server.args.join(' ') : ''}</p>`;
             }
             if (server.image) {
                 html += `<p><strong>Image:</strong> ${server.image}</p>`;
             }
+            html += '</div>';
+            
+            // Add connect button
+            html += '<div style="margin-top: 20px;">';
             html += '<button id="connectButton" class="button">Connect</button>';
+            html += '</div>';
+            
             serverInfo.innerHTML = html;
             
+            // Hide the method list and request sections
+            document.getElementById('methodList').style.display = 'none';
+            document.getElementById('requestSection').style.display = 'none';
+            
+            // Reset connection info
+            document.getElementById('sessionId').textContent = 'None';
+            currentSessionId = null;
+            
+            // Add connect button handler
             document.getElementById('connectButton').onclick = () => connectToServer(name);
         }
         
         function connectToServer(name) {
-            document.getElementById('connection-status').textContent = "Connecting...";
+            updateConnectionStatus('connecting');
             
             fetch('/api/connect', {
                 method: 'POST',
@@ -203,11 +652,15 @@
             })
             .then(data => {
                 console.log("Connection response:", data);
+                updateLastActivity();
                 
                 // Store the session ID globally
                 currentSessionId = data.sessionId;
                 document.getElementById('sessionId').textContent = currentSessionId;
-                document.getElementById('connection-status').textContent = `Connected to ${name}`;
+                
+                // Update connection status
+                updateConnectionStatus('connected', name);
+                showToast(`Connected to ${name} server`, 'success');
                 
                 // Show methods
                 document.getElementById('methodList').style.display = 'block';
@@ -217,50 +670,51 @@
                 methodsDiv.innerHTML = '';
                 
                 // Add standard methods
-                addMethod('initialize', 'Initialize the server');
-                addMethod('shutdown', 'Shutdown the server');
+                addMethod('initialize', 'Initialize the server', 'basic');
+                addMethod('shutdown', 'Shutdown the server', 'basic');
                 
                 // Add capability-specific methods
                 const capabilities = data.result && data.result.capabilities;
                 if (capabilities) {
                     if (capabilities.resources) {
-                        addMethod('resources/list', 'List resources');
-                        addMethod('resources/get', 'Get resource content');
+                        addMethod('resources/list', 'List resources', 'resources');
+                        addMethod('resources/get', 'Get resource content', 'resources');
                     }
                     if (capabilities.tools) {
-                        addMethod('tools/list', 'List available tools');
-                        addMethod('tools/get', 'Execute a tool');
+                        addMethod('tools/list', 'List available tools', 'tools');
+                        addMethod('tools/get', 'Execute a tool', 'tools');
                     }
                     if (capabilities.prompts) {
-                        addMethod('prompts/list', 'List available prompts');
-                        addMethod('prompts/render', 'Render a prompt template');
+                        addMethod('prompts/list', 'List available prompts', 'prompts');
+                        addMethod('prompts/render', 'Render a prompt template', 'prompts');
                     }
                 }
             })
             .catch(err => {
                 console.error("Connection error:", err);
-                document.getElementById('connection-status').textContent = "Connection failed";
-                alert('Failed to connect: ' + err.message);
+                updateConnectionStatus('failed');
+                showToast(err.message, 'error');
             });
         }
         
-        function addMethod(name, description) {
+        function addMethod(name, description, category = 'basic') {
             const methodsDiv = document.getElementById('methods');
             const div = document.createElement('div');
             div.className = 'method-item';
+            div.setAttribute('data-category', category);
             div.innerHTML = `
                 <div class="method-name">${name}</div>
                 <div class="method-description">${description}</div>
             `;
-            div.onclick = () => selectMethod(name);
+            div.onclick = () => selectMethod(name, category);
             methodsDiv.appendChild(div);
         }
         
-        function selectMethod(name) {
+        function selectMethod(name, category) {
             // Prepare a request template
             let request = {
                 jsonrpc: "2.0",
-                id: 1,
+                id: Math.floor(Math.random() * 10000) + 1,
                 method: name,
                 params: {}
             };
@@ -307,11 +761,18 @@
             }
             
             document.getElementById('request').value = JSON.stringify(request, null, 2);
+            document.getElementById('response').value = '';
         }
+        
+        // Button event handlers
+        document.getElementById('formatRequest').onclick = function() {
+            const requestText = document.getElementById('request').value;
+            document.getElementById('request').value = formatJSON(requestText);
+        };
         
         document.getElementById('sendRequest').onclick = function() {
             if (!currentSessionId) {
-                alert('No active session. Please connect to a server first.');
+                showToast('No active session. Please connect to a server first.', 'warning');
                 return;
             }
             
@@ -320,7 +781,7 @@
             try {
                 requestObj = JSON.parse(requestText);
             } catch (e) {
-                alert('Invalid JSON: ' + e);
+                showToast('Invalid JSON: ' + e.message, 'error');
                 return;
             }
             
@@ -331,6 +792,9 @@
             };
             
             console.log("Sending request:", fullRequest);
+            
+            // Show spinner in response area
+            document.getElementById('response').value = 'Sending request...';
             
             fetch('/api/request', {
                 method: 'POST',
@@ -354,11 +818,13 @@
             })
             .then(data => {
                 console.log("Response:", data);
+                updateLastActivity();
                 document.getElementById('response').value = JSON.stringify(data, null, 2);
             })
             .catch(err => {
                 console.error("Request error:", err);
                 document.getElementById('response').value = 'Error: ' + err.message;
+                showToast(err.message, 'error');
             });
         };
     </script>
