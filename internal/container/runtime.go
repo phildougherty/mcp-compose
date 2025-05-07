@@ -1,7 +1,9 @@
+// internal/container/runtime.go
 package container
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 )
 
@@ -36,6 +38,8 @@ type Runtime interface {
 	NetworkExists(name string) (bool, error)
 	// CreateNetwork creates a network
 	CreateNetwork(name string) error
+	// ExecContainer executes a command in a running container
+	ExecContainer(containerName string, command []string, interactive bool) (*exec.Cmd, io.Writer, io.Reader, error)
 }
 
 // DetectRuntime tries to detect and initialize a container runtime

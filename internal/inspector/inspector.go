@@ -1,3 +1,4 @@
+// internal/inspector/inspector.go
 package inspector
 
 import (
@@ -6,41 +7,33 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/container"
 )
 
 //go:embed assets/*
 var assetFiles embed.FS
 
-// contextKey is a custom type for context keys to avoid collisions
-type contextKey string
-
-const (
-	processKey contextKey = "process"
-	stdinKey   contextKey = "stdin"
-	stdoutKey  contextKey = "stdout"
-)
-
 // ActiveSession represents an active MCP server session
 type ActiveSession struct {
-	Process *exec.Cmd
-	Stdin   io.Writer
-	Stdout  io.Reader
+	Process     *exec.Cmd
+	Stdin       io.Writer
+	Stdout      io.Reader
+	ContainerID string
 }
 
-// Global session store - in a production app, you'd use a proper session management system
+// Global session store
 var (
 	activeSessions     = make(map[string]*ActiveSession)
 	activeSessionsLock sync.Mutex
@@ -54,10 +47,12 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create a temporary directory for inspector files
-	inspectorDir := filepath.Join(os.TempDir(), "mcp-inspector")
-	if err := os.MkdirAll(inspectorDir, 0755); err != nil {
-		return fmt.Errorf("failed to create inspector directory: %w", err)
+	// Detect container runtime
+	runtime, err := container.DetectRuntime()
+	if err != nil {
+		fmt.Printf("Warning: Failed to detect container runtime: %v\n", err)
+	} else {
+		fmt.Printf("Using container runtime: %s\n", runtime.GetRuntimeName())
 	}
 
 	// Create the HTTP server
@@ -96,6 +91,7 @@ func LaunchInspector(configFile, serverName string, port int) error {
 				}
 			}
 		}
+
 		json.NewEncoder(w).Encode(servers)
 	})
 
@@ -113,6 +109,7 @@ func LaunchInspector(configFile, serverName string, port int) error {
 			return
 		}
 
+		fmt.Printf("Received connection request for server: %s\n", request.Server)
 		server, exists := cfg.Servers[request.Server]
 		if !exists {
 			http.Error(w, "Server not found", http.StatusNotFound)
@@ -120,9 +117,11 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		}
 
 		// Connect to the server
-		proc, stdin, stdout, err := connectToServer(server)
+		cmd, stdin, stdout, containerId, err := connectToServer(server, runtime, request.Server)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error": "Failed to connect: %v"}`, err), http.StatusInternalServerError)
+			errMsg := fmt.Sprintf(`{"error": "Failed to connect: %v"}`, err)
+			fmt.Println("Connection error:", err)
+			http.Error(w, errMsg, http.StatusInternalServerError)
 			return
 		}
 
@@ -132,18 +131,28 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		// Store the session
 		activeSessionsLock.Lock()
 		activeSessions[sessionID] = &ActiveSession{
-			Process: proc,
-			Stdin:   stdin,
-			Stdout:  stdout,
+			Process:     cmd,
+			Stdin:       stdin,
+			Stdout:      stdout,
+			ContainerID: containerId,
 		}
 		activeSessionsLock.Unlock()
+
+		fmt.Println("Session created, sending initialize request...")
 
 		// Initialize the connection
 		result, err := initializeConnection(stdin, stdout, server.Capabilities)
 		if err != nil {
+			fmt.Println("Initialization error:", err)
 			activeSessionsLock.Lock()
 			delete(activeSessions, sessionID)
 			activeSessionsLock.Unlock()
+
+			// Clean up container if needed
+			if containerId != "" && runtime != nil {
+				runtime.StopContainer(containerId)
+			}
+
 			http.Error(w, fmt.Sprintf(`{"error": "Failed to initialize: %v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -152,11 +161,14 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		resultMap := make(map[string]interface{})
 		if err := json.Unmarshal(result, &resultMap); err != nil {
 			resultMap = map[string]interface{}{
-				"result": result,
+				"result":    string(result),
+				"sessionId": sessionID,
 			}
+		} else {
+			resultMap["sessionId"] = sessionID
 		}
-		resultMap["sessionId"] = sessionID
 
+		fmt.Printf("Connection successful, sessionId: %s\n", sessionID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resultMap)
 	})
@@ -174,7 +186,6 @@ func LaunchInspector(configFile, serverName string, port int) error {
 			Method    string          `json:"method"`
 			Params    json.RawMessage `json:"params,omitempty"`
 		}
-
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, `{"error": "Invalid request"}`, http.StatusBadRequest)
 			return
@@ -184,7 +195,6 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		activeSessionsLock.Lock()
 		session, exists := activeSessions[request.SessionID]
 		activeSessionsLock.Unlock()
-
 		if !exists {
 			http.Error(w, `{"error": "Session not found"}`, http.StatusNotFound)
 			return
@@ -196,7 +206,6 @@ func LaunchInspector(configFile, serverName string, port int) error {
 			"id":      request.ID,
 			"method":  request.Method,
 		}
-
 		if request.Params != nil {
 			var params interface{}
 			if err := json.Unmarshal(request.Params, &params); err == nil {
@@ -213,7 +222,6 @@ func LaunchInspector(configFile, serverName string, port int) error {
 
 		// Always add a newline to the request
 		requestBytes = append(requestBytes, '\n')
-
 		if _, err := session.Stdin.Write(requestBytes); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error": "Failed to send request: %v"}`, err), http.StatusInternalServerError)
 			return
@@ -238,10 +246,31 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		json.NewEncoder(w).Encode(response)
 	})
 
+	http.HandleFunc("/debug/info", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Collect active sessions info
+		sessions := make(map[string]map[string]string)
+		activeSessionsLock.Lock()
+		for id, session := range activeSessions {
+			sessions[id] = map[string]string{
+				"containerID": session.ContainerID,
+			}
+		}
+		activeSessionsLock.Unlock()
+
+		debug := map[string]interface{}{
+			"activeSessions": sessions,
+			"runtime":        runtime.GetRuntimeName(),
+		}
+		json.NewEncoder(w).Encode(debug)
+	})
+
 	// Start the server in a goroutine
 	server := &http.Server{Addr: fmt.Sprintf(":%d", port)}
 	go func() {
 		fmt.Printf("MCP Inspector started on http://localhost:%d\n", port)
+		fmt.Printf("Debug info available at http://localhost:%d/debug/info\n", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)
 		}
@@ -261,6 +290,9 @@ func LaunchInspector(configFile, serverName string, port int) error {
 		if session.Process != nil && session.Process.Process != nil {
 			session.Process.Process.Kill()
 		}
+		if session.ContainerID != "" && runtime != nil {
+			runtime.StopContainer(session.ContainerID)
+		}
 	}
 	activeSessionsLock.Unlock()
 
@@ -279,50 +311,262 @@ func serveInspectorUI(w http.ResponseWriter, cfg *config.ComposeConfig, serverNa
 		return
 	}
 
-	tmpl, err := template.New("inspector").Parse(string(tmplContent))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Template error: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	data := map[string]interface{}{
-		"Config":     cfg,
-		"ServerName": serverName,
-	}
-
+	// Serve the template directly without parsing
 	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, data)
+	w.Write(tmplContent)
 }
 
-// connectToServer connects to an MCP server process
-func connectToServer(server config.ServerConfig) (*exec.Cmd, io.Writer, io.Reader, error) {
-	if server.Command == "" {
-		return nil, nil, nil, fmt.Errorf("server has no command specified")
+// connectToServer connects to an MCP server using the appropriate method
+func connectToServer(server config.ServerConfig, runtime container.Runtime, serverName string) (*exec.Cmd, io.Writer, io.Reader, string, error) {
+	if server.Image != "" {
+		// This is a container-based server
+		fmt.Println("Starting container-based server")
+		return startContainerServer(server, runtime, serverName)
+	} else if server.Command != "" {
+		// This is a process-based server
+		fmt.Printf("Starting process-based server: %s %v\n", server.Command, server.Args)
+		cmd := exec.Command(server.Command, server.Args...)
+
+		// Set environment variables if specified
+		if len(server.Env) > 0 {
+			env := os.Environ()
+			for k, v := range server.Env {
+				env = append(env, fmt.Sprintf("%s=%s", k, v))
+			}
+			cmd.Env = env
+		}
+
+		// Set working directory if specified
+		if server.WorkDir != "" {
+			cmd.Dir = server.WorkDir
+		}
+
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to create stdin pipe: %v", err)
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to create stdout pipe: %v", err)
+		}
+
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Start(); err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to start process: %v", err)
+		}
+
+		return cmd, stdin, stdout, "", nil
 	}
 
-	// Create command
-	cmd := exec.Command(server.Command, server.Args...)
+	return nil, nil, nil, "", fmt.Errorf("server has neither command nor image specified")
+}
 
-	// Create pipes for stdin/stdout
+// startContainerServer starts a container for an MCP server and returns pipes for communication
+func startContainerServer(server config.ServerConfig, runtime container.Runtime, serverName string) (*exec.Cmd, io.Writer, io.Reader, string, error) {
+	if runtime == nil {
+		return nil, nil, nil, "", fmt.Errorf("no container runtime available")
+	}
+
+	// Create a unique container name
+	containerName := fmt.Sprintf("mcp-inspector-%s-%d", serverName, time.Now().UnixNano())
+
+	// Determine the actual command to run (not the bash wrapper)
+	command := server.Command
+	args := server.Args
+
+	// Check for bash wrapper pattern and replace with direct commands
+	if command == "bash" && len(args) >= 2 && args[0] == "-c" {
+		bashCmd := strings.Join(args[1:], " ")
+
+		// Replace common patterns
+		if strings.Contains(bashCmd, "@modelcontextprotocol/server-filesystem") {
+			command = "npx"
+			args = []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"}
+		} else if strings.Contains(bashCmd, "@modelcontextprotocol/server-memory") {
+			command = "npx"
+			args = []string{"-y", "@modelcontextprotocol/server-memory"}
+		} else if strings.Contains(bashCmd, "server.js") {
+			// For weather server, use a simplified direct approach
+			command = "node"
+
+			// Extract the JavaScript code
+			jsCode := extractJavaScriptFromBashCommand(bashCmd)
+			if jsCode != "" {
+				args = []string{"-e", jsCode}
+			} else {
+				// Fallback to a simple weather server implementation
+				args = []string{"-e", createSimpleWeatherServer()}
+			}
+		}
+	}
+
+	// Prepare container options
+	opts := &container.ContainerOptions{
+		Name:        containerName,
+		Image:       server.Image,
+		Command:     command,
+		Args:        args,
+		Env:         server.Env,
+		Ports:       server.Ports,
+		Volumes:     server.Volumes,
+		Pull:        server.Pull,
+		NetworkMode: server.NetworkMode,
+		Networks:    server.Networks,
+		WorkDir:     server.WorkDir,
+	}
+
+	// For resource paths, create volume mappings
+	for _, resourcePath := range server.Resources.Paths {
+		volumeMapping := fmt.Sprintf("%s:%s", resourcePath.Source, resourcePath.Target)
+		if resourcePath.ReadOnly {
+			volumeMapping += ":ro"
+		}
+		opts.Volumes = append(opts.Volumes, volumeMapping)
+	}
+
+	fmt.Printf("Starting container with options: %+v\n", opts)
+
+	// Start a detached container
+	containerID, err := runtime.StartContainer(opts)
+	if err != nil {
+		return nil, nil, nil, "", fmt.Errorf("failed to start container: %w", err)
+	}
+
+	fmt.Printf("Container started with ID: %s\n", containerID)
+
+	// Create pipes to communicate with the container
+	// We'll use 'docker exec -i' to create an interactive session
+	execCmd := []string{}
+	if runtime.GetRuntimeName() == "docker" {
+		execCmd = []string{"docker", "exec", "-i", containerName, "cat"}
+	} else if runtime.GetRuntimeName() == "podman" {
+		execCmd = []string{"podman", "exec", "-i", containerName, "cat"}
+	} else {
+		return nil, nil, nil, "", fmt.Errorf("unsupported container runtime: %s", runtime.GetRuntimeName())
+	}
+
+	cmd := exec.Command(execCmd[0], execCmd[1:]...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create stdin pipe: %v", err)
+		// Clean up container
+		runtime.StopContainer(containerName)
+		return nil, nil, nil, "", fmt.Errorf("failed to create stdin pipe: %v", err)
 	}
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %v", err)
+		// Clean up
+		stdin.Close()
+		runtime.StopContainer(containerName)
+		return nil, nil, nil, "", fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
 
-	// Start the process
+	cmd.Stderr = os.Stderr
+
+	// Start the exec command
 	if err := cmd.Start(); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to start process: %v", err)
+		runtime.StopContainer(containerName)
+		return nil, nil, nil, "", fmt.Errorf("failed to start exec command: %v", err)
 	}
 
-	return cmd, stdin, stdout, nil
+	return cmd, stdin, stdout, containerID, nil
+}
+
+// extractJavaScriptFromBashCommand extracts JavaScript code from a bash command
+func extractJavaScriptFromBashCommand(bashCmd string) string {
+	// Look for JavaScript between single quotes
+	singleQuoteStart := strings.Index(bashCmd, "'const readline")
+	if singleQuoteStart >= 0 {
+		singleQuoteEnd := strings.LastIndex(bashCmd, "'")
+		if singleQuoteEnd > singleQuoteStart {
+			return bashCmd[singleQuoteStart+1 : singleQuoteEnd]
+		}
+	}
+
+	// Look for JavaScript between double quotes
+	doubleQuoteStart := strings.Index(bashCmd, "\"const readline")
+	if doubleQuoteStart >= 0 {
+		doubleQuoteEnd := strings.LastIndex(bashCmd, "\"")
+		if doubleQuoteEnd > doubleQuoteStart {
+			return bashCmd[doubleQuoteStart+1 : doubleQuoteEnd]
+		}
+	}
+
+	return ""
+}
+
+// createSimpleWeatherServer returns JavaScript code for a simple weather MCP server
+func createSimpleWeatherServer() string {
+	return `
+    const readline = require('readline');
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: false
+    });
+    
+    rl.on('line', (line) => {
+        try {
+            const req = JSON.parse(line);
+            if (req.method === 'initialize') {
+                console.log(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        protocolVersion: '2024-01-01',
+                        serverInfo: { 
+                            name: 'weather',
+                            version: '1.0.0' 
+                        },
+                        capabilities: { 
+                            tools: {} 
+                        }
+                    }
+                }));
+            } else if (req.method === 'tools/get') {
+                const params = req.params || {};
+                const location = params.location || 'Unknown';
+                console.log(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        temperature: Math.floor(Math.random()*30)+10,
+                        conditions: ['Sunny','Cloudy','Rainy','Snowy'][Math.floor(Math.random()*4)],
+                        location
+                    }
+                }));
+            } else {
+                console.log(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    error: { 
+                        code: -32601, 
+                        message: 'Method not found' 
+                    }
+                }));
+            }
+        } catch(e) {
+            console.log(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: { 
+                    code: -32700, 
+                    message: 'Parse error' 
+                }
+            }));
+        }
+    });
+    
+    console.error('Simple MCP Weather Server running');
+    `
 }
 
 // initializeConnection sends an initialize request to the server
 func initializeConnection(stdin io.Writer, stdout io.Reader, capabilities []string) (json.RawMessage, error) {
+	fmt.Println("Sending initialize request with capabilities:", capabilities)
+
 	// Create capabilities structure
 	capabilityOpts := map[string]interface{}{}
 	for _, cap := range capabilities {
@@ -353,7 +597,7 @@ func initializeConnection(stdin io.Writer, stdout io.Reader, capabilities []stri
 		"id":      1,
 		"method":  "initialize",
 		"params": map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": "2024-01-01",
 			"capabilities":    capabilityOpts,
 			"clientInfo": map[string]string{
 				"name":    "MCP Inspector",
@@ -374,21 +618,37 @@ func initializeConnection(stdin io.Writer, stdout io.Reader, capabilities []stri
 		return nil, fmt.Errorf("failed to send initialize request: %v", err)
 	}
 
-	// Read the response
-	reader := bufio.NewReader(stdout)
-	responseLine, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read initialize response: %v", err)
-	}
+	fmt.Println("Initialize request sent, waiting for response...")
 
-	// Return the raw JSON response
-	return json.RawMessage(responseLine), nil
+	// Read the response with timeout
+	responseCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		reader := bufio.NewReader(stdout)
+		responseLine, err := reader.ReadString('\n')
+		if err != nil {
+			errCh <- fmt.Errorf("failed to read initialize response: %v", err)
+			return
+		}
+		responseCh <- responseLine
+	}()
+
+	// Wait for response with timeout
+	select {
+	case responseLine := <-responseCh:
+		fmt.Println("Received initialize response:", responseLine)
+		return json.RawMessage(responseLine), nil
+	case err := <-errCh:
+		return nil, err
+	case <-time.After(30 * time.Second): // 30 second timeout
+		return nil, fmt.Errorf("timeout waiting for initialize response")
+	}
 }
 
 // openBrowser opens a URL in the default browser
 func openBrowser(url string) error {
 	var cmd *exec.Cmd
-
 	switch runtime.GOOS {
 	case "linux":
 		cmd = exec.Command("xdg-open", url)

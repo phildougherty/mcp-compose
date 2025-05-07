@@ -3,6 +3,7 @@ package container
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -159,4 +160,34 @@ func (p *PodmanRuntime) CreateNetwork(name string) error {
 		return fmt.Errorf("failed to create network '%s': %w, %s", name, err, string(output))
 	}
 	return nil
+}
+
+func (p *PodmanRuntime) ExecContainer(containerName string, command []string, interactive bool) (*exec.Cmd, io.Writer, io.Reader, error) {
+	args := []string{"exec"}
+	if interactive {
+		args = append(args, "-i")
+	}
+	args = append(args, containerName)
+	args = append(args, command...)
+
+	cmd := exec.Command(p.execPath, args...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		return nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		stdout.Close()
+		return nil, nil, nil, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	return cmd, stdin, stdout, nil
 }
