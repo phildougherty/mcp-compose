@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mcpcompose/internal/config"
 	"net/http"
 	"os"
@@ -166,17 +165,41 @@ import http.server
 import socketserver
 import subprocess
 from urllib.parse import urlparse
+import traceback
+import re
 
 PORT = 9876
 
-# Define your servers and containers - these will be resolved via Docker networking
-MCP_SERVERS = {
-    "filesystem": "mcp-compose-filesystem",
-    "memory": "mcp-compose-memory", 
-    "weather": "mcp-compose-weather"
-}
-
 class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
+    def get_mcp_servers(self):
+        """Dynamically discover MCP servers using Docker"""
+        try:
+            # Get all running containers with the mcp-compose prefix
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=mcp-compose-", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Parse the output to get container names
+            container_names = result.stdout.strip().split('\n')
+            container_names = [name for name in container_names if name]  # Remove empty strings
+            
+            # Create a mapping of server names to container names
+            servers = {}
+            for container_name in container_names:
+                # Extract server name from container name (assuming format: mcp-compose-{server_name})
+                match = re.match(r'mcp-compose-(.*)', container_name)
+                if match:
+                    server_name = match.group(1)
+                    servers[server_name] = container_name
+            
+            return servers
+        except Exception as e:
+            self.log_message("Error discovering MCP servers: %s", str(e))
+            return {}
+    
     def do_GET(self):
         # Handle GET request - just show available servers
         if self.path == "/" or self.path == "":
@@ -184,8 +207,10 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "text/html")
             self.end_headers()
             
+            servers = self.get_mcp_servers()
+            
             response = "<html><body><h1>MCP Proxy</h1><p>Available endpoints:</p><ul>"
-            for server in MCP_SERVERS:
+            for server in servers:
                 response += f"<li>/{server} - {server} MCP server</li>"
             response += "</ul></body></html>"
             
@@ -207,24 +232,34 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             
         server_name = path_parts[0]
         
-        if server_name not in MCP_SERVERS:
+        # Get the current list of MCP servers
+        servers = self.get_mcp_servers()
+        
+        if server_name not in servers:
             self.send_error(404, f"Unknown server: {server_name}")
             return
             
         # Get the container name
-        container_name = MCP_SERVERS[server_name]
+        container_name = servers[server_name]
         
         # Read the request body
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8")
         
+        # Ensure the request ends with a newline
+        if not body.endswith('\n'):
+            body += '\n'
+        
         self.log_message("Request to %s: %s", server_name, body[:100] + "..." if len(body) > 100 else body)
         
         try:
-            # Forward to the container using docker exec
-            cmd = ["docker", "exec", "-i", container_name, "cat"]
+            # Use the container-native approach to communicate with the MCP server
+            # We'll use docker exec -i to directly pipe to the container's stdin
+            cmd = ["docker", "exec", "-i", container_name, "sh", "-c", "cat > /tmp/mcp_request.json && cat /tmp/mcp_request.json && rm /tmp/mcp_request.json"]
             
-            # Now send the actual command
+            self.log_message("Executing command: %s", " ".join(cmd))
+            
+            # Execute the command
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -233,16 +268,14 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
                 text=False  # Use binary mode for stdin/stdout
             )
             
-            # Add a newline to the body if not present
-            if not body.endswith('\n'):
-                body += '\n'
-                
             # Send the request to the container
             stdout, stderr = process.communicate(input=body.encode("utf-8"), timeout=10)
             
             stderr_text = stderr.decode("utf-8", errors="ignore")
             if stderr_text:
                 self.log_message("STDERR: %s", stderr_text)
+            
+            self.log_message("Process return code: %d", process.returncode)
             
             if process.returncode != 0:
                 self.send_error(500, f"Error communicating with container (code {process.returncode}): {stderr_text}")
@@ -265,11 +298,47 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(504, "Timeout communicating with container")
         except Exception as e:
             self.log_message("Error: %s", str(e))
+            self.log_message("Traceback: %s", traceback.format_exc())
             self.send_error(500, f"Error: {str(e)}")
 
 def main():
+    # Get initial list of servers for logging
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=mcp-compose-", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        container_names = result.stdout.strip().split('\\n')
+        container_names = [name for name in container_names if name]
+        
+        servers = {}
+        for container_name in container_names:
+            match = re.match(r'mcp-compose-(.*)', container_name)
+            if match:
+                server_name = match.group(1)
+                servers[server_name] = container_name
+        
+        server_list = list(servers.keys())
+    except Exception as e:
+        print(f"Warning: Error discovering initial MCP servers: {str(e)}")
+        server_list = []
+    
     print(f"Starting MCP proxy server at http://0.0.0.0:{PORT}")
-    print(f"Available endpoints: {', '.join('/' + s for s in MCP_SERVERS)}")
+    print(f"Available endpoints: {', '.join('/' + s for s in server_list)}")
+    
+    # Test Docker connectivity
+    try:
+        result = subprocess.run(["docker", "ps"], capture_output=True, text=True)
+        print("Docker connectivity test:")
+        print(f"Return code: {result.returncode}")
+        if result.stdout:
+            print(f"Output: {result.stdout[:200]}...")
+        if result.stderr:
+            print(f"Error: {result.stderr}")
+    except Exception as e:
+        print(f"Docker connectivity test failed: {str(e)}")
     
     server_class = socketserver.ThreadingTCPServer
     server_class.allow_reuse_address = True
@@ -283,8 +352,7 @@ def main():
 if __name__ == "__main__":
     main()
 `
-
-	return ioutil.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	return os.WriteFile(scriptPath, []byte(scriptContent), 0755)
 }
 
 // createProxyDockerfile creates the Dockerfile for the proxy container
