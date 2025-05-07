@@ -1,4 +1,3 @@
-<!-- internal/inspector/assets/inspector-ui.html -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -61,6 +60,7 @@
             margin-bottom: 5px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            cursor: pointer;
         }
         .method-name {
             font-weight: bold;
@@ -82,12 +82,22 @@
         .button:hover {
             background-color: #1565c0;
         }
+        .debug-panel {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>MCP Inspector</h1>
+            <div>
+                <span id="connection-status">Not connected</span>
+            </div>
         </div>
         <div class="server-list">
             <h2>Servers</h2>
@@ -110,9 +120,16 @@
                 <h3>Response</h3>
                 <textarea id="response" class="response-area" readonly></textarea>
             </div>
+            <div class="debug-panel" id="debugPanel">
+                <h3>Debug Info</h3>
+                <div>Session ID: <span id="sessionId">None</span></div>
+            </div>
         </div>
     </div>
     <script>
+        // Global state
+        let currentSessionId = null;
+        
         // Fetch servers
         fetch('/api/servers')
             .then(response => response.json())
@@ -125,6 +142,11 @@
                     div.onclick = () => selectServer(name, server);
                     serversDiv.appendChild(div);
                 });
+            })
+            .catch(err => {
+                console.error("Error fetching servers:", err);
+                document.getElementById('servers').innerHTML = 
+                    '<p style="color: red">Error loading servers: ' + err.message + '</p>';
             });
         
         function selectServer(name, server) {
@@ -157,6 +179,8 @@
         }
         
         function connectToServer(name) {
+            document.getElementById('connection-status').textContent = "Connecting...";
+            
             fetch('/api/connect', {
                 method: 'POST',
                 headers: {
@@ -164,12 +188,26 @@
                 },
                 body: JSON.stringify({ server: name })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                    return;
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            const error = JSON.parse(text);
+                            throw new Error(error.error || "Connection failed");
+                        } catch (e) {
+                            throw new Error("Connection failed: " + text);
+                        }
+                    });
                 }
+                return response.json();
+            })
+            .then(data => {
+                console.log("Connection response:", data);
+                
+                // Store the session ID globally
+                currentSessionId = data.sessionId;
+                document.getElementById('sessionId').textContent = currentSessionId;
+                document.getElementById('connection-status').textContent = `Connected to ${name}`;
                 
                 // Show methods
                 document.getElementById('methodList').style.display = 'block';
@@ -183,20 +221,27 @@
                 addMethod('shutdown', 'Shutdown the server');
                 
                 // Add capability-specific methods
-                if (data.capabilities && data.capabilities.resources) {
-                    addMethod('resources/list', 'List resources');
-                    addMethod('resources/get', 'Get resource content');
-                }
-                if (data.capabilities && data.capabilities.tools) {
-                    addMethod('tools/list', 'List available tools');
-                    addMethod('tools/execute', 'Execute a tool');
-                }
-                if (data.capabilities && data.capabilities.prompts) {
-                    addMethod('prompts/list', 'List available prompts');
-                    addMethod('prompts/render', 'Render a prompt template');
+                const capabilities = data.result && data.result.capabilities;
+                if (capabilities) {
+                    if (capabilities.resources) {
+                        addMethod('resources/list', 'List resources');
+                        addMethod('resources/get', 'Get resource content');
+                    }
+                    if (capabilities.tools) {
+                        addMethod('tools/list', 'List available tools');
+                        addMethod('tools/get', 'Execute a tool');
+                    }
+                    if (capabilities.prompts) {
+                        addMethod('prompts/list', 'List available prompts');
+                        addMethod('prompts/render', 'Render a prompt template');
+                    }
                 }
             })
-            .catch(err => alert('Failed to connect: ' + err));
+            .catch(err => {
+                console.error("Connection error:", err);
+                document.getElementById('connection-status').textContent = "Connection failed";
+                alert('Failed to connect: ' + err.message);
+            });
         }
         
         function addMethod(name, description) {
@@ -223,7 +268,7 @@
             switch (name) {
                 case 'initialize':
                     request.params = {
-                        protocolVersion: "2024-11-05",
+                        protocolVersion: "2024-01-01",
                         capabilities: {
                             resources: { listChanged: true, subscribe: true },
                             tools: { listChanged: true },
@@ -244,10 +289,10 @@
                 case 'tools/list':
                     request.params = {};
                     break;
-                case 'tools/execute':
+                case 'tools/get':
                     request.params = {
-                        name: "exampleTool",
-                        parameters: { key: "value" }
+                        tool: "getWeather",
+                        parameters: { location: "New York" }
                     };
                     break;
                 case 'prompts/list':
@@ -265,28 +310,55 @@
         }
         
         document.getElementById('sendRequest').onclick = function() {
+            if (!currentSessionId) {
+                alert('No active session. Please connect to a server first.');
+                return;
+            }
+            
             const requestText = document.getElementById('request').value;
-            let request;
+            let requestObj;
             try {
-                request = JSON.parse(requestText);
+                requestObj = JSON.parse(requestText);
             } catch (e) {
                 alert('Invalid JSON: ' + e);
                 return;
             }
+            
+            // Create the complete request with the session ID
+            const fullRequest = {
+                sessionId: currentSessionId,
+                ...requestObj
+            };
+            
+            console.log("Sending request:", fullRequest);
             
             fetch('/api/request', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: requestText
+                body: JSON.stringify(fullRequest)
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        try {
+                            const error = JSON.parse(text);
+                            throw new Error(error.error || "Request failed");
+                        } catch (e) {
+                            throw new Error("Request failed: " + text);
+                        }
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
+                console.log("Response:", data);
                 document.getElementById('response').value = JSON.stringify(data, null, 2);
             })
             .catch(err => {
-                document.getElementById('response').value = 'Error: ' + err;
+                console.error("Request error:", err);
+                document.getElementById('response').value = 'Error: ' + err.message;
             });
         };
     </script>

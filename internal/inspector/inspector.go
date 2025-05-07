@@ -318,13 +318,79 @@ func serveInspectorUI(w http.ResponseWriter, cfg *config.ComposeConfig, serverNa
 
 // connectToServer connects to an MCP server using the appropriate method
 func connectToServer(server config.ServerConfig, runtime container.Runtime, serverName string) (*exec.Cmd, io.Writer, io.Reader, string, error) {
+	// For container-based servers, create a dedicated inspection container
 	if server.Image != "" {
-		// This is a container-based server
-		fmt.Println("Starting container-based server")
-		return startContainerServer(server, runtime, serverName)
+		fmt.Println("Creating inspection container for server")
+
+		// Create a unique container name
+		containerName := fmt.Sprintf("mcp-inspector-%s-%d", serverName, time.Now().UnixNano())
+
+		// Prepare container options
+		opts := &container.ContainerOptions{
+			Name:        containerName,
+			Image:       server.Image,
+			Command:     server.Command,
+			Args:        server.Args,
+			Env:         server.Env,
+			Volumes:     server.Volumes,
+			NetworkMode: server.NetworkMode,
+			Networks:    server.Networks,
+		}
+
+		fmt.Printf("Starting container with options: %+v\n", opts)
+
+		// Start the container
+		containerID, err := runtime.StartContainer(opts)
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to start container: %w", err)
+		}
+
+		fmt.Printf("Container started with ID: %s\n", containerID)
+
+		// Create communication with the container
+		var execCmd []string
+		if runtime.GetRuntimeName() == "docker" {
+			execCmd = []string{"docker", "exec", "-i", containerName, "cat"}
+		} else if runtime.GetRuntimeName() == "podman" {
+			execCmd = []string{"podman", "exec", "-i", containerName, "cat"}
+		} else {
+			runtime.StopContainer(containerName)
+			return nil, nil, nil, "", fmt.Errorf("unsupported container runtime: %s", runtime.GetRuntimeName())
+		}
+
+		cmd := exec.Command(execCmd[0], execCmd[1:]...)
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			runtime.StopContainer(containerName)
+			return nil, nil, nil, "", fmt.Errorf("failed to create stdin pipe: %v", err)
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			stdin.Close()
+			runtime.StopContainer(containerName)
+			return nil, nil, nil, "", fmt.Errorf("failed to create stdout pipe: %v", err)
+		}
+
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Start(); err != nil {
+			stdin.Close()
+			stdout.Close()
+			runtime.StopContainer(containerName)
+			return nil, nil, nil, "", fmt.Errorf("failed to start exec command: %v", err)
+		}
+
+		// Cleanup when done
+		go func() {
+			cmd.Wait()
+			runtime.StopContainer(containerName)
+		}()
+
+		return cmd, stdin, stdout, containerID, nil
 	} else if server.Command != "" {
-		// This is a process-based server
-		fmt.Printf("Starting process-based server: %s %v\n", server.Command, server.Args)
+		// For process-based servers, just execute the command
+		fmt.Printf("Starting command-based server: %s %v\n", server.Command, server.Args)
 		cmd := exec.Command(server.Command, server.Args...)
 
 		// Set environment variables if specified
