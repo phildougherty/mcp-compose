@@ -1,4 +1,3 @@
-# mcp-servers.yaml
 version: '1'
 servers:
   filesystem:
@@ -29,10 +28,10 @@ servers:
     networks:
       - mcp-net
   weather:
-    image: node:18-slim 
+    image: node:18-slim
     runtime: docker
     command: node
-    args: ["-e", "const readline=require('readline');const rl=readline.createInterface({input:process.stdin,output:process.stdout,terminal:false});rl.on('line',(line)=>{try{const req=JSON.parse(line);if(req.method==='initialize'){console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{protocolVersion:'2024-01-01',serverInfo:{name:'weather',version:'1.0.0'},capabilities:{tools:{}}}}));}else if(req.method==='tools/get'){const params=req.params||{};const location=params.location||'Unknown';console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{temperature:Math.floor(Math.random()*30)+10,conditions:['Sunny','Cloudy','Rainy','Snowy'][Math.floor(Math.random()*4)],location}}));}else{console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,error:{code:-32601,message:'Method not found'}}));};}catch(e){console.log(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32700,message:'Parse error'}}));}});console.error('Simple MCP Weather Server running');"]
+    args: ["-e", "const readline=require('readline');const rl=readline.createInterface({input:process.stdin,output:process.stdout,terminal:false});rl.on('line',(line)=>{try{const req=JSON.parse(line);if(req.method==='initialize'){console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{protocolVersion:'2024-01-01',serverInfo:{name:'weather',version:'1.0.0'},capabilities:{tools:{}}}}));}else if(req.method==='tools/get'){const params=req.params||{};const location=params.location||'Unknown';console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{temperature:Math.floor(Math.random()*30)+10,conditions:['Sunny','Cloudy','Rainy','Snowy'][Math.floor(Math.random()*4)],location}}));}else{console.log(JSON.stringify({jsonrpc:'2.0',id:req.id,error:{code:-32601,message:'Method not found'}}));};}catch(e){console.log(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32700,message:'Parse error'}}));}});"]
     capabilities:
       - tools
     networks:
