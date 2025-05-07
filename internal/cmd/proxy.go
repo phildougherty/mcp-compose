@@ -291,24 +291,29 @@ if __name__ == "__main__":
 func createProxyDockerfile(dockerfilePath string) error {
 	dockerfileContent := `FROM python:3.10-slim
 
-# Install Docker CLI
+# Install basic dependencies
 RUN apt-get update && \
     apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release && \
+    apt-get clean
+
+# Set up Docker repository with architecture detection
+RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y docker-ce-cli && \
+    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Try to install Docker CLI, with fallbacks for different architectures and package names
+RUN apt-get update && \
+    (apt-get install -y docker-ce-cli || \
+     apt-get install -y docker-ce || \
+     (curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh)) && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY proxy.py .
-
 EXPOSE 9876
-
 CMD ["python", "proxy.py"]
 `
-
 	return os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644)
 }
 
