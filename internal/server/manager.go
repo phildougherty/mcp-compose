@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
+	"io/fs" // Keep for filepath.Walk, os.Stat etc.
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,14 +18,14 @@ import (
 	"mcpcompose/internal/logging"
 	"mcpcompose/internal/runtime"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/fsnotify/fsnotify" // Keep if ResourcesWatcher uses it
 )
 
 // ServerInstance represents a running server instance
 type ServerInstance struct {
 	Name             string
 	Config           config.ServerConfig
-	ContainerID      string
+	ContainerID      string // Actual ID from the container runtime
 	Process          *runtime.Process
 	IsContainer      bool
 	Status           string
@@ -40,163 +40,178 @@ type ServerInstance struct {
 type Manager struct {
 	config           *config.ComposeConfig
 	containerRuntime container.Runtime
-	projectName      string
-	projectDir       string
+	projectDir       string // For running lifecycle hooks and resolving relative paths
 	servers          map[string]*ServerInstance
-	networks         map[string]bool
+	networks         map[string]bool // Tracks networks known/created by this manager instance
 	logger           *logging.Logger
 	mu               sync.Mutex
 }
 
 // NewManager creates a new server manager
 func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, error) {
-	// Use absolute path for project directory
-	wd, _ := os.Getwd()
+	wd, err := os.Getwd()
+	if err != nil {
+		// Fallback or handle error if CWD cannot be determined
+		wd = "." // Or return error: fmt.Errorf("failed to get current working directory: %w", err)
+	}
 
-	// Create logger
-	logLevel := "info"
+	logLevel := "info" // Default log level
 	if cfg.Logging.Level != "" {
 		logLevel = cfg.Logging.Level
 	}
-	logger := logging.NewLogger(logLevel)
+	logger := logging.NewLogger(logLevel) // Assuming NewLogger is correctly defined
 
 	manager := &Manager{
 		config:           cfg,
 		containerRuntime: rt,
-		projectName:      filepath.Base(wd),
 		projectDir:       wd,
 		servers:          make(map[string]*ServerInstance),
 		networks:         make(map[string]bool),
 		logger:           logger,
 	}
 
-	// Initialize server instances
 	for name, serverCfg := range cfg.Servers {
 		manager.servers[name] = &ServerInstance{
-			Name:           name,
+			Name:           name, // The key from mcp-compose.yaml (e.g., "filesystem")
 			Config:         serverCfg,
-			IsContainer:    serverCfg.Image != "",
+			IsContainer:    serverCfg.Image != "" || serverCfg.Runtime != "", // If image or runtime is set, it's a container
 			Status:         "stopped",
 			Capabilities:   make(map[string]bool),
-			ConnectionInfo: make(map[string]string),
+			ConnectionInfo: make(map[string]string), // To be populated
 			HealthStatus:   "unknown",
 		}
 	}
-
 	return manager, nil
 }
 
-// StartServer starts a server with the given name
+// StartServer starts a server with the given name from the mcp-compose.yaml
 func (m *Manager) StartServer(name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	defer m.mu.Unlock() // Ensure unlock even on panic if StartServer itself panics before defer in goroutine
+
+	m.logger.Info("MANAGER: StartServer called for '%s'", name) // MANAGER log
 
 	instance, ok := m.servers[name]
 	if !ok {
-		return fmt.Errorf("server '%s' not found", name)
+		m.logger.Error("MANAGER: Server '%s' not found in configuration during StartServer", name)
+		return fmt.Errorf("server '%s' not found in configuration", name)
 	}
-
 	srvCfg := instance.Config
+	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
+	m.logger.Info("MANAGER: Determined fixedIdentifier for '%s' as '%s'", name, fixedIdentifier)
 
-	// Create server ID for containers
-	serverID := fmt.Sprintf("%s-%s", m.projectName, name)
+	// Check current status
+	m.logger.Info("MANAGER: Checking current status for '%s' (identifier: %s)...", name, fixedIdentifier)
+	currentStatus, statusErr := m.getServerStatusUnsafe(name, fixedIdentifier) // Use unsafe as we are already locked
+	if statusErr != nil {
+		m.logger.Warning("MANAGER: Error getting status for '%s': %v. Proceeding with start attempt.", name, statusErr)
+	}
+	m.logger.Info("MANAGER: Current status for '%s' is '%s'", name, currentStatus)
 
-	// Check if the server is already running
-	status, err := m.GetServerStatus(name)
-	if err == nil && status == "running" {
-		m.logger.Info("Server '%s' is already running", name)
+	if currentStatus == "running" {
+		m.logger.Info("MANAGER: Server '%s' (identifier: %s) reported as already running by status check.", name, fixedIdentifier)
 		return nil
 	}
 
-	// Run pre-start hooks if defined
+	// Pre-start hooks
 	if srvCfg.Lifecycle.PreStart != "" {
-		m.logger.Info("Running pre-start hook for server '%s'", name)
-		if err := m.runLifecycleHook(srvCfg.Lifecycle.PreStart); err != nil {
-			return fmt.Errorf("pre-start hook failed: %w", err)
+		m.logger.Info("MANAGER: Running pre-start hook for server '%s'...", name)
+		if hookErr := m.runLifecycleHook(srvCfg.Lifecycle.PreStart); hookErr != nil {
+			m.logger.Error("MANAGER: Pre-start hook for server '%s' failed: %v", name, hookErr)
+			return fmt.Errorf("pre-start hook for server '%s' failed: %w", name, hookErr)
 		}
+		m.logger.Info("MANAGER: Pre-start hook for server '%s' completed.", name)
 	}
 
-	// Create networks if needed
+	// Ensure networks
 	if len(srvCfg.Networks) > 0 {
-		for _, network := range srvCfg.Networks {
-			if err := m.ensureNetworkExists(network); err != nil {
-				return err
+		m.logger.Info("MANAGER: Ensuring networks for server '%s': %v", name, srvCfg.Networks)
+		for _, networkName := range srvCfg.Networks {
+			if networkErr := m.ensureNetworkExists(networkName, true); networkErr != nil { // Pass true as we are locked
+				m.logger.Error("MANAGER: Failed to ensure network '%s' for server '%s': %v", networkName, name, networkErr)
+				return fmt.Errorf("failed to ensure network '%s' for server '%s': %w", networkName, name, networkErr)
 			}
 		}
+		m.logger.Info("MANAGER: Networks ensured for server '%s'.", name)
 	}
 
-	// Start the server
 	var startErr error
-	if srvCfg.Image != "" || srvCfg.Runtime != "" {
-		startErr = m.startContainerServer(name, serverID, &srvCfg)
+	if instance.IsContainer {
+		m.logger.Info("MANAGER: Server '%s' is container. Calling startContainerServer with identifier '%s'.", name, fixedIdentifier)
+		startErr = m.startContainerServer(name, fixedIdentifier, &srvCfg)
 	} else if srvCfg.Command != "" {
-		startErr = m.startProcessServer(name, serverID, &srvCfg)
+		m.logger.Info("MANAGER: Server '%s' is process. Calling startProcessServer with identifier '%s'.", name, fixedIdentifier)
+		startErr = m.startProcessServer(name, fixedIdentifier, &srvCfg)
 	} else {
-		startErr = fmt.Errorf("server '%s' has no command or image specified", name)
+		m.logger.Error("MANAGER: Server '%s' has no command or image specified.", name)
+		startErr = fmt.Errorf("server '%s' has no command or image specified in config", name)
 	}
 
 	if startErr != nil {
-		return startErr
+		m.logger.Error("MANAGER: Error starting server '%s' (identifier: %s): %v", name, fixedIdentifier, startErr)
+		return fmt.Errorf("failed to start server '%s' (identifier: %s): %w", name, fixedIdentifier, startErr)
 	}
 
-	// Update server instance
-	instance.Status = "running"
+	instance.Status = "running" // Should be updated after successful start confirmation
 	instance.StartTime = time.Now()
+	m.logger.Info("MANAGER: Server '%s' (identifier: %s) marked as started successfully. ContainerID (if any): %s", name, fixedIdentifier, instance.ContainerID)
 
-	// Set up resource watchers if configured
+	// Post-start actions (hooks, watchers, health checks)
+	if srvCfg.Lifecycle.PostStart != "" {
+		m.logger.Info("MANAGER: Running post-start hook for server '%s'...", name)
+		if hookErr := m.runLifecycleHook(srvCfg.Lifecycle.PostStart); hookErr != nil {
+			m.logger.Warning("MANAGER: Post-start hook for server '%s' failed: %v (continuing)", name, hookErr)
+		} else {
+			m.logger.Info("MANAGER: Post-start hook for server '%s' completed.", name)
+		}
+	}
+
 	if config.IsCapabilityEnabled(srvCfg, "resources") && len(srvCfg.Resources.Paths) > 0 {
-		watcher, err := NewResourcesWatcher(&srvCfg)
-		if err != nil {
-			m.logger.Warning("Failed to initialize resource watcher for server '%s': %v", name, err)
+		m.logger.Info("MANAGER: Initializing resource watcher for server '%s'...", name)
+		watcher, watchErr := NewResourcesWatcher(&srvCfg, m.logger) // Pass logger
+		if watchErr != nil {
+			m.logger.Warning("MANAGER: Failed to initialize resource watcher for server '%s': %v", name, watchErr)
 		} else {
 			instance.ResourcesWatcher = watcher
 			go watcher.Start()
+			m.logger.Info("MANAGER: Resource watcher started for server '%s'.", name)
 		}
 	}
 
-	// Run post-start hooks if defined
-	if srvCfg.Lifecycle.PostStart != "" {
-		m.logger.Info("Running post-start hook for server '%s'", name)
-		if err := m.runLifecycleHook(srvCfg.Lifecycle.PostStart); err != nil {
-			m.logger.Warning("Post-start hook failed: %v", err)
-		}
-	}
-
-	// Start health check if configured
 	if srvCfg.Lifecycle.HealthCheck.Endpoint != "" {
-		go m.startHealthCheck(name)
+		m.logger.Info("MANAGER: Starting health check for server '%s' (identifier: %s)...", name, fixedIdentifier)
+		go m.startHealthCheck(name, fixedIdentifier)
 	}
 
-	// Initialize MCP capabilities
-	if err := m.initializeServerCapabilities(name); err != nil {
-		m.logger.Warning("Failed to initialize capabilities for server '%s': %v", name, err)
+	if capErr := m.initializeServerCapabilities(name); capErr != nil {
+		m.logger.Warning("MANAGER: Failed to initialize capabilities for server '%s': %v", name, capErr)
 	}
 
+	m.logger.Info("MANAGER: StartServer for '%s' completed fully.", name)
 	return nil
 }
 
-// startContainerServer starts a server in a container
-func (m *Manager) startContainerServer(name, serverID string, srvCfg *config.ServerConfig) error {
-	runtime := srvCfg.Runtime
-	if runtime == "" {
-		runtime = "docker" // Default to docker if not specified
+// startContainerServer uses containerNameToUse for Docker/Podman --name
+func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string, srvCfg *config.ServerConfig) error {
+	runtimeType := srvCfg.Runtime
+	if runtimeType == "" && srvCfg.Image != "" {
+		runtimeType = "docker" // Default to docker if image is specified
 	}
 
-	if m.containerRuntime.GetRuntimeName() == "none" {
-		return fmt.Errorf("server '%s' requires container runtime '%s' which is not available", name, runtime)
+	if m.containerRuntime.GetRuntimeName() == "none" && srvCfg.Image != "" {
+		return fmt.Errorf("server '%s' requires container runtime but none available", serverKeyName)
+	}
+	if srvCfg.Image == "" {
+		return fmt.Errorf("server '%s' (container: %s) has no image specified", serverKeyName, containerNameToUse)
 	}
 
-	imageName := srvCfg.Image
-	if imageName == "" {
-		return fmt.Errorf("server '%s' requires an image to be specified", name)
+	m.logger.Info("Preparing to start container '%s' for server '%s' with image '%s'", containerNameToUse, serverKeyName, srvCfg.Image)
+
+	var volumes []string
+	if srvCfg.Volumes != nil {
+		volumes = append([]string{}, srvCfg.Volumes...) // Copy existing volumes
 	}
-
-	m.logger.Info("Starting container-based server '%s' using image '%s'", name, imageName)
-
-	// Set up resource volume mappings if configured
-	volumes := srvCfg.Volumes
 	for _, resourcePath := range srvCfg.Resources.Paths {
-		// Only map local paths for containers
 		absPath, err := filepath.Abs(resourcePath.Source)
 		if err == nil {
 			volumeMapping := fmt.Sprintf("%s:%s", absPath, resourcePath.Target)
@@ -204,749 +219,715 @@ func (m *Manager) startContainerServer(name, serverID string, srvCfg *config.Ser
 				volumeMapping += ":ro"
 			}
 			volumes = append(volumes, volumeMapping)
+		} else {
+			m.logger.Warning("Could not make path absolute for volume mount '%s' for server '%s': %v", resourcePath.Source, serverKeyName, err)
 		}
 	}
 
-	// Prepare container options
+	// Prepare environment variables, including MCP_SERVER_NAME
+	envVars := config.MergeEnv(srvCfg.Env, map[string]string{"MCP_SERVER_NAME": serverKeyName})
+
 	opts := &container.ContainerOptions{
-		Name:        serverID,
-		Image:       imageName,
+		Name:        containerNameToUse, // This is the name Docker/Podman will use
+		Image:       srvCfg.Image,
 		Command:     srvCfg.Command,
 		Args:        srvCfg.Args,
-		Env:         srvCfg.Env,
+		Env:         envVars,
 		Pull:        srvCfg.Pull,
 		Volumes:     volumes,
 		Ports:       srvCfg.Ports,
 		NetworkMode: srvCfg.NetworkMode,
 		Networks:    srvCfg.Networks,
+		WorkDir:     srvCfg.WorkDir,
 	}
 
-	// Set working directory if specified
-	if srvCfg.WorkDir != "" {
-		opts.WorkDir = srvCfg.WorkDir
-	}
-
-	// Set up connection-related ports
-	for _, conn := range m.config.Connections {
-		if conn.Expose && conn.Port > 0 {
-			portMapping := fmt.Sprintf("%d:%d", conn.Port, conn.Port)
+	// Add globally defined connection ports if exposed
+	for connKey, connCfg := range m.config.Connections {
+		if connCfg.Expose && connCfg.Port > 0 {
+			portMapping := fmt.Sprintf("%d:%d", connCfg.Port, connCfg.Port) // hostPort:containerPort
 			if !contains(opts.Ports, portMapping) {
 				opts.Ports = append(opts.Ports, portMapping)
+				m.logger.Debug("Adding exposed port %s from connection '%s' for server '%s'", portMapping, connKey, serverKeyName)
 			}
 		}
 	}
 
 	// Start the container
-	containerID, err := m.containerRuntime.StartContainer(opts)
+	containerID, err := m.containerRuntime.StartContainer(opts) // StartContainer is from your container.Runtime interface
 	if err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
+		return fmt.Errorf("failed to start container '%s' for server '%s': %w", containerNameToUse, serverKeyName, err)
 	}
 
-	// Store container ID
-	m.servers[name].ContainerID = containerID
+	// Store the actual container ID provided by the runtime
+	m.servers[serverKeyName].ContainerID = containerID
+	m.logger.Info("Container '%s' (ID: %s) for server '%s' started", containerNameToUse, containerID, serverKeyName)
 	return nil
 }
 
-// startProcessServer starts a server as a local process
-func (m *Manager) startProcessServer(name, serverID string, srvCfg *config.ServerConfig) error {
-	m.logger.Info("Starting process-based server '%s' using command '%s'", name, srvCfg.Command)
+// startProcessServer uses processIdentifier for log/pid files
+func (m *Manager) startProcessServer(serverKeyName, processIdentifier string, srvCfg *config.ServerConfig) error {
+	m.logger.Info("Preparing to start process '%s' for server '%s' with command '%s'", processIdentifier, serverKeyName, srvCfg.Command)
 
-	// Create environment with added connection info
 	env := make(map[string]string)
 	if srvCfg.Env != nil {
 		for k, v := range srvCfg.Env {
 			env[k] = v
 		}
 	}
-
-	// Add standard environment variables
-	env["MCP_SERVER_NAME"] = name
-	env["MCP_PROJECT_NAME"] = m.projectName
-
-	// Add connection-related environment
-	for connName, conn := range m.config.Connections {
-		env[fmt.Sprintf("MCP_CONN_%s_TRANSPORT", strings.ToUpper(connName))] = conn.Transport
-		if conn.Port > 0 {
-			env[fmt.Sprintf("MCP_CONN_%s_PORT", strings.ToUpper(connName))] = fmt.Sprintf("%d", conn.Port)
+	// Add standard MCP environment variables
+	env["MCP_SERVER_NAME"] = serverKeyName
+	// Add connection-related environment variables from global config
+	for connKey, connCfg := range m.config.Connections {
+		prefix := fmt.Sprintf("MCP_CONN_%s_", strings.ToUpper(connKey))
+		env[prefix+"TRANSPORT"] = connCfg.Transport
+		if connCfg.Port > 0 {
+			env[prefix+"PORT"] = fmt.Sprintf("%d", connCfg.Port)
 		}
-		if conn.Host != "" {
-			env[fmt.Sprintf("MCP_CONN_%s_HOST", strings.ToUpper(connName))] = conn.Host
+		if connCfg.Host != "" {
+			env[prefix+"HOST"] = connCfg.Host
 		}
-		if conn.Path != "" {
-			env[fmt.Sprintf("MCP_CONN_%s_PATH", strings.ToUpper(connName))] = conn.Path
+		if connCfg.Path != "" {
+			env[prefix+"PATH"] = connCfg.Path
 		}
 	}
 
-	// Create a process wrapper
 	proc, err := runtime.NewProcess(srvCfg.Command, srvCfg.Args, runtime.ProcessOptions{
 		Env:     env,
 		WorkDir: srvCfg.WorkDir,
-		Name:    serverID,
+		Name:    processIdentifier, // runtime.Process uses this for its internal tracking (e.g., PID file name)
 	})
-
 	if err != nil {
-		return fmt.Errorf("failed to create process: %w", err)
+		return fmt.Errorf("failed to create process structure for '%s' (server '%s'): %w", processIdentifier, serverKeyName, err)
 	}
-
-	// Start the process
 	if err := proc.Start(); err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
+		return fmt.Errorf("failed to start process '%s' (server '%s'): %w", processIdentifier, serverKeyName, err)
 	}
 
-	// Store process reference
-	m.servers[name].Process = proc
+	m.servers[serverKeyName].Process = proc
+	m.logger.Info("Process '%s' for server '%s' started", processIdentifier, serverKeyName)
 	return nil
 }
 
-// StopServer stops a server with the given name
+// StopServer stops a server using its fixed identifier
 func (m *Manager) StopServer(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	instance, ok := m.servers[name]
 	if !ok {
-		return fmt.Errorf("server '%s' not found", name)
+		return fmt.Errorf("server '%s' not found in manager", name)
 	}
-
 	srvCfg := instance.Config
+	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
 
-	// Create server ID for containers
-	serverID := fmt.Sprintf("%s-%s", m.projectName, name)
-
-	// Check if the server is running
-	status, _ := m.GetServerStatus(name)
-	if status != "running" {
-		m.logger.Info("Server '%s' is not running", name)
-		return nil
+	currentStatus, _ := m.getServerStatusUnsafe(name, fixedIdentifier)
+	if currentStatus != "running" {
+		m.logger.Info("Server '%s' (identifier: %s) is not running, nothing to stop", name, fixedIdentifier)
+		return nil // Or return an error if it was expected to be running
 	}
 
-	// Run pre-stop hooks if defined
+	m.logger.Info("Stopping server '%s' (identifier: %s)...", name, fixedIdentifier)
+
 	if srvCfg.Lifecycle.PreStop != "" {
 		m.logger.Info("Running pre-stop hook for server '%s'", name)
 		if err := m.runLifecycleHook(srvCfg.Lifecycle.PreStop); err != nil {
-			m.logger.Warning("Pre-stop hook failed: %v", err)
+			m.logger.Warning("Pre-stop hook for server '%s' failed: %v", name, err) // Log but continue stopping
 		}
 	}
 
-	// Stop resource watcher if running
 	if instance.ResourcesWatcher != nil {
 		instance.ResourcesWatcher.Stop()
 		instance.ResourcesWatcher = nil
+		m.logger.Debug("Resource watcher stopped for server '%s'", name)
 	}
 
-	// Stop the server
-	var err error
+	var stopErr error
 	if instance.IsContainer {
-		// Container-based server
-		m.logger.Info("Stopping container-based server '%s'", name)
-		err = m.containerRuntime.StopContainer(serverID)
-		if err != nil {
-			return fmt.Errorf("failed to stop container: %w", err)
+		m.logger.Info("Stopping container '%s' for server '%s'", fixedIdentifier, name)
+		stopErr = m.containerRuntime.StopContainer(fixedIdentifier) // Stop by fixed name
+		if stopErr != nil {
+			m.logger.Error("Failed to stop container '%s' for server '%s': %v", fixedIdentifier, name, stopErr)
 		}
-		// Clear container ID
-		instance.ContainerID = ""
+		instance.ContainerID = "" // Clear the runtime ID
+	} else if instance.Process != nil {
+		m.logger.Info("Stopping process '%s' for server '%s'", fixedIdentifier, name)
+		stopErr = instance.Process.Stop() // Assumes Process.Stop uses the name it was initialized with
+		if stopErr != nil {
+			m.logger.Error("Failed to stop process '%s' for server '%s': %v", fixedIdentifier, name, stopErr)
+		}
+		instance.Process = nil
 	} else {
-		// Process-based server
-		m.logger.Info("Stopping process-based server '%s'", name)
-		if instance.Process != nil {
-			err = instance.Process.Stop()
-			if err != nil {
-				return fmt.Errorf("failed to stop process: %w", err)
-			}
-			// Clear process reference
-			instance.Process = nil
-		}
+		m.logger.Warning("Server '%s' (identifier: %s) was marked to stop but had no active container or process reference", name, fixedIdentifier)
 	}
 
-	// Update server instance
 	instance.Status = "stopped"
 	instance.HealthStatus = "unknown"
+	m.logger.Info("Server '%s' (identifier: %s) has been stopped", name, fixedIdentifier)
 
-	// Run post-stop hooks if defined
 	if srvCfg.Lifecycle.PostStop != "" {
 		m.logger.Info("Running post-stop hook for server '%s'", name)
 		if err := m.runLifecycleHook(srvCfg.Lifecycle.PostStop); err != nil {
-			m.logger.Warning("Post-stop hook failed: %v", err)
+			m.logger.Warning("Post-stop hook for server '%s' failed: %v", name, err)
 		}
 	}
-
-	return nil
+	return stopErr // Return the error from the stop operation, if any
 }
 
-// GetServerStatus returns the status of a server
+// GetServerStatus returns the status of a server, using the fixed identifier.
+// This public method ensures locking.
 func (m *Manager) GetServerStatus(name string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
+	return m.getServerStatusUnsafe(name, fixedIdentifier)
+}
+
+// getServerStatusUnsafe is the internal implementation without locking, for use by other locked methods.
+func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (string, error) {
 	instance, ok := m.servers[name]
 	if !ok {
-		return "", fmt.Errorf("server '%s' not found", name)
+		return "unknown", fmt.Errorf("server '%s' not found in manager's list", name)
 	}
 
-	// If we already know it's running from our cache, return quickly
-	if instance.Status == "running" {
-		// Double-check with the runtime
-		if instance.IsContainer && instance.ContainerID != "" {
-			status, _ := m.containerRuntime.GetContainerStatus(instance.ContainerID)
-			if status != "running" {
-				// Update our cache
-				instance.Status = status
-			}
-		} else if instance.Process != nil {
-			isRunning, _ := instance.Process.IsRunning()
-			if !isRunning {
-				instance.Status = "stopped"
-			}
-		}
-	}
+	var currentRuntimeStatus string
+	var err error
 
-	// Create server ID for containers
-	serverID := fmt.Sprintf("%s-%s", m.projectName, name)
-
-	// Check with the runtime
 	if instance.IsContainer {
-		// Container-based server
-		status, _ := m.containerRuntime.GetContainerStatus(serverID)
-		instance.Status = status
-	} else {
-		// Process-based server
-		proc, err := runtime.FindProcess(serverID)
+		// Try by known ContainerID first for precision, then by fixedIdentifier as fallback
+		if instance.ContainerID != "" {
+			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(instance.ContainerID)
+			if err != nil { // e.g., ID is stale
+				m.logger.Debug("Failed to get status by ID for %s (%s), trying by name %s: %v", name, instance.ContainerID, fixedIdentifier, err)
+				currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
+			}
+		} else { // No ContainerID known, must use fixed name
+			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
+		}
 		if err != nil {
-			instance.Status = "stopped"
+			m.logger.Warning("Error getting container status for '%s' (identifier: %s): %v", name, fixedIdentifier, err)
+			// If the runtime returns "stopped" or "exited" along with an error (e.g. "No such container"),
+			// then currentRuntimeStatus might already be set correctly by GetContainerStatus.
+			// If currentRuntimeStatus is still empty, set to "unknown".
+			if currentRuntimeStatus == "" {
+				currentRuntimeStatus = "unknown"
+			}
+		}
+	} else { // Process-based server
+		proc, findErr := runtime.FindProcess(fixedIdentifier)
+		if findErr != nil {
+			currentRuntimeStatus = "stopped" // Process not found (e.g., PID file missing)
 		} else {
-			isRunning, err := proc.IsRunning()
-			if err != nil || !isRunning {
-				instance.Status = "stopped"
+			isRunning, runErr := proc.IsRunning()
+			if runErr != nil || !isRunning {
+				currentRuntimeStatus = "stopped"
 			} else {
-				instance.Status = "running"
+				currentRuntimeStatus = "running"
 			}
 		}
 	}
-
-	return instance.Status, nil
+	instance.Status = currentRuntimeStatus // Update cached status
+	return currentRuntimeStatus, err       // Return error from runtime if any
 }
 
-// ShowLogs displays logs for a server
+// ShowLogs displays logs for a server using the fixed identifier
 func (m *Manager) ShowLogs(name string, follow bool) error {
 	instance, ok := m.servers[name]
 	if !ok {
-		return fmt.Errorf("server '%s' not found", name)
+		return fmt.Errorf("server '%s' not found for showing logs", name)
 	}
+	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
+	m.logger.Debug("Requesting logs for server '%s' (identifier: %s)", name, fixedIdentifier)
 
-	// Create server ID for containers
-	serverID := fmt.Sprintf("%s-%s", m.projectName, name)
-
-	// Either show container logs or process logs
 	if instance.IsContainer {
-		// Container-based server
-		return m.containerRuntime.ShowContainerLogs(serverID, follow)
-	} else {
-		// Process-based server
-		proc, err := runtime.FindProcess(serverID)
+		// While instance.ContainerID might be more precise if available and current,
+		// using fixedIdentifier aligns with how the proxy would refer to it and how Start/Stop work.
+		// If the container was recreated with the same fixed name, this would get logs from the new one.
+		return m.containerRuntime.ShowContainerLogs(fixedIdentifier, follow)
+	} else { // Process-based server
+		proc, err := runtime.FindProcess(fixedIdentifier)
 		if err != nil {
-			return fmt.Errorf("server process not found: %w", err)
+			return fmt.Errorf("process for server '%s' (identifier: %s) not found: %w", name, fixedIdentifier, err)
 		}
 		return proc.ShowLogs(follow)
 	}
 }
 
-// ResourcesWatcher watches for changes in resource paths
+// --- ResourcesWatcher (ensure it's fully defined or use a simplified stub) ---
 type ResourcesWatcher struct {
 	config       *config.ServerConfig
-	active       bool
+	fsWatcher    *fsnotify.Watcher // Simplified to one watcher for the example
 	stopCh       chan struct{}
-	watchersMu   sync.Mutex
-	fsWatchers   []*fsnotify.Watcher
+	active       bool
+	logger       *logging.Logger
+	mu           sync.Mutex
 	changedFiles map[string]time.Time
 	ticker       *time.Ticker
 }
 
-// NewResourcesWatcher creates a new resources watcher
-func NewResourcesWatcher(cfg *config.ServerConfig) (*ResourcesWatcher, error) {
+func NewResourcesWatcher(cfg *config.ServerConfig, loggerInstance ...*logging.Logger) (*ResourcesWatcher, error) {
+	var logger *logging.Logger
+	if len(loggerInstance) > 0 && loggerInstance[0] != nil {
+		logger = loggerInstance[0]
+	} else {
+		logger = logging.NewLogger("info") // Default if no logger passed
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
+	}
 	return &ResourcesWatcher{
 		config:       cfg,
-		active:       false,
+		fsWatcher:    watcher,
 		stopCh:       make(chan struct{}),
-		fsWatchers:   make([]*fsnotify.Watcher, 0),
+		logger:       logger,
 		changedFiles: make(map[string]time.Time),
 	}, nil
 }
 
-// Start starts the resource watcher
-func (w *ResourcesWatcher) Start() error {
-	w.watchersMu.Lock()
-	defer w.watchersMu.Unlock()
-
+func (w *ResourcesWatcher) Start() {
+	w.mu.Lock()
 	if w.active {
-		return nil
-	}
-
-	w.active = true
-	w.changedFiles = make(map[string]time.Time)
-
-	// Set up watchers for each resource path
-	for _, resourcePath := range w.config.Resources.Paths {
-		if resourcePath.Watch {
-			if err := w.watchPath(resourcePath.Source); err != nil {
-				w.Stop() // Clean up any watchers already created
-				return fmt.Errorf("failed to watch path %s: %w", resourcePath.Source, err)
-			}
-		}
-	}
-
-	// Determine sync interval
-	syncInterval := 5 * time.Second // Default
-	if w.config.Resources.SyncInterval != "" {
-		if interval, err := time.ParseDuration(w.config.Resources.SyncInterval); err == nil {
-			syncInterval = interval
-		}
-	}
-
-	// Start ticker for periodic scanning
-	w.ticker = time.NewTicker(syncInterval)
-	go w.runWatcher()
-
-	return nil
-}
-
-// watchPath sets up a watcher for a directory
-func (w *ResourcesWatcher) watchPath(dirPath string) error {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("failed to create watcher: %w", err)
-	}
-
-	// Add the directory itself
-	if err := watcher.Add(dirPath); err != nil {
-		watcher.Close()
-		return fmt.Errorf("failed to add directory to watcher: %w", err)
-	}
-
-	// Add all subdirectories recursively
-	err = filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if err := watcher.Add(path); err != nil {
-				return fmt.Errorf("failed to add subdirectory to watcher: %w", err)
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		watcher.Close()
-		return fmt.Errorf("failed to walk directory tree: %w", err)
-	}
-
-	w.fsWatchers = append(w.fsWatchers, watcher)
-	return nil
-}
-
-// runWatcher runs the main watcher loop
-func (w *ResourcesWatcher) runWatcher() {
-	// Process events from all watchers
-	for _, watcher := range w.fsWatchers {
-		go func(fw *fsnotify.Watcher) {
-			for {
-				select {
-				case event, ok := <-fw.Events:
-					if !ok {
-						return
-					}
-					// Filter out events we don't care about
-					if !w.shouldProcessEvent(event) {
-						continue
-					}
-					// Record the change
-					w.recordChange(event.Name)
-				case err, ok := <-fw.Errors:
-					if !ok {
-						return
-					}
-					fmt.Fprintf(os.Stderr, "Watcher error: %v\n", err)
-				}
-			}
-		}(watcher)
-	}
-
-	// Process ticker events for batched notifications
-	for {
-		select {
-		case <-w.stopCh:
-			return
-		case <-w.ticker.C:
-			w.processChanges()
-		}
-	}
-}
-
-// shouldProcessEvent determines if an event should be processed
-func (w *ResourcesWatcher) shouldProcessEvent(event fsnotify.Event) bool {
-	// Skip temporary files and hidden files
-	baseName := filepath.Base(event.Name)
-	if strings.HasPrefix(baseName, ".") || strings.HasSuffix(baseName, "~") {
-		return false
-	}
-
-	// We care about create, write, rename, remove operations
-	if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Remove) == 0 {
-		return false
-	}
-
-	return true
-}
-
-// recordChange records a file change
-func (w *ResourcesWatcher) recordChange(path string) {
-	w.watchersMu.Lock()
-	defer w.watchersMu.Unlock()
-
-	// Store current time directly without unused variable
-	w.changedFiles[path] = time.Now()
-}
-
-// processChanges processes accumulated changes and notifies subscribers
-func (w *ResourcesWatcher) processChanges() {
-	w.watchersMu.Lock()
-	defer w.watchersMu.Unlock()
-
-	if len(w.changedFiles) == 0 {
+		w.mu.Unlock()
+		w.logger.Debug("Resource watcher already active.")
 		return
 	}
+	w.active = true
+	w.mu.Unlock()
 
-	// Build a list of changed files
-	changes := make(map[string]string, len(w.changedFiles))
-	for path := range w.changedFiles {
-		// Check if file still exists
-		info, err := os.Stat(path)
-		if err == nil {
-			// File exists
-			if info.IsDir() {
-				changes[path] = "directory"
-			} else {
-				changes[path] = "file"
-			}
-		} else if os.IsNotExist(err) {
-			// File was deleted
-			changes[path] = "deleted"
-		} else {
-			// Error checking file, skip
-			continue
-		}
-	}
+	w.logger.Info("Starting resource watcher for paths: %v", w.config.Resources.Paths)
 
-	// Clear the changed files map
-	w.changedFiles = make(map[string]time.Time)
-
-	// Send notifications
-	if len(changes) > 0 {
-		w.notifyChanges(changes)
-	}
-}
-
-// notifyChanges notifies subscribers about changes
-func (w *ResourcesWatcher) notifyChanges(changes map[string]string) {
-	// In a real implementation, this would send notifications to the MCP server
-	// using protocol.MCPNotification with resources/list-changed method
-
-	// For now, log the changes
-	changesJSON, _ := json.MarshalIndent(changes, "", "  ")
-	fmt.Printf("Resource changes detected: %s\n", string(changesJSON))
-
-	// For each resource path, map the changes to its target path
-	for _, resourcePath := range w.config.Resources.Paths {
-		sourcePath := filepath.Clean(resourcePath.Source)
-		targetPath := filepath.Clean(resourcePath.Target)
-
-		// Map changes from source to target paths
-		targetChanges := make(map[string]string)
-		for path, changeType := range changes {
-			// Check if this path is within the source directory
-			if strings.HasPrefix(path, sourcePath) {
-				// Replace source path with target path
-				relativePath, err := filepath.Rel(sourcePath, path)
+	for _, rp := range w.config.Resources.Paths {
+		if rp.Watch {
+			// Walk the path to add all subdirectories
+			err := filepath.WalkDir(rp.Source, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
-					continue
+					w.logger.Error("Error walking path %s for watcher: %v", path, err)
+					return err // Or return nil to continue walking other parts
 				}
-				targetPath := filepath.Join(targetPath, relativePath)
-				targetChanges[targetPath] = changeType
+				if d.IsDir() {
+					w.logger.Debug("Adding path to watcher: %s", path)
+					if addErr := w.fsWatcher.Add(path); addErr != nil {
+						w.logger.Error("Failed to add path %s to watcher: %v", path, addErr)
+						// Potentially continue to try and watch other directories
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				w.logger.Error("Error setting up watch for path %s: %v", rp.Source, err)
+				// Potentially stop or handle error
 			}
-		}
-
-		// If there are mapped changes for this resource, notify about them
-		if len(targetChanges) > 0 {
-			// Here we'd send a protocol notification
-			notification := map[string]interface{}{
-				"jsonrpc": "2.0",
-				"method":  "resources/list-changed",
-				"params": map[string]interface{}{
-					"changes": targetChanges,
-				},
-			}
-
-			notificationJSON, _ := json.MarshalIndent(notification, "", "  ")
-			fmt.Printf("Would send notification: %s\n", string(notificationJSON))
 		}
 	}
+
+	syncInterval := 5 * time.Second // Default sync interval
+	if w.config.Resources.SyncInterval != "" {
+		parsedInterval, err := time.ParseDuration(w.config.Resources.SyncInterval)
+		if err == nil {
+			syncInterval = parsedInterval
+		} else {
+			w.logger.Warning("Invalid resource sync interval '%s', using default %v: %v", w.config.Resources.SyncInterval, syncInterval, err)
+		}
+	}
+	w.ticker = time.NewTicker(syncInterval)
+
+	go func() {
+		defer w.cleanupWatcher()
+		for {
+			select {
+			case <-w.stopCh:
+				w.logger.Info("Resource watcher stop signal received.")
+				return
+			case event, ok := <-w.fsWatcher.Events:
+				if !ok {
+					w.logger.Info("Watcher events channel closed.")
+					return
+				}
+				if w.shouldProcessEvent(event) {
+					w.recordChange(event.Name)
+				}
+			case err, ok := <-w.fsWatcher.Errors:
+				if !ok {
+					w.logger.Info("Watcher errors channel closed.")
+					return
+				}
+				w.logger.Error("Watcher error: %v", err)
+			case <-w.ticker.C:
+				w.processChanges()
+			}
+		}
+	}()
 }
-
-// Stop stops the resource watcher
-func (w *ResourcesWatcher) Stop() error {
-	w.watchersMu.Lock()
-	defer w.watchersMu.Unlock()
-
-	if !w.active {
-		return nil
-	}
-
-	// Stop the ticker
+func (w *ResourcesWatcher) cleanupWatcher() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.ticker != nil {
 		w.ticker.Stop()
 	}
-
-	// Signal the watcher goroutine to stop
-	close(w.stopCh)
-
-	// Close all watchers
-	for _, watcher := range w.fsWatchers {
-		watcher.Close()
+	if w.fsWatcher != nil {
+		w.fsWatcher.Close()
 	}
-	w.fsWatchers = nil
-
 	w.active = false
-	return nil
+	w.logger.Info("Resource watcher cleaned up.")
 }
 
-// Full health check implementation
-func (m *Manager) startHealthCheck(name string) {
-	instance, ok := m.servers[name]
-	if !ok {
+func (w *ResourcesWatcher) shouldProcessEvent(event fsnotify.Event) bool {
+	// Basic filtering, can be expanded
+	if strings.HasPrefix(filepath.Base(event.Name), ".") { // Ignore hidden files/dirs
+		return false
+	}
+	// Only interested in these operations
+	return event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)
+}
+
+func (w *ResourcesWatcher) recordChange(path string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.changedFiles[path] = time.Now()
+	w.logger.Debug("Resource change detected: %s", path)
+}
+
+func (w *ResourcesWatcher) processChanges() {
+	w.mu.Lock()
+	if len(w.changedFiles) == 0 {
+		w.mu.Unlock()
+		return
+	}
+	// Create a copy to process, then clear the map
+	changesToProcess := make(map[string]time.Time, len(w.changedFiles))
+	for k, v := range w.changedFiles {
+		changesToProcess[k] = v
+	}
+	w.changedFiles = make(map[string]time.Time) // Clear original map
+	w.mu.Unlock()
+
+	if len(changesToProcess) == 0 {
 		return
 	}
 
+	mappedChanges := make(map[string]string) // Path -> "file" | "directory" | "deleted"
+	for changedPath := range changesToProcess {
+		// Determine type or if deleted
+		info, err := os.Stat(changedPath)
+		changeType := "unknown"
+		if err == nil {
+			changeType = "file"
+			if info.IsDir() {
+				changeType = "directory"
+			}
+		} else if os.IsNotExist(err) {
+			changeType = "deleted"
+		} else {
+			w.logger.Warning("Error stating changed path %s: %v", changedPath, err)
+			continue // Skip if cannot determine state
+		}
+
+		// Map this changedPath to the target path in the MCP server's context
+		var targetPath string
+		foundMapping := false
+		for _, rp := range w.config.Resources.Paths {
+			if strings.HasPrefix(changedPath, rp.Source) {
+				relPath, _ := filepath.Rel(rp.Source, changedPath)
+				targetPath = filepath.Join(rp.Target, relPath)
+				mappedChanges[targetPath] = changeType
+				foundMapping = true
+				break
+			}
+		}
+		if !foundMapping {
+			w.logger.Debug("No resource mapping found for changed path: %s", changedPath)
+		}
+	}
+
+	if len(mappedChanges) > 0 {
+		w.notifyChanges(mappedChanges)
+	}
+}
+
+func (w *ResourcesWatcher) notifyChanges(changes map[string]string) {
+	// Placeholder for actual notification
+	// This would involve constructing an MCP resources/list-changed notification
+	// and sending it to the associated MCP server instance.
+	changesJSON, _ := json.MarshalIndent(changes, "", "  ")
+	w.logger.Info("Server notified of resource changes: %s", string(changesJSON))
+}
+
+func (w *ResourcesWatcher) Stop() {
+	w.mu.Lock()
+	if !w.active {
+		w.mu.Unlock()
+		return
+	}
+	// Set active to false first to prevent new operations from starting
+	w.active = false
+	w.mu.Unlock()
+
+	// Signal the watcher goroutine to stop by closing stopCh
+	// Check if stopCh is nil or already closed to prevent panic
+	w.mu.Lock()
+	if w.stopCh != nil {
+		select {
+		case <-w.stopCh:
+			// Already closed or being closed
+		default:
+			close(w.stopCh) // Close the channel
+			w.stopCh = nil  // Mark as closed
+		}
+	}
+	w.mu.Unlock() // Unlock before logging
+	w.logger.Info("Resource watcher stop requested.")
+}
+
+// --- HealthCheck and other utility methods ---
+func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Added fixedIdentifier
+	instance, ok := m.servers[serverName]
+	if !ok {
+		m.logger.Error("HealthCheck: Server '%s' not found.", serverName)
+		return
+	}
 	healthCfg := instance.Config.Lifecycle.HealthCheck
 	if healthCfg.Endpoint == "" {
+		m.logger.Debug("HealthCheck: No endpoint for server '%s'.", serverName)
 		return
 	}
 
-	// Parse interval and timeout durations
-	interval := 5 * time.Second // Default interval
-	if healthCfg.Interval != "" {
-		if parsed, err := time.ParseDuration(healthCfg.Interval); err == nil {
-			interval = parsed
-		}
+	interval, err := time.ParseDuration(healthCfg.Interval)
+	if err != nil {
+		interval = 30 * time.Second // Default
+		m.logger.Warning("HealthCheck: Invalid interval '%s' for '%s', using default %v: %v", healthCfg.Interval, serverName, interval, err)
 	}
-
-	timeout := 2 * time.Second // Default timeout
-	if healthCfg.Timeout != "" {
-		if parsed, err := time.ParseDuration(healthCfg.Timeout); err == nil {
-			timeout = parsed
-		}
+	timeout, err := time.ParseDuration(healthCfg.Timeout)
+	if err != nil {
+		timeout = 5 * time.Second // Default
+		m.logger.Warning("HealthCheck: Invalid timeout '%s' for '%s', using default %v: %v", healthCfg.Timeout, serverName, timeout, err)
 	}
-
 	retries := healthCfg.Retries
 	if retries <= 0 {
-		retries = 3 // Default retries
+		retries = 3 // Default
 	}
 
-	m.logger.Info("Starting health checks for server '%s' with interval %s", name, interval)
+	m.logger.Info("HealthCheck: Starting for server '%s' (identifier: %s), endpoint: %s, interval: %v, timeout: %v, retries: %d",
+		serverName, fixedIdentifier, healthCfg.Endpoint, interval, timeout, retries)
 
-	// Start health check loop
 	go func() {
+		// Create a new ticker for this specific health check goroutine
+		healthCheckTicker := time.NewTicker(interval)
+		defer healthCheckTicker.Stop()
 		failCount := 0
 
 		for {
-			// Check if the server is still running
-			status, _ := m.GetServerStatus(name)
-			if status != "running" {
-				m.logger.Info("Server '%s' is no longer running, stopping health checks", name)
-				break
-			}
-
-			// Perform health check
-			healthy, err := m.checkServerHealth(name, healthCfg.Endpoint, timeout)
-
-			m.mu.Lock()
-			if healthy {
-				instance.HealthStatus = "healthy"
-				failCount = 0
-				m.mu.Unlock()
-			} else {
-				// Increment fail count
-				failCount++
-
-				if failCount >= retries {
-					instance.HealthStatus = "unhealthy"
-					m.logger.Warning("Server '%s' is unhealthy after %d failed checks: %v",
-						name, failCount, err)
-
-					// Check if we should restart the server based on the Action field
-					if healthCfg.Action == "restart" {
-						m.logger.Warning("Attempting to restart unhealthy server '%s'", name)
-						m.mu.Unlock() // Unlock before restarting
-
-						// Stop the server
-						if err := m.StopServer(name); err != nil {
-							m.logger.Error("Failed to stop unhealthy server '%s': %v", name, err)
-						} else {
-							// Wait a moment before restarting
-							time.Sleep(2 * time.Second)
-
-							// Start the server again
-							if err := m.StartServer(name); err != nil {
-								m.logger.Error("Failed to restart unhealthy server '%s': %v", name, err)
-							} else {
-								m.logger.Info("Successfully restarted server '%s'", name)
-							}
-						}
-
-						// Exit health check loop - new one will start when server restarts
-						return
-					} else {
-						m.mu.Unlock()
-					}
-				} else {
-					instance.HealthStatus = fmt.Sprintf("failing:%d/%d", failCount, retries)
-					m.logger.Warning("Health check failed for server '%s' (%d/%d): %v",
-						name, failCount, retries, err)
-					m.mu.Unlock()
+			select {
+			case <-healthCheckTicker.C:
+				// Check if manager still has this server and if it's supposed to be running
+				m.mu.Lock() // Lock for reading server status
+				instance, stillExists := m.servers[serverName]
+				targetStatus := ""
+				if stillExists {
+					targetStatus = instance.Status
 				}
-			}
+				m.mu.Unlock() // Unlock after reading
 
-			// Wait for next check
-			time.Sleep(interval)
+				if !stillExists || targetStatus != "running" {
+					m.logger.Info("HealthCheck: Server '%s' no longer exists or is not running, stopping health checks.", serverName)
+					return // Exit this goroutine
+				}
+
+				// Pass fixedIdentifier to checkServerHealth
+				healthy, checkErr := m.checkServerHealth(serverName, fixedIdentifier, healthCfg.Endpoint, timeout)
+
+				m.mu.Lock()                                   // Lock for updating instance health status
+				instance, stillExists = m.servers[serverName] // Re-fetch instance under lock
+				if !stillExists {                             // Check again in case server was removed during health check
+					m.mu.Unlock()
+					m.logger.Info("HealthCheck: Server '%s' removed during health check, stopping checks.", serverName)
+					return
+				}
+
+				if healthy {
+					if instance.HealthStatus != "healthy" { // Log only on change
+						m.logger.Info("HealthCheck: Server '%s' (identifier: %s) is now healthy.", serverName, fixedIdentifier)
+					}
+					instance.HealthStatus = "healthy"
+					failCount = 0
+				} else {
+					failCount++
+					instance.HealthStatus = fmt.Sprintf("failing (%d/%d)", failCount, retries)
+					m.logger.Warning("HealthCheck: Server '%s' (identifier: %s) failed check %d/%d. Error: %v", serverName, fixedIdentifier, failCount, retries, checkErr)
+
+					if failCount >= retries {
+						instance.HealthStatus = "unhealthy"
+						m.logger.Error("HealthCheck: Server '%s' (identifier: %s) is now unhealthy after %d retries.", serverName, fixedIdentifier, retries)
+
+						if healthCfg.Action == "restart" {
+							m.logger.Info("HealthCheck: Restart action configured for unhealthy server '%s'. Attempting restart...", serverName)
+							// Important: Unlock before calling StopServer/StartServer to avoid deadlock if they also lock.
+							// The restart itself should be in a new goroutine to not block the health ticker.
+							m.mu.Unlock() // Unlock BEFORE starting the restart goroutine
+
+							go func(sName string) { // Pass serverName to the new goroutine
+								m.logger.Info("HealthCheck: Restart goroutine initiated for '%s'.", sName)
+								if err := m.StopServer(sName); err != nil { // Use sName (which is serverName)
+									m.logger.Error("HealthCheck: Failed to stop unhealthy server '%s' for restart: %v", sName, err)
+								} else {
+									m.logger.Info("HealthCheck: Server '%s' stopped for restart. Waiting briefly...", sName)
+									time.Sleep(5 * time.Second)                  // Optional: delay before restart
+									if err := m.StartServer(sName); err != nil { // Use sName
+										m.logger.Error("HealthCheck: Failed to restart server '%s': %v", sName, err)
+									} else {
+										m.logger.Info("HealthCheck: Server '%s' restarted successfully due to health check.", sName)
+									}
+								}
+							}(serverName) // Pass serverName to the goroutine
+							return // Stop this health check goroutine; a new one will be started if the server restarts successfully.
+						}
+						// else, server remains unhealthy, health checks continue if no restart action
+					}
+				}
+				m.mu.Unlock() // Unlock after updating status
+				// How to stop this goroutine if m.StopServer is called externally?
+				// One way is for StopServer to signal a channel that this goroutine also selects on.
+				// Or, if instance.Status is set to "stopped" by StopServer, this loop will exit on next tick.
+			}
 		}
 	}()
 }
 
-func (m *Manager) GetServerInstance(name string) (*ServerInstance, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	instance, exists := m.servers[name]
-	return instance, exists
-}
-
-// checkServerHealth performs a health check on a server
-func (m *Manager) checkServerHealth(name string, endpoint string, timeout time.Duration) (bool, error) {
-	instance := m.servers[name]
-	if instance == nil {
-		return false, fmt.Errorf("server not found")
+func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string, timeout time.Duration) (bool, error) {
+	instance, ok := m.servers[serverName]
+	if !ok {
+		return false, fmt.Errorf("server '%s' not found for health check", serverName)
 	}
 
-	// Determine the URL based on server type and endpoint
 	var url string
 	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
-		// Absolute URL provided
 		url = endpoint
 	} else {
-		// Relative path, construct URL based on server
-		if instance.IsContainer {
-			// For container, use container name as hostname
-			serverID := fmt.Sprintf("%s-%s", m.projectName, name)
-			url = fmt.Sprintf("http://%s%s", serverID, endpoint)
-		} else {
-			// For local process, use localhost
-			// Extract port from endpoint if possible
-			port := "8080" // Default port
-			if strings.HasPrefix(endpoint, ":") {
-				parts := strings.SplitN(endpoint, "/", 2)
-				port = strings.TrimPrefix(parts[0], ":")
+		// Attempt to construct URL if endpoint is relative (e.g., "/health")
+		// This part is tricky without knowing the server's actual listening port.
+		// If the server exposes a port in mcp-compose.yaml, we could try to use that.
+		hostPort := "80" // Default, likely incorrect
+		if instance.IsContainer && len(instance.Config.Ports) > 0 {
+			// Example: "8080:80" -> use "8080"
+			parts := strings.Split(instance.Config.Ports[0], ":")
+			if len(parts) > 0 {
+				hostPort = parts[0]
 			}
-			url = fmt.Sprintf("http://localhost:%s%s", port, strings.TrimPrefix(endpoint, ":"+port))
+		} else if !instance.IsContainer && len(m.config.Connections) > 0 {
+			// For process, check global connections for an HTTP one
+			for _, conn := range m.config.Connections {
+				// This is a heuristic; might need more specific config for health check port
+				if (strings.HasPrefix(conn.Transport, "http")) && conn.Port > 0 {
+					hostPort = fmt.Sprintf("%d", conn.Port)
+					break
+				}
+			}
 		}
+		// This assumes the health endpoint is on localhost. If containers are on a docker network,
+		// and the proxy is also on that network, the proxy could health check them by container name,
+		// but this health check is run by mcp-compose itself.
+		url = fmt.Sprintf("http://localhost:%s%s", hostPort, endpoint)
+		if instance.IsContainer && m.containerRuntime.GetRuntimeName() != "none" && instance.Config.NetworkMode == "host" {
+			// If host network mode, localhost is fine for container.
+		} else if instance.IsContainer && m.containerRuntime.GetRuntimeName() != "none" {
+			m.logger.Debug("HealthCheck: For container %s, URL %s might only work if port %s is mapped to host. For internal checks, use container name or IP.", fixedIdentifier, url, hostPort)
+			// A more advanced health check might exec into the container to curl localhost:containerPort/endpoint
+		}
+
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	// Create request
-	req, err := http.NewRequest("GET", url, nil)
+	client := http.Client{Timeout: timeout}
+	m.logger.Debug("HealthCheck: Pinging %s for server '%s'", url, serverName)
+	resp, err := client.Get(url)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Execute request
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("health check request failed: %w", err)
+		return false, fmt.Errorf("request to %s failed: %w", url, err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return false, fmt.Errorf("health check returned status %d: %s", resp.StatusCode, body)
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 { // Consider 3xx as healthy too for some cases
+		return true, nil
 	}
-
-	return true, nil
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256)) // Read a bit of body for error
+	return false, fmt.Errorf("bad status %d from %s: %s", resp.StatusCode, url, string(body))
 }
 
-// runLifecycleHook runs a lifecycle hook script
 func (m *Manager) runLifecycleHook(hookScript string) error {
+	m.logger.Info("Running lifecycle hook: %s", hookScript)
 	cmd := exec.Command("sh", "-c", hookScript)
-	cmd.Env = os.Environ()
+	cmd.Env = os.Environ() // Inherit current environment
+	// Set working directory for the hook script to the project directory
 	cmd.Dir = m.projectDir
+
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("hook script failed: %w, output: %s", err, string(output))
+	if len(output) > 0 {
+		m.logger.Debug("Lifecycle hook '%s' output:\n%s", hookScript, string(output))
 	}
+	if err != nil {
+		return fmt.Errorf("lifecycle hook script '%s' failed: %w. Output: %s", hookScript, err, string(output))
+	}
+	m.logger.Info("Lifecycle hook '%s' completed successfully.", hookScript)
 	return nil
 }
 
-// ensureNetworkExists creates a Docker/Podman network if it doesn't exist
-func (m *Manager) ensureNetworkExists(networkName string) error {
-	// Skip if we already checked this network
-	if m.networks[networkName] {
+// ensureNetworkExists needs a lock if it modifies m.networks and is called concurrently.
+// If called only from StartServer (which is locked), internal lock might not be needed.
+// Let's assume it might be called externally or by multiple StartServer goroutines in future.
+func (m *Manager) ensureNetworkExists(networkName string, lockedByCaller bool) error {
+	if !lockedByCaller {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+	}
+
+	if m.networks[networkName] { // Check if already marked as handled in this session
+		m.logger.Debug("Network '%s' already processed in this session.", networkName)
 		return nil
 	}
 
-	// Skip for null runtime
-	if m.containerRuntime.GetRuntimeName() == "none" {
+	if m.containerRuntime == nil || m.containerRuntime.GetRuntimeName() == "none" {
+		m.logger.Debug("No container runtime, skipping network creation for '%s'", networkName)
 		return nil
 	}
 
-	m.logger.Info("Ensuring network '%s' exists", networkName)
-
-	// Check if network exists
+	m.logger.Info("Ensuring Docker/Podman network '%s' exists...", networkName)
 	exists, err := m.containerRuntime.NetworkExists(networkName)
 	if err != nil {
-		return fmt.Errorf("failed to check if network exists: %w", err)
+		return fmt.Errorf("failed to check if network '%s' exists: %w", networkName, err)
 	}
 
 	if !exists {
-		// Create the network
+		m.logger.Info("Network '%s' does not exist, attempting to create it...", networkName)
 		if err := m.containerRuntime.CreateNetwork(networkName); err != nil {
-			return fmt.Errorf("failed to create network: %w", err)
+			return fmt.Errorf("failed to create network '%s': %w", networkName, err)
 		}
+		m.logger.Info("Network '%s' created successfully.", networkName)
+	} else {
+		m.logger.Debug("Network '%s' already exists.", networkName)
 	}
 
-	// Mark as checked
-	m.networks[networkName] = true
+	m.networks[networkName] = true // Mark as handled
 	return nil
 }
 
-// initializeServerCapabilities initializes the MCP capabilities for a server
-func (m *Manager) initializeServerCapabilities(name string) error {
-	instance := m.servers[name]
-	if instance == nil {
-		return fmt.Errorf("server not found")
+func (m *Manager) initializeServerCapabilities(serverName string) error {
+	instance, ok := m.servers[serverName]
+	if !ok {
+		return fmt.Errorf("server '%s' not found for capability initialization", serverName)
 	}
-
-	// In a real implementation, we would:
-	// 1. Connect to the server using the appropriate transport
-	// 2. Send an initialize request to get capabilities
-	// 3. Store the capabilities in the server instance
-
-	// For this example, just use the configured capabilities
-	for _, cap := range instance.Config.Capabilities {
-		instance.Capabilities[cap] = true
+	// This is a simplified initialization. A real one might involve an MCP "initialize" call.
+	for _, capName := range instance.Config.Capabilities {
+		instance.Capabilities[capName] = true
 	}
-
+	m.logger.Debug("Initialized capabilities for server '%s' from config: %v", serverName, instance.Capabilities)
 	return nil
 }
 
-// contains checks if a string is in a slice
+func (m *Manager) GetServerInstance(serverName string) (*ServerInstance, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	instance, exists := m.servers[serverName]
+	return instance, exists
+}
+
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {

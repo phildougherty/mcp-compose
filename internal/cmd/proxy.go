@@ -184,10 +184,8 @@ import traceback
 import re
 import time
 from typing import Dict, List, Any, Optional
-
 PORT = int(os.environ.get('MCP_PROXY_PORT', '9876'))
 API_KEY = os.environ.get('MCP_API_KEY', '')
-
 class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'  # Force HTTP/1.1 instead of HTTP/0.9
     # Cache for discovered tools
@@ -340,7 +338,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self._tools_cache = all_tools
         self._tools_cache_time = current_time
         return all_tools
-
     def check_api_key(self):
         """Check if the API key is valid"""
         if not API_KEY:
@@ -357,20 +354,17 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(403, "Forbidden: Invalid API key")
             return False
         return True
-
     def add_cors_headers(self):
         """Add CORS headers to the response"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.send_header('Access-Control-Max-Age', '86400')  # 24 hours
-
     def do_OPTIONS(self):
         """Handle preflight CORS requests"""
         self.send_response(200)
         self.add_cors_headers()
         self.end_headers()
-
     def do_GET(self):
         # Check API key if configured
         if not self.check_api_key():
@@ -420,7 +414,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.serve_server_swagger_ui(server_name)
         else:
             self.send_error(404, "Not found")
-
     def serve_openapi_schema(self):
         """Generate and serve the OpenAPI schema with individual tools"""
         # Discover all tools from all servers
@@ -512,7 +505,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(schema_json)))
         self.end_headers()
         self.wfile.write(schema_json.encode("utf-8"))
-
     def serve_server_openapi_schema(self, server_name):
         """Generate and serve the OpenAPI schema for a specific server"""
         # Discover all tools from all servers
@@ -610,7 +602,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(schema_json)))
         self.end_headers()
         self.wfile.write(schema_json.encode("utf-8"))
-
     def serve_swagger_ui(self):
         """Serve Swagger UI for all tools"""
         html = """
@@ -679,7 +670,6 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html)))
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
-
     def serve_server_swagger_ui(self, server_name):
         """Serve Swagger UI for a specific server"""
         html = f"""
@@ -748,144 +738,194 @@ class MCPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html)))
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
-
-    def do_POST(self):
-        # Check API key if configured
-        if not self.check_api_key():
+def do_POST(self):
+    """Handle POST requests - proxies requests to the MCP server"""
+    # Check API key if configured
+    if not self.check_api_key():
+        return
+        
+    # Parse the path to get server name and possibly tool name
+    path_parts = urlparse(self.path).path.strip("/").split("/")
+    if not path_parts:
+        self.send_error(404, "No server specified")
+        return
+        
+    server_name = path_parts[0]
+    tool_name = path_parts[1] if len(path_parts) > 1 else None
+    
+    # Get the current list of MCP servers
+    servers = self.get_mcp_servers()
+    if server_name not in servers:
+        self.log_message(f"Server '{server_name}' not found in discovered servers: {list(servers.keys())}")
+        self.send_error(404, f"Unknown server: {server_name}")
+        return
+        
+    # Get the container name
+    container_name = servers[server_name]
+    
+    # Read the request body
+    content_length = int(self.headers.get("Content-Length", 0))
+    body = self.rfile.read(content_length).decode("utf-8")
+    
+    # If a specific tool is requested, create a tools/call request
+    if tool_name:
+        try:
+            # Parse the request body as the tool arguments
+            arguments = json.loads(body) if body.strip() else {}
+            
+            # Create a tools/call request
+            mcp_request = {
+                "jsonrpc": "2.0",
+                "id": int(time.time() * 1000),
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments
+                }
+            }
+            
+            # Convert to JSON
+            body = json.dumps(mcp_request) + "\n"
+        except json.JSONDecodeError:
+            self.log_message(f"Invalid JSON in request body: {body[:100]}...")
+            self.send_error(400, "Invalid JSON in request body")
             return
-        # Parse the path to get server name and possibly tool name
-        path_parts = urlparse(self.path).path.strip("/").split("/")
-        if not path_parts:
-            self.send_error(404, "No server specified")
+    else:
+        # Ensure the request ends with a newline for direct server requests
+        if not body.endswith('\n'):
+            body += '\n'
+    
+    self.log_message(f"Request to {server_name}/{tool_name if tool_name else ''}: {body[:100] + '...' if len(body) > 100 else body}")
+    
+    try:
+        # Use the container-native approach to communicate with the MCP server
+        cmd = ["docker", "exec", "-i", container_name, "npx", "-y", f"@modelcontextprotocol/server-{server_name}"]
+        
+        # Add additional arguments for specific servers
+        if server_name == "filesystem":
+            cmd.append("/tmp")
+            
+        self.log_message(f"Executing command: {' '.join(cmd)}")
+        
+        # Execute the command
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False  # Use binary mode for stdin/stdout
+        )
+        
+        # Send the request to the container
+        stdout, stderr = process.communicate(input=body.encode("utf-8"), timeout=60)
+        stderr_text = stderr.decode("utf-8", errors="ignore")
+        
+        # Log any stderr output that's not just the server startup message
+        if stderr_text and "MCP Server running on stdio" not in stderr_text:
+            self.log_message(f"STDERR: {stderr_text}")
+            
+        self.log_message(f"Process return code: {process.returncode}")
+        
+        if process.returncode != 0:
+            self.log_message(f"Error from server '{server_name}': {stderr_text}")
+            self.send_error(500, f"Error communicating with MCP server (code {process.returncode})")
             return
-        server_name = path_parts[0]
-        tool_name = path_parts[1] if len(path_parts) > 1 else None
-        # Get the current list of MCP servers
-        servers = self.get_mcp_servers()
-        if server_name not in servers:
-            self.send_error(404, f"Unknown server: {server_name}")
-            return
-        # Get the container name
-        container_name = servers[server_name]
-        # Read the request body
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length).decode("utf-8")
-        # If a specific tool is requested, create a tools/call request
+            
+        # Get the response
+        response_data = stdout.decode("utf-8", errors="ignore")
+        
+        # Always remove SSE format if present
+        if response_data.startswith("data: "):
+            response_data = response_data.replace("data: ", "").strip()
+            
+        # Log a snippet of the response
+        self.log_message(f"Response from {server_name}: {response_data[:100] + '...' if len(response_data) > 100 else response_data}")
+        
+        # Process the response if it's a tool call
         if tool_name:
             try:
-                # Parse the request body as the tool arguments
-                arguments = json.loads(body)
-                # Create a tools/call request
-                mcp_request = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/call",
-                    "params": {
-                        "name": tool_name,
-                        "arguments": arguments
-                    }
-                }
-                # Convert to JSON
-                body = json.dumps(mcp_request) + "\n"
-            except json.JSONDecodeError:
-                self.send_error(400, "Invalid JSON in request body")
-                return
-        else:
-            # Ensure the request ends with a newline for direct server requests
-            if not body.endswith('\n'):
-                body += '\n'
-        self.log_message("Request to %s: %s", server_name, body[:100] + "..." if len(body) > 100 else body)
-        try:
-            # Use the container-native approach to communicate with the MCP server
-            cmd = ["docker", "exec", "-i", container_name, "npx", "-y", f"@modelcontextprotocol/server-{server_name}"]
-            # Add additional arguments for specific servers
-            if server_name == "filesystem":
-                cmd.append("/tmp")
-            self.log_message("Executing command: %s", " ".join(cmd))
-            # Execute the command
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False  # Use binary mode for stdin/stdout
-            )
-            # Send the request to the container
-            stdout, stderr = process.communicate(input=body.encode("utf-8"), timeout=10)
-            stderr_text = stderr.decode("utf-8", errors="ignore")
-            if stderr_text and "Secure MCP Filesystem Server running on stdio" not in stderr_text:
-                self.log_message("STDERR: %s", stderr_text)
-            self.log_message("Process return code: %d", process.returncode)
-            if process.returncode != 0:
-                self.send_error(500, f"Error communicating with container (code {process.returncode}): {stderr_text}")
-                return
-            # Get the response
-            response_data = stdout.decode("utf-8", errors="ignore")
-            
-            # Always remove SSE format if present before further processing
-            if response_data.startswith("data: "):
-                response_data = response_data.replace("data: ", "").strip()
-                stdout = response_data.encode("utf-8")
+                # Parse the JSON response
+                response_json = json.loads(response_data)
                 
-            # Log a snippet of the response
-            self.log_message("Response from %s: %s", server_name, 
-                             response_data[:100] + "..." if len(response_data) > 100 else response_data)
-            # Process the response if it's a tool call
-            if tool_name:
-                try:
-                    # Parse the JSON response (already cleaned from SSE format)
-                    response_json = json.loads(response_data)
-                        
-                    # Check for error
-                    if "error" in response_json:
-                        error_code = response_json["error"].get("code", 500)
-                        error_message = response_json["error"].get("message", "Unknown error")
-                        self.send_error(500, f"MCP error: {error_message} (code {error_code})")
-                        return
-                    # Extract result from tools/call response
-                    if "result" in response_json and "content" in response_json["result"]:
-                        content = response_json["result"]["content"]
-                        processed_response = []
-                        for item in content:
-                            if "text" in item:
-                                # Try to parse as JSON
-                                try:
-                                    text_json = json.loads(item["text"])
-                                    processed_response.append(text_json)
-                                except json.JSONDecodeError:
-                                    processed_response.append(item["text"])
-                            elif "data" in item and "mimeType" in item:
-                                # Handle image data
-                                processed_response.append({
-                                    "type": "image",
-                                    "mimeType": item["mimeType"],
-                                    "data": item["data"]
-                                })
-                        # If there's only one item, return it directly
-                        if len(processed_response) == 1:
-                            processed_response = processed_response[0]
-                        # Convert to JSON
-                        response_data = json.dumps(processed_response)
-                        stdout = response_data.encode("utf-8")
-                except json.JSONDecodeError:
-                    # If we can't parse the response, just return it as-is
-                    pass
+                # Check for error
+                if "error" in response_json:
+                    error_code = response_json["error"].get("code", -32000)  # Default error code
+                    error_message = response_json["error"].get("message", "Unknown error")
+                    error_data = response_json["error"].get("data", None)
                     
-            # Send the response
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.add_cors_headers()
-            # Add Content-Length header
-            self.send_header("Content-Length", str(len(stdout)))
-            self.end_headers()
-            self.wfile.write(stdout)
-        except subprocess.TimeoutExpired:
-            self.send_error(504, "Timeout communicating with container")
-        except Exception as e:
-            self.log_message("Error: %s", str(e))
-            self.log_message("Traceback: %s", traceback.format_exc())
-            self.send_error(500, f"Error: {str(e)}")
-
+                    self.log_message(f"MCP Error from {server_name}/{tool_name}: {error_message}")
+                    
+                    # Return the error as JSON with appropriate status code
+                    error_response = json.dumps({
+                        "error": error_message,
+                        "code": error_code,
+                        "data": error_data
+                    })
+                    
+                    self.send_response(400)  # Use 400 for client errors
+                    self.add_cors_headers()
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(error_response)))
+                    self.end_headers()
+                    self.wfile.write(error_response.encode("utf-8"))
+                    return
+                    
+                # Extract result from tools/call response
+                if "result" in response_json and "content" in response_json["result"]:
+                    content = response_json["result"]["content"]
+                    processed_content = []
+                    
+                    for item in content:
+                        if "text" in item:
+                            # Try to parse as JSON
+                            try:
+                                text_json = json.loads(item["text"])
+                                processed_content.append(text_json)
+                            except json.JSONDecodeError:
+                                processed_content.append(item["text"])
+                        elif "data" in item and "mimeType" in item:
+                            # Handle image data
+                            processed_content.append({
+                                "type": "image",
+                                "mimeType": item["mimeType"],
+                                "data": item["data"]
+                            })
+                        else:
+                            processed_content.append(item)
+                    
+                    # If there's only one item, return it directly
+                    # This is critical for OpenWebUI compatibility
+                    final_response = processed_content[0] if len(processed_content) == 1 else processed_content
+                    response_data = json.dumps(final_response)
+                    stdout = response_data.encode("utf-8")
+                else:
+                    # If no content array, but there's a result, return that
+                    if "result" in response_json:
+                        response_data = json.dumps(response_json["result"])
+                        stdout = response_data.encode("utf-8")
+            except json.JSONDecodeError as e:
+                self.log_message(f"Invalid JSON in response: {e}")
+                # If we can't parse the response as JSON, return it as-is
+                stdout = response_data.encode("utf-8")
+        else:
+            # For direct MCP calls, just return the raw response
+            stdout = response_data.encode("utf-8") 
+            
+        # Send the response
+        self.send_response(200)
+        self.add_cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(stdout)))
+        self.end_headers()
+        self.wfile.write(stdout)
+        
+    except subprocess.TimeoutExpired:
+        self.log_message(f"Timeout communicating with server '{server_name}'")
+        self.send_error(504, "Gateway Timeout: MCP server did not respond in time")
+    except Exception as e:
+        self.log_message(f"Error processing request: {str(e)}")
+        self.log_message(traceback.format_exc())
+        self.send_error(500, f"Internal Server Error: {str(e)}")
 def main():
     # Get initial list of servers for logging
     try:
@@ -935,7 +975,6 @@ def main():
             httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nProxy server stopped")
-
 if __name__ == "__main__":
     main()
 `
