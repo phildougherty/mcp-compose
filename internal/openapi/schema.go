@@ -12,7 +12,16 @@ type OpenAPISchema struct {
 	Info       Info                `json:"info"`
 	Servers    []Server            `json:"servers"`
 	Paths      map[string]PathItem `json:"paths"`
+	Specs      []ToolSpec          `json:"specs,omitempty"` // Added specs field for OpenWebUI
 	Components Components          `json:"components"`
+}
+
+// ToolSpec represents a tool specification for OpenWebUI
+type ToolSpec struct {
+	Type        string                 `json:"type"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
 type Info struct {
@@ -37,6 +46,7 @@ type Operation struct {
 	RequestBody RequestBody           `json:"requestBody,omitempty"`
 	Responses   map[string]Response   `json:"responses"`
 	Security    []map[string][]string `json:"security,omitempty"`
+	Tags        []string              `json:"tags,omitempty"`
 }
 
 type RequestBody struct {
@@ -109,13 +119,21 @@ func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, err
 		},
 	}
 
+	// Create specs entries for OpenWebUI compatibility
+	specs := make([]ToolSpec, 0, len(tools))
+
 	// Add paths for each tool
 	for _, tool := range tools {
+		// Clean the operationId to ensure it's a valid identifier
+		operationId := strings.ReplaceAll(tool.Name, "-", "_")
+		operationId = strings.ReplaceAll(operationId, " ", "_")
+
 		pathItem := PathItem{
 			Post: Operation{
 				Summary:     tool.Name,
 				Description: tool.Description,
-				OperationID: strings.ReplaceAll(tool.Name, "-", "_"),
+				OperationID: operationId,
+				Tags:        []string{serverName},
 				RequestBody: RequestBody{
 					Required: true,
 					Content: map[string]MediaType{
@@ -155,6 +173,7 @@ func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, err
 			},
 		}
 
+		// Set the path to match OpenWebUI's expectations
 		schema.Paths["/"+tool.Name] = pathItem
 
 		// Add request schema
@@ -172,7 +191,30 @@ func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, err
 			},
 		}
 		schema.Components.Schemas[tool.Name+"Response"] = responseSchema
+
+		// Create a tool spec entry for OpenWebUI
+		spec := ToolSpec{
+			Type:        "function",
+			Name:        tool.Name,
+			Description: tool.Description,
+		}
+
+		// Use the input schema as parameters
+		if tool.InputSchema != nil {
+			spec.Parameters = tool.InputSchema
+		} else {
+			spec.Parameters = map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+				"required":   []string{},
+			}
+		}
+
+		specs = append(specs, spec)
 	}
+
+	// Add the specs to the schema
+	schema.Specs = specs
 
 	return schema, nil
 }
