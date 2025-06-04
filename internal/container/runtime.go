@@ -4,6 +4,7 @@ package container
 import (
 	"fmt"
 	"io"
+	"mcpcompose/internal/config"
 	"os/exec"
 )
 
@@ -20,6 +21,8 @@ type ContainerOptions struct {
 	Pull        bool
 	NetworkMode string
 	Networks    []string
+	Build       config.BuildConfig // Add this
+
 }
 
 // Runtime defines the interface for container runtimes

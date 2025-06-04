@@ -8,12 +8,13 @@ import (
 
 // OpenAPISchema represents an OpenAPI 3.0 schema
 type OpenAPISchema struct {
-	OpenAPI    string              `json:"openapi"`
-	Info       Info                `json:"info"`
-	Servers    []Server            `json:"servers"`
-	Paths      map[string]PathItem `json:"paths"`
-	Specs      []ToolSpec          `json:"specs,omitempty"` // Added specs field for OpenWebUI
-	Components Components          `json:"components"`
+	OpenAPI    string                `json:"openapi"`
+	Info       Info                  `json:"info"`
+	Servers    []Server              `json:"servers"`
+	Paths      map[string]PathItem   `json:"paths"`
+	Specs      []ToolSpec            `json:"specs,omitempty"` // Added specs field for OpenWebUI
+	Components Components            `json:"components"`
+	Security   []map[string][]string `json:"security,omitempty"`
 }
 
 // ToolSpec represents a tool specification for OpenWebUI
@@ -69,12 +70,13 @@ type Components struct {
 }
 
 type Schema struct {
-	Type        string            `json:"type,omitempty"`
-	Properties  map[string]Schema `json:"properties,omitempty"`
-	Required    []string          `json:"required,omitempty"`
-	Items       *Schema           `json:"items,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Ref         string            `json:"$ref,omitempty"`
+	Type                 string            `json:"type,omitempty"`
+	Properties           map[string]Schema `json:"properties,omitempty"`
+	Required             []string          `json:"required,omitempty"`
+	Items                *Schema           `json:"items,omitempty"`
+	Description          string            `json:"description,omitempty"`
+	Ref                  string            `json:"$ref,omitempty"`
+	AdditionalProperties *Schema           `json:"additionalProperties,omitempty"`
 }
 
 type SecurityScheme struct {

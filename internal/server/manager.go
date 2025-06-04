@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,6 +35,9 @@ type ServerInstance struct {
 	ConnectionInfo   map[string]string
 	HealthStatus     string
 	ResourcesWatcher *ResourcesWatcher
+	mu               sync.RWMutex // Protects access to instance fields
+	ctx              context.Context
+	cancel           context.CancelFunc
 }
 
 // Manager handles server lifecycle operations
@@ -44,22 +48,35 @@ type Manager struct {
 	servers          map[string]*ServerInstance
 	networks         map[string]bool // Tracks networks known/created by this manager instance
 	logger           *logging.Logger
-	mu               sync.Mutex
+	mu               sync.RWMutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	shutdownCh       chan struct{}
+	healthCheckers   map[string]context.CancelFunc
+	healthCheckMu    sync.Mutex
 }
 
-// NewManager creates a new server manager
+// Update the NewManager function in internal/server/manager.go
 func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		// Fallback or handle error if CWD cannot be determined
-		wd = "." // Or return error: fmt.Errorf("failed to get current working directory: %w", err)
+	if cfg == nil {
+		return nil, fmt.Errorf("config cannot be nil")
 	}
 
-	logLevel := "info" // Default log level
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+
+	logLevel := "info"
 	if cfg.Logging.Level != "" {
 		logLevel = cfg.Logging.Level
 	}
-	logger := logging.NewLogger(logLevel) // Assuming NewLogger is correctly defined
+
+	logger := logging.NewLogger(logLevel)
+
+	// CREATE CONTEXT AND CANCEL FUNCTION
+	ctx, cancel := context.WithCancel(context.Background())
 
 	manager := &Manager{
 		config:           cfg,
@@ -68,41 +85,51 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 		servers:          make(map[string]*ServerInstance),
 		networks:         make(map[string]bool),
 		logger:           logger,
+		// ADD THESE FIELDS:
+		ctx:            ctx,
+		cancel:         cancel,
+		shutdownCh:     make(chan struct{}),
+		healthCheckers: make(map[string]context.CancelFunc),
 	}
 
+	// Initialize server instances
 	for name, serverCfg := range cfg.Servers {
+		instanceCtx, instanceCancel := context.WithCancel(ctx)
 		manager.servers[name] = &ServerInstance{
-			Name:           name, // The key from mcp-compose.yaml (e.g., "filesystem")
+			Name:           name,
 			Config:         serverCfg,
-			IsContainer:    serverCfg.Image != "" || serverCfg.Runtime != "", // If image or runtime is set, it's a container
+			IsContainer:    serverCfg.Image != "" || serverCfg.Runtime != "",
 			Status:         "stopped",
 			Capabilities:   make(map[string]bool),
-			ConnectionInfo: make(map[string]string), // To be populated
+			ConnectionInfo: make(map[string]string),
 			HealthStatus:   "unknown",
+			ctx:            instanceCtx,
+			cancel:         instanceCancel,
 		}
 	}
+
 	return manager, nil
 }
 
-// StartServer starts a server with the given name from the mcp-compose.yaml
 func (m *Manager) StartServer(name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock() // Ensure unlock even on panic if StartServer itself panics before defer in goroutine
+	defer m.mu.Unlock()
 
-	m.logger.Info("MANAGER: StartServer called for '%s'", name) // MANAGER log
+	m.logger.Info("MANAGER: StartServer called for '%s'", name)
 
 	instance, ok := m.servers[name]
 	if !ok {
 		m.logger.Error("MANAGER: Server '%s' not found in configuration during StartServer", name)
 		return fmt.Errorf("server '%s' not found in configuration", name)
 	}
+
 	srvCfg := instance.Config
 	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
 	m.logger.Info("MANAGER: Determined fixedIdentifier for '%s' as '%s'", name, fixedIdentifier)
 
 	// Check current status
 	m.logger.Info("MANAGER: Checking current status for '%s' (identifier: %s)...", name, fixedIdentifier)
-	currentStatus, statusErr := m.getServerStatusUnsafe(name, fixedIdentifier) // Use unsafe as we are already locked
+	currentStatus, statusErr := m.getServerStatusUnsafe(name, fixedIdentifier)
 	if statusErr != nil {
 		m.logger.Warning("MANAGER: Error getting status for '%s': %v. Proceeding with start attempt.", name, statusErr)
 	}
@@ -127,7 +154,7 @@ func (m *Manager) StartServer(name string) error {
 	if len(srvCfg.Networks) > 0 {
 		m.logger.Info("MANAGER: Ensuring networks for server '%s': %v", name, srvCfg.Networks)
 		for _, networkName := range srvCfg.Networks {
-			if networkErr := m.ensureNetworkExists(networkName, true); networkErr != nil { // Pass true as we are locked
+			if networkErr := m.ensureNetworkExists(networkName, true); networkErr != nil {
 				m.logger.Error("MANAGER: Failed to ensure network '%s' for server '%s': %v", networkName, name, networkErr)
 				return fmt.Errorf("failed to ensure network '%s' for server '%s': %w", networkName, name, networkErr)
 			}
@@ -152,60 +179,84 @@ func (m *Manager) StartServer(name string) error {
 		return fmt.Errorf("failed to start server '%s' (identifier: %s): %w", name, fixedIdentifier, startErr)
 	}
 
-	instance.Status = "running" // Should be updated after successful start confirmation
+	instance.Status = "running"
 	instance.StartTime = time.Now()
 	m.logger.Info("MANAGER: Server '%s' (identifier: %s) marked as started successfully. ContainerID (if any): %s", name, fixedIdentifier, instance.ContainerID)
 
-	// Post-start actions (hooks, watchers, health checks)
+	// REMOVE ALL THE BLOCKING POST-START ACTIVITIES
+	// Just start them in background goroutines without waiting
+
+	// Post-start hooks (non-blocking)
 	if srvCfg.Lifecycle.PostStart != "" {
-		m.logger.Info("MANAGER: Running post-start hook for server '%s'...", name)
-		if hookErr := m.runLifecycleHook(srvCfg.Lifecycle.PostStart); hookErr != nil {
-			m.logger.Warning("MANAGER: Post-start hook for server '%s' failed: %v (continuing)", name, hookErr)
-		} else {
-			m.logger.Info("MANAGER: Post-start hook for server '%s' completed.", name)
-		}
+		go func() {
+			m.logger.Info("MANAGER: Running post-start hook for server '%s' (background)...", name)
+			if hookErr := m.runLifecycleHook(srvCfg.Lifecycle.PostStart); hookErr != nil {
+				m.logger.Warning("MANAGER: Post-start hook for server '%s' failed: %v", name, hookErr)
+			} else {
+				m.logger.Info("MANAGER: Post-start hook for server '%s' completed.", name)
+			}
+		}()
 	}
 
+	// Resource watcher (non-blocking)
 	if config.IsCapabilityEnabled(srvCfg, "resources") && len(srvCfg.Resources.Paths) > 0 {
-		m.logger.Info("MANAGER: Initializing resource watcher for server '%s'...", name)
-		watcher, watchErr := NewResourcesWatcher(&srvCfg, m.logger) // Pass logger
-		if watchErr != nil {
-			m.logger.Warning("MANAGER: Failed to initialize resource watcher for server '%s': %v", name, watchErr)
-		} else {
+		go func() {
+			m.logger.Info("MANAGER: Initializing resource watcher for server '%s' (background)...", name)
+			watcher, watchErr := NewResourcesWatcher(&srvCfg, m.logger)
+			if watchErr != nil {
+				m.logger.Warning("MANAGER: Failed to initialize resource watcher for server '%s': %v", name, watchErr)
+				return
+			}
 			instance.ResourcesWatcher = watcher
-			go watcher.Start()
-			m.logger.Info("MANAGER: Resource watcher started for server '%s'.", name)
-		}
+			watcher.Start()
+		}()
 	}
 
+	// Health check (non-blocking)
 	if srvCfg.Lifecycle.HealthCheck.Endpoint != "" {
-		m.logger.Info("MANAGER: Starting health check for server '%s' (identifier: %s)...", name, fixedIdentifier)
-		go m.startHealthCheck(name, fixedIdentifier)
+		go func() {
+			m.logger.Info("MANAGER: Starting health check for server '%s' (background)...", name)
+			m.startHealthCheck(name, fixedIdentifier)
+		}()
 	}
 
-	if capErr := m.initializeServerCapabilities(name); capErr != nil {
-		m.logger.Warning("MANAGER: Failed to initialize capabilities for server '%s': %v", name, capErr)
-	}
+	// Capabilities (non-blocking)
+	go func() {
+		if capErr := m.initializeServerCapabilities(name); capErr != nil {
+			m.logger.Warning("MANAGER: Failed to initialize capabilities for server '%s': %v", name, capErr)
+		} else {
+			m.logger.Info("MANAGER: Capabilities initialized for server '%s'", name)
+		}
+	}()
 
-	m.logger.Info("MANAGER: StartServer for '%s' completed fully.", name)
+	m.logger.Info("MANAGER: StartServer for '%s' completed.", name)
 	return nil
 }
 
-// startContainerServer uses containerNameToUse for Docker/Podman --name
 func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string, srvCfg *config.ServerConfig) error {
 	runtimeType := srvCfg.Runtime
 	if runtimeType == "" && srvCfg.Image != "" {
 		runtimeType = "docker" // Default to docker if image is specified
 	}
-
 	if m.containerRuntime.GetRuntimeName() == "none" && srvCfg.Image != "" {
 		return fmt.Errorf("server '%s' requires container runtime but none available", serverKeyName)
 	}
 	if srvCfg.Image == "" {
 		return fmt.Errorf("server '%s' (container: %s) has no image specified", serverKeyName, containerNameToUse)
 	}
-
 	m.logger.Info("Preparing to start container '%s' for server '%s' with image '%s'", containerNameToUse, serverKeyName, srvCfg.Image)
+
+	// Ensure mcp-net network exists FIRST
+	if m.containerRuntime != nil && m.containerRuntime.GetRuntimeName() != "none" {
+		networkExists, _ := m.containerRuntime.NetworkExists("mcp-net")
+		if !networkExists {
+			if err := m.containerRuntime.CreateNetwork("mcp-net"); err != nil {
+				m.logger.Warning("Failed to create mcp-net network: %v", err)
+			} else {
+				m.logger.Info("Created mcp-net network")
+			}
+		}
+	}
 
 	var volumes []string
 	if srvCfg.Volumes != nil {
@@ -227,17 +278,52 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 	// Prepare environment variables, including MCP_SERVER_NAME
 	envVars := config.MergeEnv(srvCfg.Env, map[string]string{"MCP_SERVER_NAME": serverKeyName})
 
+	// Use existing ports from config (no auto HTTP port exposure)
+	ports := make([]string, len(srvCfg.Ports))
+	copy(ports, srvCfg.Ports)
+
+	// LOG: Explain why we don't expose HTTP ports for HTTP protocol servers
+	if srvCfg.Protocol == "http" {
+		m.logger.Info("Server '%s' uses HTTP protocol - accessible via Docker network only (no host port exposure needed)", serverKeyName)
+	} else {
+		m.logger.Info("Server '%s' uses protocol '%s'", serverKeyName, srvCfg.Protocol)
+	}
+
+	// CRITICAL FIX: For HTTP wrapper images, don't override the command
+	var command string
+	var args []string
+
+	if srvCfg.Protocol == "http" && strings.Contains(srvCfg.Image, "mcp-http-server") {
+		// HTTP wrapper images have their own built-in command, don't override it
+		m.logger.Info("Using built-in command for HTTP wrapper image '%s'", srvCfg.Image)
+		command = "" // Let the image use its default CMD
+		args = nil
+	} else {
+		// Use the configured command for other servers
+		command = srvCfg.Command
+		args = srvCfg.Args
+		m.logger.Info("Using configured command '%s' with args %v", command, args)
+	}
+
+	// Ensure networks include mcp-net
+	networks := []string{"mcp-net"} // Always include mcp-net
+	for _, net := range srvCfg.Networks {
+		if net != "mcp-net" { // Don't duplicate
+			networks = append(networks, net)
+		}
+	}
+
 	opts := &container.ContainerOptions{
 		Name:        containerNameToUse, // This is the name Docker/Podman will use
 		Image:       srvCfg.Image,
-		Command:     srvCfg.Command,
-		Args:        srvCfg.Args,
+		Command:     command, // Don't override for HTTP wrappers
+		Args:        args,    // Don't override for HTTP wrappers
 		Env:         envVars,
 		Pull:        srvCfg.Pull,
 		Volumes:     volumes,
-		Ports:       srvCfg.Ports,
-		NetworkMode: srvCfg.NetworkMode,
-		Networks:    srvCfg.Networks,
+		Ports:       ports,    // Only explicitly configured ports, no auto HTTP ports
+		NetworkMode: "",       // Don't use NetworkMode, use Networks instead
+		Networks:    networks, // Ensure mcp-net is included
 		WorkDir:     srvCfg.WorkDir,
 	}
 
@@ -252,15 +338,28 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 		}
 	}
 
+	// Log final container options for debugging
+	m.logger.Info("Starting container with options: Name=%s, Image=%s, Command=%s, Args=%v, Ports=%v, Networks=%v, Protocol=%s",
+		opts.Name, opts.Image, opts.Command, opts.Args, opts.Ports, opts.Networks, srvCfg.Protocol)
+
 	// Start the container
-	containerID, err := m.containerRuntime.StartContainer(opts) // StartContainer is from your container.Runtime interface
+	containerID, err := m.containerRuntime.StartContainer(opts)
 	if err != nil {
 		return fmt.Errorf("failed to start container '%s' for server '%s': %w", containerNameToUse, serverKeyName, err)
 	}
 
 	// Store the actual container ID provided by the runtime
-	m.servers[serverKeyName].ContainerID = containerID
-	m.logger.Info("Container '%s' (ID: %s) for server '%s' started", containerNameToUse, containerID, serverKeyName)
+	m.mu.RLock()
+	instance := m.servers[serverKeyName]
+	m.mu.RUnlock()
+
+	if instance != nil {
+		instance.mu.Lock()
+		instance.ContainerID = containerID
+		instance.mu.Unlock()
+	}
+
+	m.logger.Info("Container '%s' (ID: %s) for server '%s' started - accessible via Docker network", containerNameToUse, containerID, serverKeyName)
 	return nil
 }
 
@@ -905,6 +1004,56 @@ func (m *Manager) ensureNetworkExists(networkName string, lockedByCaller bool) e
 	}
 
 	m.networks[networkName] = true // Mark as handled
+	return nil
+}
+
+// Add this method to internal/server/manager.go if it's missing
+func (m *Manager) Shutdown() error {
+	m.logger.Info("MANAGER: Starting shutdown process")
+
+	// Cancel all contexts
+	if m.cancel != nil {
+		m.cancel()
+	}
+
+	// Stop all health checkers
+	m.healthCheckMu.Lock()
+	for name, cancel := range m.healthCheckers {
+		m.logger.Debug("MANAGER: Stopping health checker for %s", name)
+		cancel()
+	}
+	m.healthCheckers = make(map[string]context.CancelFunc)
+	m.healthCheckMu.Unlock()
+
+	// Stop all servers
+	m.mu.RLock()
+	serverNames := make([]string, 0, len(m.servers))
+	for name := range m.servers {
+		serverNames = append(serverNames, name)
+	}
+	m.mu.RUnlock()
+
+	for _, name := range serverNames {
+		if err := m.StopServer(name); err != nil {
+			m.logger.Error("MANAGER: Error stopping server %s during shutdown: %v", name, err)
+		}
+	}
+
+	// Wait for all goroutines to finish
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		m.logger.Info("MANAGER: All goroutines finished")
+	case <-time.After(30 * time.Second):
+		m.logger.Warning("MANAGER: Timeout waiting for goroutines to finish")
+	}
+
+	close(m.shutdownCh)
 	return nil
 }
 

@@ -5,13 +5,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings" // Import the strings package
 
 	"gopkg.in/yaml.v3"
 )
 
+// ProxyAuthConfig defines authentication settings for the proxy itself
+type ProxyAuthConfig struct {
+	Enabled bool   `yaml:"enabled,omitempty"`
+	APIKey  string `yaml:"api_key,omitempty"` // If you want to store the API key in the config file
+}
+
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
 	Version      string                       `yaml:"version"`
+	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"` // <--- ADD THIS LINE
 	Servers      map[string]ServerConfig      `yaml:"servers"`
 	Connections  map[string]ConnectionConfig  `yaml:"connections,omitempty"`
 	Logging      LoggingConfig                `yaml:"logging,omitempty"`
@@ -26,21 +34,22 @@ type ServerConfig struct {
 	// Process-based setup
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
-
 	// Container-based setup
-	Image   string `yaml:"image,omitempty"`
-	Runtime string `yaml:"runtime,omitempty"` // docker, podman, etc.
-	Pull    bool   `yaml:"pull,omitempty"`    // whether to pull image before starting
-
+	Image   string      `yaml:"image,omitempty"`
+	Build   BuildConfig `yaml:"build,omitempty"`   // Add this
+	Runtime string      `yaml:"runtime,omitempty"` // docker, podman, etc.
+	Pull    bool        `yaml:"pull,omitempty"`    // whether to pull image before starting
 	// Common settings
-	WorkDir      string            `yaml:"workdir,omitempty"`
-	Env          map[string]string `yaml:"env,omitempty"`
-	Ports        []string          `yaml:"ports,omitempty"`
-	Volumes      []string          `yaml:"volumes,omitempty"`
-	Capabilities []string          `yaml:"capabilities,omitempty"`
-	DependsOn    []string          `yaml:"depends_on,omitempty"`
-
+	WorkDir         string            `yaml:"workdir,omitempty"`
+	Env             map[string]string `yaml:"env,omitempty"`
+	Ports           []string          `yaml:"ports,omitempty"`             // For mapping container ports to host
+	HttpPort        int               `yaml:"http_port,omitempty"`         // Port server listens on *inside* container for HTTP
+	Protocol        string            `yaml:"protocol,omitempty"`          // "http" or "stdio" (default)
+	StdioHosterPort int               `yaml:"stdio_hoster_port,omitempty"` // New field for socat-hosted STDIO
+	Capabilities    []string          `yaml:"capabilities,omitempty"`
+	DependsOn       []string          `yaml:"depends_on,omitempty"`
 	// Enhanced settings
+	Volumes       []string            `yaml:"volumes,omitempty"` // <--- ADD THIS LINE BACK
 	Resources     ResourcesConfig     `yaml:"resources,omitempty"`
 	Tools         []ToolConfig        `yaml:"tools,omitempty"`
 	Prompts       []PromptConfig      `yaml:"prompts,omitempty"`
@@ -50,6 +59,14 @@ type ServerConfig struct {
 	CapabilityOpt CapabilityOptConfig `yaml:"capability_options,omitempty"`
 	NetworkMode   string              `yaml:"network_mode,omitempty"`
 	Networks      []string            `yaml:"networks,omitempty"`
+	// HttpPath is not used by the current proxy design which proxies based on server name in URL path
+	// HttpPath      string              `yaml:"http_path,omitempty"`
+}
+
+type BuildConfig struct {
+	Context    string            `yaml:"context,omitempty"`
+	Dockerfile string            `yaml:"dockerfile,omitempty"`
+	Args       map[string]string `yaml:"args,omitempty"` // For --build-arg
 }
 
 // ConnectionConfig represents connection settings for MCP communication
@@ -297,17 +314,17 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	// Read file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file '%s': %w", filePath, err)
 	}
 
 	// Expand environment variables
-	expandedData := expandEnvVars(string(data))
+	expandedData := os.ExpandEnv(string(data)) // Use os.ExpandEnv for ${VAR} and $VAR
 
 	// Parse YAML
 	var config ComposeConfig
 	err = yaml.Unmarshal([]byte(expandedData), &config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file '%s': %w", filePath, err)
 	}
 
 	// Get current environment from MCP_ENV environment variable
@@ -315,8 +332,6 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	if envName == "" {
 		envName = "development" // Default environment
 	}
-
-	// Store current environment name
 	config.CurrentEnv = envName
 
 	// Apply environment-specific overrides if they exist
@@ -326,9 +341,8 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 
 	// Validate config
 	if err := validateConfig(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, fmt.Errorf("invalid configuration in '%s': %w", filePath, err)
 	}
-
 	return &config, nil
 }
 
@@ -346,7 +360,6 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 					server.Env[k] = v
 				}
 			}
-
 			// Apply resource settings
 			if len(overrides.Resources.Paths) > 0 {
 				server.Resources.Paths = overrides.Resources.Paths
@@ -354,88 +367,92 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 			if overrides.Resources.SyncInterval != "" {
 				server.Resources.SyncInterval = overrides.Resources.SyncInterval
 			}
-			if overrides.Resources.CacheTTL > 0 {
+			if overrides.Resources.CacheTTL > 0 { // Should be CacheTTL not CacheTLL
 				server.Resources.CacheTTL = overrides.Resources.CacheTTL
 			}
-
 			// Update the server in the config
 			config.Servers[serverName] = server
 		}
 	}
 }
 
-// expandEnvVars replaces ${VAR} or $VAR in the string with the values from environment variables
-func expandEnvVars(s string) string {
-	// Replace ${VAR} syntax
-	result := os.Expand(s, func(key string) string {
-		return os.Getenv(key)
-	})
-	return result
-}
-
 // validateConfig performs basic validation on the loaded configuration
 func validateConfig(config *ComposeConfig) error {
-	if config.Version != "1" {
-		return fmt.Errorf("unsupported version: %s", config.Version)
+	if config.Version != "1" { // Ensure this matches your expected version string
+		return fmt.Errorf("unsupported version: '%s', expected '1'", config.Version)
 	}
-
 	if len(config.Servers) == 0 {
-		return fmt.Errorf("no servers defined")
+		// This might be a valid state if no servers are defined,
+		// but usually, you'd expect at least one.
+		// For now, let's not error, as a file with just proxy_auth might be valid.
+		// return fmt.Errorf("no servers defined")
 	}
-
 	for name, server := range config.Servers {
-		// Check that either command or image is specified
 		if server.Command == "" && server.Image == "" {
 			return fmt.Errorf("server '%s' must specify either command or image", name)
 		}
-
-		// If image is specified, verify runtime is valid
 		if server.Image != "" && server.Runtime != "" {
-			if server.Runtime != "docker" && server.Runtime != "podman" {
+			if server.Runtime != "docker" && server.Runtime != "podman" { // Add other supported runtimes if any
 				return fmt.Errorf("server '%s' has invalid runtime: %s", name, server.Runtime)
 			}
 		}
-
-		// Check for valid capabilities
+		// Validate capabilities (optional, depends on how strict you want parsing to be)
+		validCaps := map[string]bool{"resources": true, "tools": true, "prompts": true, "sampling": true, "logging": true}
 		for _, cap := range server.Capabilities {
-			switch cap {
-			case "resources", "tools", "prompts", "sampling", "logging":
-				// These are valid capabilities
-			default:
-				return fmt.Errorf("server '%s' has invalid capability: %s", name, cap)
+			if !validCaps[cap] {
+				return fmt.Errorf("server '%s' has invalid capability: '%s'", name, cap)
 			}
 		}
-
-		// Validate resource paths
 		for _, path := range server.Resources.Paths {
 			if path.Source == "" || path.Target == "" {
 				return fmt.Errorf("server '%s' has invalid resource path: source and target are required", name)
 			}
 		}
-
-		// Validate tools
 		for _, tool := range server.Tools {
 			if tool.Name == "" {
-				return fmt.Errorf("server '%s' has a tool with empty name", name)
+				return fmt.Errorf("server '%s' has a tool with an empty name", name)
 			}
 		}
-
-		// Validate prompts
 		for _, prompt := range server.Prompts {
 			if prompt.Name == "" || prompt.Template == "" {
 				return fmt.Errorf("server '%s' has invalid prompt: name and template are required", name)
 			}
 		}
-
-		// Validate dependencies
 		for _, dep := range server.DependsOn {
 			if _, exists := config.Servers[dep]; !exists {
 				return fmt.Errorf("server '%s' depends on undefined server '%s'", name, dep)
 			}
 		}
-	}
+		// Validate protocol if specified
+		if server.Protocol != "" && server.Protocol != "stdio" && server.Protocol != "http" {
+			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be 'stdio' or 'http'", name, server.Protocol)
+		}
+		if server.Protocol == "http" && server.HttpPort == 0 {
+			// Check if http port can be inferred from args or ports for HTTP protocol servers
+			hasPortInArgs := false
+			for _, arg := range server.Args {
+				if strings.HasPrefix(arg, "--port") { // covers --port=X and --port X (if next arg is num)
+					hasPortInArgs = true
+					break
+				}
+			}
+			hasPortMapping := false
+			if len(server.Ports) > 0 {
+				for _, p := range server.Ports { // "8001:8001" or "8001"
+					parts := strings.Split(p, ":")
+					if len(parts) > 0 && parts[len(parts)-1] != "" { // check container port
+						hasPortMapping = true
+						break
+					}
+				}
+			}
+			if !hasPortInArgs && !hasPortMapping {
+				return fmt.Errorf("server '%s' uses 'http' protocol but 'http_port' is not defined, and cannot be inferred from args or ports mappings", name)
+			}
+		}
 
-	// Validate connections
+	}
+	// Validate connections (if any are defined)
 	for name, conn := range config.Connections {
 		switch conn.Transport {
 		case "stdio", "http+sse", "tcp", "websocket":
@@ -443,13 +460,10 @@ func validateConfig(config *ComposeConfig) error {
 		default:
 			return fmt.Errorf("connection '%s' has invalid transport: %s", name, conn.Transport)
 		}
-
-		// HTTP transports require a port
 		if (conn.Transport == "http+sse" || conn.Transport == "websocket") && conn.Port == 0 && conn.Expose {
 			return fmt.Errorf("connection '%s' is exposed but has no port specified", name)
 		}
 	}
-
 	return nil
 }
 
@@ -457,7 +471,6 @@ func validateConfig(config *ComposeConfig) error {
 func GetProjectName(filePath string) string {
 	dir := filepath.Dir(filePath)
 	if dir == "." {
-		// Use current directory name if file is in current dir
 		if cwd, err := os.Getwd(); err == nil {
 			dir = cwd
 		}
@@ -467,50 +480,35 @@ func GetProjectName(filePath string) string {
 
 // IsCapabilityEnabled checks if a capability is enabled for a server
 func IsCapabilityEnabled(server ServerConfig, capability string) bool {
-	// Check if the capability is in the server's capability list
 	for _, cap := range server.Capabilities {
 		if cap == capability {
 			return true
 		}
 	}
-
-	// Check specific capability options
-	switch capability {
-	case "resources":
-		return server.CapabilityOpt.Resources.Enabled
-	case "tools":
-		return server.CapabilityOpt.Tools.Enabled
-	case "prompts":
-		return server.CapabilityOpt.Prompts.Enabled
-	case "sampling":
-		return server.CapabilityOpt.Sampling.Enabled
-	case "logging":
-		return server.CapabilityOpt.Logging.Enabled
-	}
-
-	return false
+	// Check specific capability options (this part might be more complex depending on your full config structure)
+	// switch capability {
+	// case "resources":
+	// 	return server.CapabilityOpt.Resources.Enabled
+	// // ... other capabilities
+	// }
+	return false // Default if not explicitly listed or in detailed options
 }
 
 // MergeEnv merges the provided env vars with the server's env vars
 func MergeEnv(serverEnv, extraEnv map[string]string) map[string]string {
 	result := make(map[string]string)
-
-	// Copy server env
-	for k, v := range serverEnv {
+	for k, v := range serverEnv { // Copy base
 		result[k] = v
 	}
-
-	// Add/override with extra env
-	for k, v := range extraEnv {
+	for k, v := range extraEnv { // Override or add
 		result[k] = v
 	}
-
 	return result
 }
 
 // ConvertToEnvList converts an environment map to a list of KEY=VALUE strings
 func ConvertToEnvList(env map[string]string) []string {
-	result := make([]string, 0, len(env))
+	var result []string
 	for k, v := range env {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}

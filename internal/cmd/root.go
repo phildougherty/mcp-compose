@@ -27,7 +27,9 @@ func NewRootCommand() *cobra.Command {
 	rootCmd.AddCommand(NewCompletionCommand())
 	rootCmd.AddCommand(NewInspectorCommand())
 	rootCmd.AddCommand(NewCreateConfigCommand())
-	rootCmd.AddCommand(NewProxyCommand()) // Add this line
+	rootCmd.AddCommand(NewProxyCommand())
+	rootCmd.AddCommand(NewReloadCommand())
+	rootCmd.AddCommand(NewRemoteCommand())
 
 	return rootCmd
 }

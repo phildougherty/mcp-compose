@@ -3,42 +3,29 @@ package compose
 
 import (
 	"fmt"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/server"
 	"os"
-	"os/exec"
+	"strconv"
 	"strings"
-	"sync"
 	"text/tabwriter"
 	"time"
 
-	// Import time for delays if needed for debugging
+	"mcpcompose/internal/config"
+	"mcpcompose/internal/container"
+
+	// server import might not be needed if compose commands directly use container runtime
+	// "mcpcompose/internal/server"
+
 	"github.com/fatih/color"
 )
 
-const (
-	colorReset  = "\033[0m"
-	colorGreen  = "\033[32m"
-	colorRed    = "\033[31m"
-	colorYellow = "\033[33m"
-)
-
-// Up starts all servers defined in the compose file or only the specified servers
 func Up(configFile string, serverNames []string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
-
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
-	}
-
-	mgr, err := server.NewManager(cfg, cRuntime) // Pass cfg and cRuntime
-	if err != nil {
-		return fmt.Errorf("failed to create server manager: %w", err)
 	}
 
 	serversToStart := getServersToStart(cfg, serverNames)
@@ -47,99 +34,157 @@ func Up(configFile string, serverNames []string) error {
 		return nil
 	}
 
-	fmt.Printf("Starting %d MCP server(s)...\n", len(serversToStart))
+	fmt.Printf("Starting %d MCP server(s) with mixed transports...\n", len(serversToStart))
+	var composeErrors []string // Renamed to avoid conflict with the 'errors' package
+	successCount := 0
 
-	levels := getDependencyLevels(cfg, serversToStart)
-
-	totalServers := len(serversToStart)
-	startedCount := 0
-	var overallErrors []string
-
-	// For Docker Compose like output
-	serverStatuses := make(map[string]string)
-	var serverOrder []string // To print in a somewhat consistent order
-
-	for i, level := range levels {
-		fmt.Printf("INFO: Starting dependency level %d: %v\n", i+1, level)
-		var wg sync.WaitGroup
-
-		// Use a channel to get status updates from goroutines
-		statusCh := make(chan struct {
-			name     string
-			err      error
-			duration time.Duration
-		}, len(level))
-
-		for _, name := range level {
-			serverOrder = append(serverOrder, name) // Keep track of order
-			serverStatuses[name] = "Starting"       // Initial status
-
-			wg.Add(1)
-			serverNameToStart := name
-			go func() {
-				defer wg.Done()
-				startTime := time.Now()
-				startErr := mgr.StartServer(serverNameToStart)
-				duration := time.Since(startTime)
-				statusCh <- struct {
-					name     string
-					err      error
-					duration time.Duration
-				}{serverNameToStart, startErr, duration}
-			}()
-		}
-
-		// Wait for all goroutines in this level to send their status
-		// but also periodically update the display (more advanced, for now just wait then print)
-
-		// Simple wait and collect
-		for j := 0; j < len(level); j++ {
-			update := <-statusCh
-			if update.err != nil {
-				serverStatuses[update.name] = fmt.Sprintf("Error (%s)", ShortDuration(update.duration))
-				errMsg := fmt.Sprintf("Error starting '%s': %v", update.name, update.err)
-				fmt.Printf("%s[✖] Server %-30s %s (%v)%s\n", colorRed, update.name, "Error", update.err, colorReset)
-				overallErrors = append(overallErrors, errMsg)
-			} else {
-				serverStatuses[update.name] = fmt.Sprintf("Started (%s)", ShortDuration(update.duration))
-				fmt.Printf("%s[✔] Server %-30s %s%s\n", colorGreen, update.name, "Started", colorReset)
-				startedCount++
+	// Ensure mcp-net network exists before starting any server
+	if cRuntime.GetRuntimeName() != "none" {
+		networkExists, _ := cRuntime.NetworkExists("mcp-net")
+		if !networkExists {
+			fmt.Println("Default network 'mcp-net' does not exist, attempting to create it...")
+			if err := cRuntime.CreateNetwork("mcp-net"); err != nil {
+				// This is a significant issue if containers need to communicate.
+				// Depending on strictness, you might want to return an error here.
+				fmt.Fprintf(os.Stderr, "Warning: Failed to create 'mcp-net' network: %v. Inter-server communication might fail.\n", err)
 			}
 		}
-		close(statusCh)
-		wg.Wait() // Ensure all goroutines truly finished, though channel sync mostly covers this
-
-		if len(overallErrors) > 0 && i < len(levels)-1 {
-			// If errors in a level, perhaps don't continue to next levels?
-			// Docker Compose often tries to start all independent services.
-			fmt.Fprintf(os.Stderr, "%sWARNING: Errors encountered in level %d, subsequent levels may fail or be skipped.%s\n", colorYellow, i+1, colorReset)
-			// To stop: return fmt.Errorf("failed to start all servers in level %d: %s", i+1, strings.Join(overallErrors, "; "))
-		}
 	}
 
-	fmt.Println("\n--- Summary ---")
-	for _, name := range serverOrder {
-		status := serverStatuses[name]
-		if strings.HasPrefix(status, "Error") {
-			fmt.Printf("%s[✖] Server %-30s %s%s\n", colorRed, name, status, colorReset)
+	for _, serverName := range serversToStart {
+		fmt.Printf("Processing server '%s'...\n", serverName)
+		startTime := time.Now()
+		serverCfg, exists := cfg.Servers[serverName]
+		if !exists {
+			composeErrors = append(composeErrors, fmt.Sprintf("Server '%s' not found in config", serverName))
+			fmt.Printf("[✖] Server %-30s Error: not found in config\n", serverName)
+			continue
+		}
+
+		// For HTTP transport, ensure the server configuration is appropriate
+		if serverCfg.Image != "" {
+			isHTTPIntended := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
+			hasHTTPArgs := false
+			for _, arg := range serverCfg.Args {
+				if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
+					hasHTTPArgs = true
+					break
+				}
+			}
+
+			if !isHTTPIntended && !hasHTTPArgs {
+				fmt.Printf("[i] Server %-30s will start in STDIO mode (no HTTP config detected).\n", serverName)
+			} else if isHTTPIntended || hasHTTPArgs {
+				fmt.Printf("[i] Server %-30s will start in HTTP mode.\n", serverName)
+			}
+		}
+
+		err := startServerContainer(serverName, serverCfg, cRuntime) // This function now handles both container and process servers
+		duration := time.Since(startTime)
+		if err != nil {
+			errMsg := fmt.Sprintf("Server '%s' failed to start: %v", serverName, err)
+			composeErrors = append(composeErrors, errMsg)
+			fmt.Printf("[✖] Server %-30s Error: %v (%s)\n", serverName, err, ShortDuration(duration))
 		} else {
-			fmt.Printf("%s[✔] Server %-30s %s%s\n", colorGreen, name, status, colorReset)
+			successCount++
+			// Brief pause to allow server to initialize its HTTP listener
+			time.Sleep(2 * time.Second)
+			fmt.Printf("[✔] Server %-30s Started (%s). Proxy will attempt HTTP connection.\n", serverName, ShortDuration(duration))
 		}
 	}
 
-	if len(overallErrors) > 0 {
-		fmt.Fprintf(os.Stderr, "\n%sFinished with errors (%d/%d started):%s\n", colorRed, startedCount, totalServers, colorReset)
-		for _, e := range overallErrors {
-			fmt.Fprintf(os.Stderr, "- %s\n", e)
+	fmt.Printf("\n=== HTTP STARTUP SUMMARY ===\n")
+	fmt.Printf("Servers processed: %d\n", len(serversToStart))
+	fmt.Printf("Successfully started: %d\n", successCount)
+	fmt.Printf("Failed: %d\n", len(composeErrors))
+
+	if len(composeErrors) > 0 {
+		fmt.Printf("\nErrors encountered:\n")
+		for _, e := range composeErrors {
+			fmt.Printf("- %s\n", e)
 		}
-		return fmt.Errorf("one or more servers failed to start")
+		return fmt.Errorf("failed to start some servers. Check server configurations for HTTP mode and port exposure, and ensure commands are correct for HTTP startup")
 	}
 
-	fmt.Printf("\n%sAll %d/%d servers started successfully.%s\n", colorGreen, startedCount, totalServers, colorReset)
+	if successCount > 0 {
+		fmt.Printf("\n✅ Startup completed. %d/%d servers are attempting to run in HTTP mode.\n", successCount, len(serversToStart))
+		fmt.Printf("The proxy will connect to them over HTTP via the 'mcp-net' Docker network (for containers) or localhost (for processes).\n")
+		fmt.Printf("Use 'mcp-compose down' to stop them.\n")
+	}
 	return nil
 }
 
-// ShortDuration formats time.Duration for concise output
+func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
+	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName}) // Pass MCP_SERVER_NAME
+
+	isSocatHostedStdio := serverCfg.StdioHosterPort > 0
+	isHttp := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
+
+	dockerCommandForContainer := serverCfg.Command // This will be passed to entrypoint or become CMD
+	dockerArgsForContainer := serverCfg.Args       // These too
+
+	if isSocatHostedStdio {
+		fmt.Printf("Starting container '%s' for server '%s' (Socat STDIO Hoster mode on internal port %d).\n",
+			containerName, serverName, serverCfg.StdioHosterPort)
+		envVars["MCP_SOCAT_INTERNAL_PORT"] = strconv.Itoa(serverCfg.StdioHosterPort)
+		// The serverCfg.Command and serverCfg.Args will be passed to the entrypoint.sh inside the socat hoster image
+	} else if isHttp {
+		fmt.Printf("Starting container '%s' for server '%s' (HTTP mode on internal port %d).\n",
+			containerName, serverName, serverCfg.HttpPort)
+		if serverCfg.HttpPort > 0 {
+			envVars["MCP_HTTP_PORT"] = strconv.Itoa(serverCfg.HttpPort)
+		}
+		envVars["MCP_TRANSPORT"] = "http"
+	} else { // Plain STDIO (direct exec model - may still be needed for servers not using socat hoster)
+		fmt.Printf("Starting container '%s' for server '%s' (Direct STDIO mode).\n",
+			containerName, serverName)
+		// No special env vars for transport needed for direct STDIO
+	}
+
+	// Add other env vars from config
+	for k, v := range serverCfg.Env {
+		if _, exists := envVars[k]; !exists { // Don't override already set specific vars
+			envVars[k] = v
+		}
+	}
+
+	networks := []string{"mcp-net"}
+	for _, net := range serverCfg.Networks {
+		isMcpNet := false
+		for _, existingNet := range networks {
+			if net == existingNet {
+				isMcpNet = true
+				break
+			}
+		}
+		if !isMcpNet {
+			networks = append(networks, net)
+		}
+	}
+
+	opts := &container.ContainerOptions{
+		Name:        containerName,
+		Image:       serverCfg.Image,           // If using 'build', this will be the built image name/tag
+		Build:       serverCfg.Build,           // Pass build context if defined
+		Command:     dockerCommandForContainer, // Becomes CMD in container, args to ENTRYPOINT
+		Args:        dockerArgsForContainer,
+		Env:         envVars,
+		Pull:        serverCfg.Pull,
+		Volumes:     serverCfg.Volumes,
+		Ports:       serverCfg.Ports, //
+		Networks:    networks,
+		WorkDir:     serverCfg.WorkDir,
+		NetworkMode: serverCfg.NetworkMode,
+	}
+
+	_, err := cRuntime.StartContainer(opts)
+	if err != nil {
+		return fmt.Errorf("failed to start container for server '%s': %w", serverName, err)
+	}
+	return nil
+}
+
 func ShortDuration(d time.Duration) string {
 	if d < time.Millisecond {
 		return fmt.Sprintf("%dns", d.Nanoseconds())
@@ -150,7 +195,6 @@ func ShortDuration(d time.Duration) string {
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 
-// Down stops and removes all servers defined in the config
 func Down(configFile string, serverNames []string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
@@ -160,128 +204,87 @@ func Down(configFile string, serverNames []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
-	mgr, err := server.NewManager(cfg, cRuntime)
-	if err != nil {
-		return fmt.Errorf("failed to create server manager: %w", err)
-	}
-
-	fmt.Println("Stopping MCP servers...")
-
-	var serversToStop []string
-	if len(serverNames) > 0 {
-		// Stop only specified servers (and their dependents if you implement that logic)
-		// For now, let's assume Stop specified means just those.
-		// For a full "down" of specified, one might want to find all dependents too.
-		// However, the original Down seemed to imply all servers in the config if serverNames is empty.
-		fmt.Printf("DEBUG: Specified servers to stop: %v\n", serverNames)
-		serversToStop = getServersToStop(cfg, serverNames) // You'd need a getServersToStop similar to getServersToStart if you want dependency handling
-	} else {
-		// Stop all servers defined in the config
-		for name := range cfg.Servers {
-			serversToStop = append(serversToStop, name)
-		}
-		fmt.Println("DEBUG: Stopping all configured servers.")
-	}
-
-	if len(serversToStop) == 0 {
-		fmt.Println("No servers selected or defined to stop.")
+	if cRuntime.GetRuntimeName() == "none" {
+		fmt.Println("No container runtime detected. 'down' command primarily targets containers.")
+		// Optionally, add logic here to stop process-based servers if they are managed by mcp-compose
 		return nil
 	}
 
-	levels := getDependencyLevels(cfg, serversToStop) // Get levels for stopping
-
-	for i := len(levels) - 1; i >= 0; i-- { // Stop in reverse dependency order
-		level := levels[i]
-		fmt.Printf("--- Stopping dependency level %d (original level %d in start order), servers: %v ---\n", len(levels)-i, i+1, level)
-		var wg sync.WaitGroup
-		errCh := make(chan error, len(level))
-
-		for _, name := range level {
-			wg.Add(1)
-			serverNameToStop := name
-			go func() {
-				defer wg.Done()
-				fmt.Printf("GOROUTINE: Attempting to stop server '%s'...\n", serverNameToStop)
-				if stopErr := mgr.StopServer(serverNameToStop); stopErr != nil {
-					// For "down", we usually want to continue even if one server fails to stop.
-					fmt.Printf("GOROUTINE WARNING: Failed to stop server '%s': %v\n", serverNameToStop, stopErr)
-					errCh <- fmt.Errorf("failed to stop server '%s': %w", serverNameToStop, stopErr) // Still send to channel for logging potential aggregated error
-				} else {
-					fmt.Printf("GOROUTINE SUCCESS: Server '%s' reported as stopped.\n", serverNameToStop)
-				}
-			}()
+	fmt.Println("Stopping MCP servers...")
+	var serversToStop []string
+	if len(serverNames) > 0 {
+		serversToStop = serverNames
+	} else {
+		for name, srvCfg := range cfg.Servers {
+			if srvCfg.Image != "" || srvCfg.Runtime != "" { // Only target containerized servers
+				serversToStop = append(serversToStop, name)
+			}
 		}
-		wg.Wait()
-		close(errCh)
-
-		var errsThisLevel []string
-		for e := range errCh {
-			errsThisLevel = append(errsThisLevel, e.Error())
-			fmt.Fprintf(os.Stderr, "Warning during shutdown of level: %s\n", e.Error()) // Log individually
-		}
-		if len(errsThisLevel) > 0 {
-			// Decide if you want Down to return an error if any server fails to stop
-			// For now, just logging warnings.
-		}
-		fmt.Printf("--- Dependency level %d servers processed for shutdown. ---\n", len(levels)-i)
 	}
-	fmt.Println("All selected MCP servers processed for shutdown.")
+
+	if len(serversToStop) == 0 {
+		fmt.Println("No containerized servers specified or defined to stop.")
+		return nil
+	}
+
+	successCount := 0
+	var composeErrors []string
+	for _, serverName := range serversToStop {
+		// Ensure server to stop is actually defined as a container
+		srvCfg, exists := cfg.Servers[serverName]
+		if !exists || (srvCfg.Image == "" && srvCfg.Runtime == "") {
+			fmt.Printf("Skipping '%s' as it's not defined as a containerized server.\n", serverName)
+			continue
+		}
+
+		containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+		if err := cRuntime.StopContainer(containerName); err != nil {
+			// StopContainer should be idempotent (not error if already stopped/gone)
+			// but if it does error for other reasons, log it.
+			if !strings.Contains(err.Error(), "No such container") { // Example of specific error to ignore
+				composeErrors = append(composeErrors, fmt.Sprintf("Failed to stop %s: %v", serverName, err))
+				fmt.Printf("[✖] Server %-30s Error stopping: %v\n", serverName, err)
+			} else {
+				fmt.Printf("[✔] Server %-30s (container %s) already stopped or removed.\n", serverName, containerName)
+				successCount++ // Count as success if goal is "stopped"
+			}
+		} else {
+			successCount++
+			fmt.Printf("[✔] Server %-30s (container %s) stopped and removed.\n", serverName, containerName)
+		}
+	}
+
+	fmt.Printf("\n=== SHUTDOWN SUMMARY ===\n")
+	fmt.Printf("Containerized servers processed for shutdown: %d\n", len(serversToStop))
+	fmt.Printf("Successfully stopped/ensured stopped: %d\n", successCount)
+	fmt.Printf("Failed operations: %d\n", len(composeErrors))
+	if len(composeErrors) > 0 {
+		fmt.Printf("\nErrors encountered during stop operations:\n")
+		for _, e := range composeErrors {
+			fmt.Printf("- %s\n", e)
+		}
+	}
 	return nil
 }
 
-// Start starts specific servers (and their dependencies)
 func Start(configFile string, serverNames []string) error {
+	// 'Start' should effectively be an alias for 'Up' for specified servers
 	if len(serverNames) == 0 {
 		return fmt.Errorf("no server names specified to start")
 	}
-	fmt.Printf("Starting specified MCP servers: %v (and their dependencies)\n", serverNames)
-	return Up(configFile, serverNames) // Up handles starting specified servers + deps
+	fmt.Printf("Starting specified MCP servers (and their dependencies): %v\n", serverNames)
+	return Up(configFile, serverNames)
 }
 
-// Stop stops specific servers (does not handle dependency stopping, relies on manager.StopServer)
 func Stop(configFile string, serverNames []string) error {
+	// 'Stop' should target specific servers for shutdown.
+	// It's simpler than `Down` as it doesn't try to stop *all* if no names given.
 	if len(serverNames) == 0 {
 		return fmt.Errorf("no server names specified to stop")
 	}
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
-	}
-	cRuntime, err := container.DetectRuntime()
-	if err != nil {
-		return fmt.Errorf("failed to detect container runtime: %w", err)
-	}
-	mgr, err := server.NewManager(cfg, cRuntime)
-	if err != nil {
-		return fmt.Errorf("failed to create server manager: %w", err)
-	}
-
-	fmt.Printf("Stopping specified MCP servers: %v\n", serverNames)
-	var encounteredErrors []string
-	for _, name := range serverNames {
-		if _, exists := cfg.Servers[name]; !exists {
-			errMsg := fmt.Sprintf("server '%s' not found in configuration, skipping stop", name)
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", errMsg)
-			encounteredErrors = append(encounteredErrors, errMsg)
-			continue
-		}
-		fmt.Printf("Attempting to stop server '%s'...\n", name)
-		if err := mgr.StopServer(name); err != nil {
-			errMsg := fmt.Sprintf("failed to stop server '%s': %v", name, err)
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", errMsg)
-			encounteredErrors = append(encounteredErrors, errMsg)
-		} else {
-			fmt.Printf("Server '%s' reported as stopped.\n", name)
-		}
-	}
-	fmt.Println("Requested MCP servers processed for shutdown.")
-	if len(encounteredErrors) > 0 {
-		return fmt.Errorf("encountered errors while stopping servers: %s", strings.Join(encounteredErrors, "; "))
-	}
-	return nil
+	return Down(configFile, serverNames) // Reuse Down's logic for specified servers
 }
 
-// List lists all defined servers and their status
 func List(configFile string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
@@ -289,112 +292,81 @@ func List(configFile string) error {
 	}
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to detect container runtime, status for containerized servers may be inaccurate: %v\n", err)
-	}
-	mgr, err := server.NewManager(cfg, cRuntime)
-	if err != nil {
-		return fmt.Errorf("failed to create server manager: %w", err)
+		fmt.Printf("Warning: failed to detect container runtime: %v. Container statuses will be 'Unknown'.\n", err)
 	}
 
-	containerInfo := make(map[string]string)
-	if cRuntime != nil && cRuntime.GetRuntimeName() == "docker" {
-		if dockerRuntime, ok := cRuntime.(*container.DockerRuntime); ok {
-			info, err := getDetailedContainerInfo(dockerRuntime)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get detailed Docker container info: %v\n", err)
-			} else {
-				containerInfo = info
-			}
-		}
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.TabIndent)
-	fmt.Fprintln(w, "SERVER NAME\tEXPECTED STATUS\tRUNTIME TYPE\tCONTAINER IDENTIFIER\tCAPABILITIES")
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SERVER NAME\tSTATUS\tTRANSPORT\tCONTAINER/PROCESS NAME\tPORTS\tCAPABILITIES")
 
 	runningColor := color.New(color.FgGreen).SprintFunc()
 	stoppedColor := color.New(color.FgRed).SprintFunc()
-	startingColor := color.New(color.FgYellow).SprintFunc()
-	exitedColor := color.New(color.FgRed).SprintFunc()
-	unknownColor := color.New(color.FgCyan).SprintFunc()
+	unknownColor := color.New(color.FgYellow).SprintFunc()
+	processColor := color.New(color.FgCyan).SprintFunc()
 
-	for serverKeyName, svcConfig := range cfg.Servers {
-		status, _ := mgr.GetServerStatus(serverKeyName)
+	for serverName, srvConfig := range cfg.Servers {
+		identifier := fmt.Sprintf("mcp-compose-%s", serverName) // Default for containers
+		statusStr := unknownColor("Unknown")
+		isContainer := srvConfig.Image != "" || srvConfig.Runtime != ""
 
-		fixedIdentifier := fmt.Sprintf("mcp-compose-%s", serverKeyName)
-		detailedDockerStatus := ""
-		if info, exists := containerInfo[fixedIdentifier]; exists {
-			detailedDockerStatus = info
-		}
-
-		var statusStr string
-		switch status {
-		case "running":
-			statusStr = runningColor("Running")
-		case "starting":
-			statusStr = startingColor("Starting")
-		case "stopped":
-			statusStr = stoppedColor("Stopped")
-		default:
-			if strings.HasPrefix(status, "exited") {
-				statusStr = exitedColor(status)
+		if isContainer {
+			if cRuntime != nil && cRuntime.GetRuntimeName() != "none" {
+				rawStatus, statusErr := cRuntime.GetContainerStatus(identifier)
+				if statusErr != nil {
+					statusStr = stoppedColor("Error/Missing")
+				} else {
+					switch strings.ToLower(rawStatus) {
+					case "running":
+						statusStr = runningColor("Running")
+					case "exited", "dead", "stopped":
+						statusStr = stoppedColor(strings.Title(strings.ToLower(rawStatus)))
+					default:
+						statusStr = unknownColor(rawStatus)
+					}
+				}
 			} else {
-				statusStr = unknownColor(status)
+				statusStr = stoppedColor("No Runtime")
 			}
+		} else { // Process-based
+			identifier = fmt.Sprintf("process-%s", serverName) // Or actual PID if managed
+			statusStr = processColor("Process")                // `mcp-compose ls` doesn't manage process status directly
 		}
 
-		if detailedDockerStatus != "" && svcConfig.Image != "" {
-			if !strings.Contains(strings.ToLower(detailedDockerStatus), strings.ToLower(status)) && status != "unknown" {
-				statusStr += fmt.Sprintf(" (Docker: %s)", detailedDockerStatus)
-			} else if status == "unknown" && detailedDockerStatus != "" {
-				// If our GetServerStatus is unknown, but docker ps gives something, show that.
-				statusStr = fmt.Sprintf("%s (Docker: %s)", unknownColor("Unknown"), detailedDockerStatus)
-			}
+		transport := "stdio (default)"
+		if srvConfig.Protocol == "http" {
+			transport = fmt.Sprintf("http (:%d)", srvConfig.HttpPort)
+		} else if srvConfig.HttpPort > 0 { // If http_port is set, assume http
+			transport = fmt.Sprintf("http (:%d)", srvConfig.HttpPort)
+		} else if serverCfgHasHTTPArg(srvConfig.Args) {
+			transport = "http (inferred)"
 		}
 
-		serverType := "process"
-		displayIdentifier := fixedIdentifier // Default to fixed identifier
-
-		if svcConfig.Image != "" {
-			serverType = "container"
-			// Optionally display runtime ID if available and different, or in addition
-			// if serverInstance, exists := mgr.GetServerInstance(serverKeyName); exists && serverInstance.ContainerID != "" && serverInstance.ContainerID != fixedIdentifier {
-			//    displayIdentifier += fmt.Sprintf(" (ID: %s)", serverInstance.ContainerID[:12])
-			// }
+		ports := "-"
+		if len(srvConfig.Ports) > 0 {
+			ports = strings.Join(srvConfig.Ports, ", ")
 		}
 
-		capabilities := strings.Join(svcConfig.Capabilities, ", ")
+		capabilities := strings.Join(srvConfig.Capabilities, ", ")
 		if capabilities == "" {
 			capabilities = "-"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			serverKeyName, statusStr, serverType, displayIdentifier, capabilities)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			serverName, statusStr, transport, identifier, ports, capabilities)
 	}
 	w.Flush()
 	return nil
 }
 
-func getDetailedContainerInfo(dockerRuntime *container.DockerRuntime) (map[string]string, error) {
-	cmd := exec.Command(dockerRuntime.GetExecPath(), "ps", "-a", "--format", "{{.Names}}|{{.Status}}")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("docker ps command failed: %w; output: %s", err, string(output))
-	}
-
-	info := make(map[string]string)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
+func serverCfgHasHTTPArg(args []string) bool {
+	for i, arg := range args {
+		if arg == "--transport" && i+1 < len(args) && strings.ToLower(args[i+1]) == "http" {
+			return true
 		}
-		parts := strings.SplitN(line, "|", 2)
-		if len(parts) == 2 {
-			name := strings.TrimSpace(parts[0])
-			status := strings.TrimSpace(parts[1])
-			info[name] = status
+		if strings.HasPrefix(arg, "--port") { // Catches --port=X and --port X
+			return true
 		}
 	}
-	return info, nil
+	return false
 }
 
 func Logs(configFile string, serverNames []string, follow bool) error {
@@ -406,43 +378,49 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
-	mgr, err := server.NewManager(cfg, cRuntime)
-	if err != nil {
-		return fmt.Errorf("failed to create server manager: %w", err)
+	if cRuntime.GetRuntimeName() == "none" {
+		fmt.Println("No container runtime detected. 'logs' command is for containerized servers.")
+		return nil
 	}
 
 	var serversToLog []string
 	if len(serverNames) == 0 {
-		for name := range cfg.Servers {
-			serversToLog = append(serversToLog, name)
+		for name, srvCfg := range cfg.Servers {
+			if srvCfg.Image != "" || srvCfg.Runtime != "" { // Only containerized
+				serversToLog = append(serversToLog, name)
+			}
 		}
 		if len(serversToLog) == 0 {
-			fmt.Println("No servers defined in configuration to show logs for.")
+			fmt.Println("No containerized servers defined in configuration to show logs for.")
 			return nil
 		}
 	} else {
 		for _, name := range serverNames {
-			if _, exists := cfg.Servers[name]; !exists {
+			srvCfg, exists := cfg.Servers[name]
+			if !exists {
 				fmt.Fprintf(os.Stderr, "Warning: server '%s' not found in configuration, skipping logs.\n", name)
+			} else if srvCfg.Image == "" && srvCfg.Runtime == "" {
+				fmt.Fprintf(os.Stdout, "Info: Server '%s' is process-based. View its logs directly.\n", name)
 			} else {
 				serversToLog = append(serversToLog, name)
 			}
 		}
 		if len(serversToLog) == 0 {
-			fmt.Println("None of the specified servers were found in configuration.")
+			fmt.Println("None of the specified servers were found or are containerized.")
 			return nil
 		}
 	}
 
 	for i, name := range serversToLog {
-		if len(serversToLog) > 1 {
+		if len(serversToLog) > 1 && i > 0 && !follow { // Add separator if not following and more than one
+			fmt.Println("\n---")
+		}
+		if len(serversToLog) > 1 || len(serverNames) > 1 { // Print header if multiple specified or all
 			fmt.Printf("=== Logs for server '%s' ===\n", name)
 		}
-		if err := mgr.ShowLogs(name, follow); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to show logs for server '%s': %v\n", name, err)
-		}
-		if len(serversToLog) > 1 && i < len(serversToLog)-1 && !follow {
-			fmt.Println("\n---")
+		containerName := fmt.Sprintf("mcp-compose-%s", name)
+		if err := cRuntime.ShowContainerLogs(containerName, follow); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to show logs for server '%s' (container %s): %v\n", name, containerName, err)
 		}
 	}
 	return nil
@@ -457,157 +435,166 @@ func Validate(configFile string) error {
 	return nil
 }
 
+// getServersToStart determines the order of server startup including dependencies.
+// For N servers depending on each other, this ensures a valid topological sort if possible.
 func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string {
-	if len(serverNames) == 0 {
-		allServers := make([]string, 0, len(cfg.Servers))
-		for name := range cfg.Servers {
-			allServers = append(allServers, name)
-		}
-		return allServers
+	allServerNames := make([]string, 0, len(cfg.Servers))
+	for name := range cfg.Servers {
+		allServerNames = append(allServerNames, name)
 	}
 
-	toProcess := make(map[string]bool)
-	for _, name := range serverNames {
+	targetServers := serverNames
+	if len(targetServers) == 0 {
+		targetServers = allServerNames
+	}
+
+	// Build dependency graph
+	adj := make(map[string][]string)
+	inDegree := make(map[string]int)
+	for _, name := range allServerNames {
+		adj[name] = []string{}
+		inDegree[name] = 0
+	}
+
+	for name, srvConfig := range cfg.Servers {
+		for _, dep := range srvConfig.DependsOn {
+			if _, exists := cfg.Servers[dep]; !exists {
+				fmt.Fprintf(os.Stderr, "Warning: Server '%s' depends on '%s', which is not defined. Skipping dependency.\n", name, dep)
+				continue
+			}
+			adj[dep] = append(adj[dep], name) // dep -> name
+			inDegree[name]++
+		}
+	}
+
+	// Initialize queue with nodes having in-degree 0
+	queue := make([]string, 0)
+	for _, name := range allServerNames {
+		if inDegree[name] == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	var sortedOrder []string
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		sortedOrder = append(sortedOrder, u)
+
+		for _, v := range adj[u] {
+			inDegree[v]--
+			if inDegree[v] == 0 {
+				queue = append(queue, v)
+			}
+		}
+	}
+
+	if len(sortedOrder) != len(allServerNames) {
+		// This indicates a cycle in dependencies.
+		// For simplicity, we'll just return the list of target servers potentially with their known deps.
+		// A more robust solution would error out or report the cycle.
+		fmt.Fprintf(os.Stderr, "Warning: Cycle detected in server dependencies or some servers are unreachable. Startup order might be incorrect.\n")
+		// Fallback to a less strict ordering if topo sort fails
+		return buildFallbackOrder(cfg, targetServers)
+	}
+
+	// Filter the sorted order to include only target servers and their transitive dependencies
+	finalOrderMap := make(map[string]bool)
+	for _, name := range targetServers {
 		if _, exists := cfg.Servers[name]; !exists {
-			fmt.Fprintf(os.Stderr, "Warning: specified server '%s' not found in configuration, skipping.\n", name)
+			fmt.Fprintf(os.Stderr, "Warning: Specified server '%s' not found in configuration, skipping.\n", name)
 			continue
 		}
-		addDependenciesRecursive(cfg, name, toProcess)
+		addDependenciesRecursive(cfg, name, finalOrderMap) // This marks all deps
 	}
 
-	result := make([]string, 0, len(toProcess))
-	for name := range toProcess {
-		result = append(result, name)
+	finalSortedOrder := make([]string, 0, len(finalOrderMap))
+	for _, name := range sortedOrder { // Iterate in topologically sorted order
+		if finalOrderMap[name] { // If this server is needed for the targets
+			finalSortedOrder = append(finalSortedOrder, name)
+		}
 	}
-	return result
+	return finalSortedOrder
 }
 
+// addDependenciesRecursive is used by getServersToStart to collect all necessary servers.
 func addDependenciesRecursive(cfg *config.ComposeConfig, serverName string, result map[string]bool) {
-	if result[serverName] {
+	if result[serverName] { // Already visited
 		return
 	}
 	result[serverName] = true
-
 	serverConf, exists := cfg.Servers[serverName]
 	if !exists {
-		return // Should have been caught by caller
+		return
 	}
-
 	for _, depName := range serverConf.DependsOn {
 		if _, depExists := cfg.Servers[depName]; !depExists {
-			fmt.Fprintf(os.Stderr, "Warning: dependency '%s' for server '%s' not found in configuration, skipping dependency.\n", depName, serverName)
+			fmt.Fprintf(os.Stderr, "Warning: Dependency '%s' for server '%s' not found. Skipping this dependency.\n", depName, serverName)
 			continue
 		}
 		addDependenciesRecursive(cfg, depName, result)
 	}
 }
 
-func getDependencyLevels(cfg *config.ComposeConfig, serversToOrder []string) [][]string {
-	graph := make(map[string][]string)
-	inDegree := make(map[string]int)
-
-	serverSet := make(map[string]bool)
-	for _, s := range serversToOrder {
-		serverSet[s] = true
-		inDegree[s] = 0
-		graph[s] = []string{}
-	}
-
-	for _, serverName := range serversToOrder {
-		serverConf, exists := cfg.Servers[serverName]
-		if !exists {
+// buildFallbackOrder provides a basic order if topological sort fails (e.g. due to cycle)
+func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []string {
+	toProcessSet := make(map[string]bool)
+	for _, name := range serverNames {
+		if _, exists := cfg.Servers[name]; !exists {
+			fmt.Fprintf(os.Stderr, "Warning: specified server '%s' not found in configuration, skipping.\n", name)
 			continue
 		}
-		for _, depName := range serverConf.DependsOn {
-			if _, careAboutDep := serverSet[depName]; careAboutDep {
-				graph[depName] = append(graph[depName], serverName)
-				inDegree[serverName]++
+		addDependenciesRecursive(cfg, name, toProcessSet)
+	}
+
+	fallbackOrder := make([]string, 0, len(toProcessSet))
+	// A simple approach: add defined dependencies first, then the rest
+	// This is not a perfect topological sort, but provides some ordering.
+
+	// Create a list of all servers to be processed
+	var processingList []string
+	for name := range toProcessSet {
+		processingList = append(processingList, name)
+	}
+
+	// Iteratively add servers whose dependencies are met
+	added := make(map[string]bool)
+	for len(fallbackOrder) < len(processingList) {
+		addedThisIteration := 0
+		for _, name := range processingList {
+			if added[name] {
+				continue
 			}
-		}
-	}
-
-	var levels [][]string
-	queue := make([]string, 0)
-
-	for _, serverName := range serversToOrder {
-		if inDegree[serverName] == 0 {
-			queue = append(queue, serverName)
-		}
-	}
-
-	for len(queue) > 0 {
-		currentLevelSize := len(queue)
-		currentLevel := make([]string, currentLevelSize)
-		copy(currentLevel, queue[:currentLevelSize]) // Copy current queue to currentLevel
-		levels = append(levels, currentLevel)
-
-		queue = queue[currentLevelSize:] // "Dequeue" processed items
-
-		for _, u := range currentLevel {
-			// Note: We don't delete from inDegree map here in Kahn's,
-			// we just stop considering nodes once they are in a level.
-			// The critical part is decrementing neighbors' in-degrees.
-			for _, v := range graph[u] {
-				inDegree[v]--
-				if inDegree[v] == 0 {
-					queue = append(queue, v)
-				}
-			}
-		}
-	}
-
-	// After the loop, check if all serversToOrder were processed.
-	// If some still have inDegree > 0 (or aren't in levels because they were never 0), there's a cycle.
-	processedCount := 0
-	for _, level := range levels {
-		processedCount += len(level)
-	}
-
-	if processedCount < len(serversToOrder) {
-		cycleNodes := []string{}
-		for serverName, degree := range inDegree {
-			// This check is a bit tricky because nodes could be in inDegree but processed.
-			// A better cycle check: if processedCount != len(serversToOrder)
-			// then iterate serversToOrder and if a server isn't in any level, it's part of a cycle or un reachable.
-			// For simplicity, just report the inDegree map if it's not empty.
-			isProcessed := false
-			for _, level := range levels {
-				for _, nodeInLevel := range level {
-					if nodeInLevel == serverName {
-						isProcessed = true
-						break
-					}
-				}
-				if isProcessed {
+			depsMet := true
+			srvCfg := cfg.Servers[name]
+			for _, depName := range srvCfg.DependsOn {
+				if toProcessSet[depName] && !added[depName] { // dep is also in targets and not yet added
+					depsMet = false
 					break
 				}
 			}
-			if !isProcessed && degree > 0 { // Only consider nodes that are part of the problem
-				cycleNodes = append(cycleNodes, fmt.Sprintf("%s(degree:%d)", serverName, degree))
+			if depsMet {
+				fallbackOrder = append(fallbackOrder, name)
+				added[name] = true
+				addedThisIteration++
 			}
 		}
-		if len(cycleNodes) > 0 {
-			fmt.Fprintf(os.Stderr, "Warning: Dependency cycle detected or unreachable dependencies involving servers: %v. These servers might not start/stop in the intended order.\n", cycleNodes)
+		if addedThisIteration == 0 && len(fallbackOrder) < len(processingList) {
+			// Cycle or missing dependency not in target set but required
+			fmt.Fprintf(os.Stderr, "Error: Unable to resolve full dependency order, possibly due to a cycle or unstartable dependency. Remaining servers:\n")
+			for _, name := range processingList {
+				if !added[name] {
+					fmt.Fprintf(os.Stderr, "- %s\n", name)
+				}
+			}
+			// Add remaining unconventionally
+			for _, name := range processingList {
+				if !added[name] {
+					fallbackOrder = append(fallbackOrder, name)
+				}
+			}
+			break
 		}
 	}
-
-	return levels
-}
-
-// getServersToStop determines server stop order. For simple stop, it might be the reverse of start.
-// For targeted stop, it might just be the list itself, or you might want to stop dependents.
-// This is a placeholder if specific stop order logic is needed beyond what `Down` does.
-func getServersToStop(cfg *config.ComposeConfig, serverNames []string) []string {
-	// For now, if specific servers are named, just return that list.
-	// `Down` already handles full reverse dependency order.
-	// If `stop serverX` should also stop servers that depend on X, this needs more logic.
-	if len(serverNames) > 0 {
-		return serverNames
-	}
-	// If no names, implies all servers (handled by Down directly)
-	allServers := make([]string, 0, len(cfg.Servers))
-	for name := range cfg.Servers {
-		allServers = append(allServers, name)
-	}
-	return allServers
+	return fallbackOrder
 }
