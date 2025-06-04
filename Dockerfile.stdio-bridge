@@ -1,0 +1,153 @@
+# Dockerfile.stdio-bridge
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install fastapi uvicorn docker websockets
+
+COPY <<'EOF' /app/stdio_bridge.py
+import asyncio
+import json
+import logging
+from typing import Dict, Optional
+import docker
+from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+app = FastAPI(title="MCP STDIO Bridge")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class STDIOSession:
+    def __init__(self, container_name: str):
+        self.container_name = container_name
+        self.docker_client = docker.from_env()
+        self.container = None
+        self.exec_instance = None
+        
+    async def start(self):
+        """Start stdio session with container"""
+        try:
+            self.container = self.docker_client.containers.get(self.container_name)
+            return True
+        except Exception as e:
+            logging.error(f"Failed to start stdio session: {e}")
+            return False
+    
+    async def send_request(self, request: dict) -> dict:
+        """Send JSON-RPC request via docker exec and get response"""
+        if not self.container:
+            raise HTTPException(500, "Session not started")
+        
+        # Send request via docker exec
+        request_line = json.dumps(request) + "\n"
+        
+        # Execute the server command with the request
+        exec_result = self.container.exec_run(
+            ["sh", "-c", "echo '{}' | cat".format(request_line.replace("'", "'\"'\"'"))],
+            stdin=True,
+            stdout=True,
+            stderr=False
+        )
+        
+        if exec_result.exit_code != 0:
+            raise HTTPException(500, f"Exec failed: {exec_result.output}")
+        
+        # Parse response
+        response_line = exec_result.output.decode().strip()
+        if not response_line:
+            raise HTTPException(500, "No response from server")
+            
+        return json.loads(response_line)
+    
+    async def close(self):
+        """Close the session"""
+        pass
+
+# Active sessions
+sessions: Dict[str, STDIOSession] = {}
+
+@app.post("/servers/{server_name}/start")
+async def start_session(server_name: str):
+    """Start a stdio session with a server"""
+    container_name = f"mcp-compose-{server_name}"
+    
+    if server_name in sessions:
+        return {"status": "already_started", "session_id": server_name}
+    
+    session = STDIOSession(container_name)
+    if await session.start():
+        sessions[server_name] = session
+        return {"status": "started", "session_id": server_name}
+    else:
+        raise HTTPException(500, f"Failed to start session for {server_name}")
+
+@app.post("/servers/{server_name}/request")
+async def send_request(server_name: str, request: dict):
+    """Send JSON-RPC request to server"""
+    if server_name not in sessions:
+        # Auto-start session
+        await start_session(server_name)
+    
+    session = sessions[server_name]
+    try:
+        response = await session.send_request(request)
+        return response
+    except Exception as e:
+        raise HTTPException(500, f"Request failed: {e}")
+
+@app.delete("/servers/{server_name}/session")
+async def close_session(server_name: str):
+    """Close stdio session"""
+    if server_name in sessions:
+        await sessions[server_name].close()
+        del sessions[server_name]
+    return {"status": "closed"}
+
+@app.websocket("/servers/{server_name}/ws")
+async def websocket_endpoint(websocket: WebSocket, server_name: str):
+    """WebSocket connection for real-time communication"""
+    await websocket.accept()
+    
+    # Start session if not exists
+    if server_name not in sessions:
+        container_name = f"mcp-compose-{server_name}"
+        session = STDIOSession(container_name)
+        if await session.start():
+            sessions[server_name] = session
+        else:
+            await websocket.close(code=1011, reason="Failed to start session")
+            return
+    
+    session = sessions[server_name]
+    
+    try:
+        while True:
+            # Receive request from client
+            data = await websocket.receive_text()
+            request = json.loads(data)
+            
+            # Forward to MCP server
+            response = await session.send_request(request)
+            
+            # Send response back to client
+            await websocket.send_text(json.dumps(response))
+            
+    except Exception as e:
+        logging.error(f"WebSocket error: {e}")
+    finally:
+        if server_name in sessions:
+            await sessions[server_name].close()
+            del sessions[server_name]
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=9877)
+EOF
+
+CMD ["python", "/app/stdio_bridge.py"]
