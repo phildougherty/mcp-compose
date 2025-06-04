@@ -638,6 +638,9 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var handled bool
 	if h.EnableAPI {
 		switch path {
+		case "/api/reload":
+			h.handleAPIReload(w, r)
+			handled = true
 		case "/api/servers":
 			h.handleAPIServers(w, r)
 			handled = true
@@ -697,15 +700,35 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("Processed request %s %s (%s) in %v", r.Method, r.URL.Path, path, time.Since(start))
 }
 
+func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.corsError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Clear connection cache and reload config
+	h.ConnectionMutex.Lock()
+	h.ServerConnections = make(map[string]*MCPHTTPConnection)
+	h.ConnectionMutex.Unlock()
+
+	// Refresh tool cache
+	h.toolCacheMu.Lock()
+	h.cacheExpiry = time.Now() // Force cache refresh
+	h.toolCacheMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
+}
+
 func (h *ProxyHandler) corsError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Mcp-Session-Id")
 	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, Content-Type")
-	h.corsError(w, message, code)
+	http.Error(w, message, code)
 }
 
-func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, r *http.Request, serverName string) {
+func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, _ *http.Request, serverName string) {
 	h.logger.Info("Generating OpenAPI spec for server: %s", serverName)
 
 	// Create server-specific OpenAPI spec
@@ -718,9 +741,8 @@ func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, r *http.Re
 		},
 		"servers": []map[string]interface{}{
 			{
-				"url":         fmt.Sprintf("http://192.168.86.201:9876"),
-				"description": fmt.Sprintf("%s MCP Server", serverName),
-			},
+				"url":         "http://192.168.86.201:9876",
+				"description": serverName + " MCP Server\n\n- [back to tool list](/docs)"},
 		},
 		"paths": map[string]interface{}{},
 		"components": map[string]interface{}{
@@ -814,7 +836,7 @@ func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, r *http.Re
 	}
 }
 
-func (h *ProxyHandler) handleServerDocs(w http.ResponseWriter, r *http.Request, serverName string) {
+func (h *ProxyHandler) handleServerDocs(w http.ResponseWriter, _ *http.Request, serverName string) {
 	h.logger.Debug("Serving docs for server: %s", serverName)
 
 	docsHTML := fmt.Sprintf(`<!DOCTYPE html>
@@ -1147,8 +1169,10 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
+func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Failed to read request body for %s: %v", serverName, err)
@@ -1156,6 +1180,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Parse JSON payload
 	var requestPayload map[string]interface{}
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
 		h.logger.Error("Invalid JSON in request for %s: %v. Body: %s", serverName, err, string(body))
@@ -1166,7 +1191,13 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	reqIDVal, _ := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
-	serverConfig := h.Manager.config.Servers[serverName]
+	// Get server config with safety check
+	serverConfig, exists := h.Manager.config.Servers[serverName]
+	if !exists {
+		h.logger.Error("Server config not found for %s", serverName)
+		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
+		return
+	}
 
 	// Determine server type and routing
 	isSocatSTDIO := serverConfig.StdioHosterPort > 0
@@ -1189,19 +1220,27 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	h.logger.Info("Forwarding request to server '%s' (SocatSTDIO: %v, RegularHTTP: %v): Method=%s, ID=%v",
 		serverName, isSocatSTDIO, isRegularHTTP, reqMethodVal, reqIDVal)
 
-	if isSocatSTDIO {
+	// Route to appropriate handler
+	switch {
+	case isSocatSTDIO:
 		// Handle socat-hosted STDIO via TCP connection to socat port
 		h.handleSocatSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
-	} else if isRegularHTTP {
-		// Handle regular HTTP server (existing logic)
-		h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
-	} else {
+	case isRegularHTTP:
+		// Handle regular HTTP server
+		// Note: We get the instance fresh here since the parameter was unused
+		if instance, exists := h.Manager.GetServerInstance(serverName); exists {
+			h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+		} else {
+			h.logger.Error("Server instance not found for %s", serverName)
+			h.sendMCPError(w, reqIDVal, -32603, "Server instance not available")
+		}
+	default:
 		// Handle direct docker exec STDIO (original method for non-socat STDIO servers)
 		h.handleSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
 	}
 }
 
-func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, _ *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
 	serverConfig := h.Manager.config.Servers[serverName]
 	socatPort := serverConfig.StdioHosterPort
 
@@ -1347,7 +1386,7 @@ func (h *ProxyHandler) sendRawTCPRequest(host string, port int, requestPayload m
 	}
 }
 
-func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
 	conn, err := h.getServerConnection(serverName)
 	if err != nil {
 		h.logger.Error("Failed to get/create HTTP connection for %s: %v", serverName, err)
@@ -1402,7 +1441,7 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
 
-func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, r *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
 	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
 	serverCfg, cfgExists := h.Manager.config.Servers[serverName]
 	if !cfgExists {
@@ -1640,7 +1679,7 @@ func (h *ProxyHandler) sendMCPError(w http.ResponseWriter, id interface{}, code 
 // Just ensure they are all present and use the refined helper functions like getConnectionHealthStatus.
 // Copying them here again for absolute completeness:
 
-func (h *ProxyHandler) handleAPIServers(w http.ResponseWriter, r *http.Request) {
+func (h *ProxyHandler) handleAPIServers(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	serverList := make(map[string]map[string]interface{})
 
@@ -1713,7 +1752,7 @@ func (h *ProxyHandler) getConnectionHealthStatus(conn *MCPHTTPConnection) string
 	return "Unhealthy / MCP Session Not Initialized"
 }
 
-func (h *ProxyHandler) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
+func (h *ProxyHandler) handleAPIStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	runningContainers := 0
 	activeHTTPConnections := 0
@@ -1824,7 +1863,7 @@ func (h *ProxyHandler) handleDiscoveryEndpoint(w http.ResponseWriter, r *http.Re
 	}
 }
 
-func (h *ProxyHandler) handleConnectionsAPI(w http.ResponseWriter, r *http.Request) {
+func (h *ProxyHandler) handleConnectionsAPI(w http.ResponseWriter, _ *http.Request) {
 	h.ConnectionMutex.RLock()
 	connectionsSnapshot := make(map[string]interface{})
 
@@ -1941,7 +1980,7 @@ func (h *ProxyHandler) handleServerDetails(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (h *ProxyHandler) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (h *ProxyHandler) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	var bodyBuilder strings.Builder
 	bodyBuilder.WriteString(`<!DOCTYPE html>
@@ -2065,62 +2104,6 @@ func (h *ProxyHandler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("Failed to write index HTML response: %v", err)
 	}
-}
-
-func (h *ProxyHandler) handleSTDIOBridge(w http.ResponseWriter, r *http.Request, serverName string) {
-	// Check if this is a STDIO-only server
-	serverConfig, exists := h.Manager.config.Servers[serverName]
-	if !exists {
-		h.corsError(w, "Server not found", http.StatusNotFound)
-		return
-	}
-
-	// If it's not HTTP protocol, route to STDIO bridge
-	if serverConfig.Protocol != "http" && serverConfig.HttpPort == 0 {
-		h.forwardToSTDIOBridge(w, r, serverName)
-		return
-	}
-
-	// Otherwise handle as normal HTTP server
-	if instance, exists := h.Manager.GetServerInstance(serverName); exists {
-		h.handleServerForward(w, r, serverName, instance)
-	} else {
-		h.corsError(w, "Server instance not found", http.StatusNotFound)
-	}
-}
-
-func (h *ProxyHandler) forwardToSTDIOBridge(w http.ResponseWriter, r *http.Request, serverName string) {
-	bridgeURL := "http://stdio-bridge:9877" // Internal Docker network URL
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		h.corsError(w, "Failed to read request", http.StatusBadRequest)
-		return
-	}
-
-	// Forward to STDIO bridge
-	bridgeReq, err := http.NewRequest("POST",
-		fmt.Sprintf("%s/servers/%s/request", bridgeURL, serverName),
-		bytes.NewBuffer(body))
-	if err != nil {
-		h.corsError(w, "Failed to create bridge request", http.StatusInternalServerError)
-		return
-	}
-
-	bridgeReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := h.httpClient.Do(bridgeReq)
-	if err != nil {
-		h.corsError(w, "Failed to communicate with bridge", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
 }
 
 func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.ServerConfig) string {
