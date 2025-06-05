@@ -6,14 +6,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
-
-	// server import might not be needed if compose commands directly use container runtime
-	// "mcpcompose/internal/server"
 
 	"github.com/fatih/color"
 )
@@ -23,6 +21,7 @@ func Up(configFile string, serverNames []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
+
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
@@ -34,66 +33,100 @@ func Up(configFile string, serverNames []string) error {
 		return nil
 	}
 
-	fmt.Printf("Starting %d MCP server(s) with mixed transports...\n", len(serversToStart))
-	var composeErrors []string // Renamed to avoid conflict with the 'errors' package
-	successCount := 0
+	fmt.Printf("Starting %d MCP server(s) in parallel...\n", len(serversToStart))
 
-	// Ensure mcp-net network exists before starting any server
+	// Collect all networks needed by servers
+	requiredNetworks := collectRequiredNetworks(cfg, serversToStart)
+
+	// Ensure all required networks exist
 	if cRuntime.GetRuntimeName() != "none" {
-		networkExists, _ := cRuntime.NetworkExists("mcp-net")
-		if !networkExists {
-			fmt.Println("Default network 'mcp-net' does not exist, attempting to create it...")
-			if err := cRuntime.CreateNetwork("mcp-net"); err != nil {
-				// This is a significant issue if containers need to communicate.
-				// Depending on strictness, you might want to return an error here.
-				fmt.Fprintf(os.Stderr, "Warning: Failed to create 'mcp-net' network: %v. Inter-server communication might fail.\n", err)
+		for networkName := range requiredNetworks {
+			networkExists, _ := cRuntime.NetworkExists(networkName)
+			if !networkExists {
+				fmt.Printf("Network '%s' does not exist, attempting to create it...\n", networkName)
+				if err := cRuntime.CreateNetwork(networkName); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to create network '%s': %v. Some inter-server communication might fail.\n", networkName, err)
+				} else {
+					fmt.Printf("✅ Created network '%s'\n", networkName)
+				}
 			}
 		}
 	}
 
-	for _, serverName := range serversToStart {
-		fmt.Printf("Processing server '%s'...\n", serverName)
-		startTime := time.Now()
-		serverCfg, exists := cfg.Servers[serverName]
-		if !exists {
-			composeErrors = append(composeErrors, fmt.Sprintf("Server '%s' not found in config", serverName))
-			fmt.Printf("[✖] Server %-30s Error: not found in config\n", serverName)
-			continue
-		}
+	// Channel to collect results
+	type startResult struct {
+		serverName string
+		err        error
+		duration   time.Duration
+	}
 
-		// For HTTP transport, ensure the server configuration is appropriate
-		if serverCfg.Image != "" {
-			isHTTPIntended := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
-			hasHTTPArgs := false
-			for _, arg := range serverCfg.Args {
-				if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
-					hasHTTPArgs = true
-					break
+	results := make(chan startResult, len(serversToStart))
+	var wg sync.WaitGroup
+
+	// Start all servers in parallel
+	for _, serverName := range serversToStart {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+
+			startTime := time.Now()
+			fmt.Printf("Processing server '%s'...\n", name)
+
+			serverCfg, exists := cfg.Servers[name]
+			if !exists {
+				results <- startResult{name, fmt.Errorf("not found in config"), time.Since(startTime)}
+				return
+			}
+
+			// Log transport mode
+			if serverCfg.Image != "" {
+				isHTTPIntended := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
+				hasHTTPArgs := false
+				for _, arg := range serverCfg.Args {
+					if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
+						hasHTTPArgs = true
+						break
+					}
+				}
+
+				if !isHTTPIntended && !hasHTTPArgs {
+					fmt.Printf("[i] Server %-30s will start in STDIO mode (no HTTP config detected).\n", name)
+				} else if isHTTPIntended || hasHTTPArgs {
+					fmt.Printf("[i] Server %-30s will start in HTTP mode.\n", name)
 				}
 			}
 
-			if !isHTTPIntended && !hasHTTPArgs {
-				fmt.Printf("[i] Server %-30s will start in STDIO mode (no HTTP config detected).\n", serverName)
-			} else if isHTTPIntended || hasHTTPArgs {
-				fmt.Printf("[i] Server %-30s will start in HTTP mode.\n", serverName)
-			}
-		}
+			err := startServerContainer(name, serverCfg, cRuntime)
+			duration := time.Since(startTime)
+			results <- startResult{name, err, duration}
+		}(serverName)
+	}
 
-		err := startServerContainer(serverName, serverCfg, cRuntime) // This function now handles both container and process servers
-		duration := time.Since(startTime)
-		if err != nil {
-			errMsg := fmt.Sprintf("Server '%s' failed to start: %v", serverName, err)
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect and display results
+	var composeErrors []string
+	var successfulServers []string
+	successCount := 0
+
+	for result := range results {
+		if result.err != nil {
+			errMsg := fmt.Sprintf("Server '%s' failed to start: %v", result.serverName, result.err)
 			composeErrors = append(composeErrors, errMsg)
-			fmt.Printf("[✖] Server %-30s Error: %v (%s)\n", serverName, err, ShortDuration(duration))
+			fmt.Printf("[✖] Server %-30s Error: %v (%s)\n", result.serverName, result.err, ShortDuration(result.duration))
 		} else {
 			successCount++
-			// Brief pause to allow server to initialize its HTTP listener
-			time.Sleep(2 * time.Second)
-			fmt.Printf("[✔] Server %-30s Started (%s). Proxy will attempt HTTP connection.\n", serverName, ShortDuration(duration))
+			successfulServers = append(successfulServers, result.serverName)
+			fmt.Printf("[✔] Server %-30s Started (%s). Proxy will attempt HTTP connection.\n", result.serverName, ShortDuration(result.duration))
 		}
 	}
 
-	fmt.Printf("\n=== HTTP STARTUP SUMMARY ===\n")
+	// Summary
+	fmt.Printf("\n=== PARALLEL STARTUP SUMMARY ===\n")
 	fmt.Printf("Servers processed: %d\n", len(serversToStart))
 	fmt.Printf("Successfully started: %d\n", successCount)
 	fmt.Printf("Failed: %d\n", len(composeErrors))
@@ -103,32 +136,178 @@ func Up(configFile string, serverNames []string) error {
 		for _, e := range composeErrors {
 			fmt.Printf("- %s\n", e)
 		}
-		return fmt.Errorf("failed to start some servers. Check server configurations for HTTP mode and port exposure, and ensure commands are correct for HTTP startup")
+		if successCount == 0 {
+			return fmt.Errorf("failed to start any servers. Check server configurations for HTTP mode and port exposure, and ensure commands are correct for HTTP startup")
+		}
 	}
 
 	if successCount > 0 {
-		fmt.Printf("\n✅ Startup completed. %d/%d servers are attempting to run in HTTP mode.\n", successCount, len(serversToStart))
-		fmt.Printf("The proxy will connect to them over HTTP via the 'mcp-net' Docker network (for containers) or localhost (for processes).\n")
+		// Generate dynamic network description
+		networkDesc := generateNetworkDescription(requiredNetworks)
+		fmt.Printf("\n✅ Startup completed. %d/%d servers are running.\n", successCount, len(serversToStart))
+		fmt.Printf("Servers are accessible%s\n", networkDesc)
+
+		// Show detailed network topology
+		showNetworkTopology(cfg, successfulServers)
+
 		fmt.Printf("Use 'mcp-compose down' to stop them.\n")
 	}
+
 	return nil
+}
+
+// collectRequiredNetworks gathers all networks used by the servers being started
+func collectRequiredNetworks(cfg *config.ComposeConfig, serverNames []string) map[string][]string {
+	networkToServers := make(map[string][]string)
+
+	for _, serverName := range serverNames {
+		serverCfg, exists := cfg.Servers[serverName]
+		if !exists {
+			continue
+		}
+
+		// Skip if using network mode instead of networks
+		if serverCfg.NetworkMode != "" {
+			continue
+		}
+
+		networks := determineServerNetworks(serverCfg)
+
+		// Track which servers use which networks
+		for _, network := range networks {
+			if networkToServers[network] == nil {
+				networkToServers[network] = make([]string, 0)
+			}
+			networkToServers[network] = append(networkToServers[network], serverName)
+		}
+	}
+
+	return networkToServers
+}
+
+// generateNetworkDescription creates a human-readable description of network configuration
+func generateNetworkDescription(networkToServers map[string][]string) string {
+	if len(networkToServers) == 0 {
+		return " via localhost (for process-based servers) or host networking"
+	}
+
+	if len(networkToServers) == 1 {
+		for networkName := range networkToServers {
+			if networkName == "host" {
+				return " via host networking"
+			}
+			return fmt.Sprintf(" via Docker network '%s'", networkName)
+		}
+	}
+
+	// Multiple networks
+	networks := make([]string, 0, len(networkToServers))
+	for networkName := range networkToServers {
+		if networkName == "host" {
+			networks = append(networks, "host networking")
+		} else {
+			networks = append(networks, fmt.Sprintf("'%s'", networkName))
+		}
+	}
+
+	return fmt.Sprintf(" via Docker networks: %s", strings.Join(networks, ", "))
+}
+
+// showNetworkTopology displays which servers are on which networks
+func showNetworkTopology(cfg *config.ComposeConfig, serversStarted []string) {
+	fmt.Printf("\n=== NETWORK TOPOLOGY ===\n")
+
+	networkToServers := make(map[string][]string)
+
+	for _, serverName := range serversStarted {
+		serverCfg, exists := cfg.Servers[serverName]
+		if !exists {
+			continue
+		}
+
+		var networks []string
+		if serverCfg.NetworkMode != "" {
+			networks = []string{fmt.Sprintf("mode:%s", serverCfg.NetworkMode)}
+		} else {
+			networks = determineServerNetworks(serverCfg)
+		}
+
+		for _, network := range networks {
+			if networkToServers[network] == nil {
+				networkToServers[network] = make([]string, 0)
+			}
+			networkToServers[network] = append(networkToServers[network], serverName)
+		}
+	}
+
+	if len(networkToServers) == 0 {
+		fmt.Printf("No network information available (process-based servers)\n")
+		return
+	}
+
+	for networkName, servers := range networkToServers {
+		fmt.Printf("Network '%s': %s\n", networkName, strings.Join(servers, ", "))
+	}
+}
+
+// determineServerNetworks determines which networks a server should join
+func determineServerNetworks(serverCfg config.ServerConfig) []string {
+	// If NetworkMode is set, don't use Networks (they're mutually exclusive)
+	if serverCfg.NetworkMode != "" {
+		return nil
+	}
+
+	// Start with configured networks
+	networks := make([]string, 0)
+	if len(serverCfg.Networks) > 0 {
+		networks = append(networks, serverCfg.Networks...)
+	}
+
+	// Ensure default network is included unless explicitly using custom networks only
+	hasDefaultNetwork := false
+	for _, net := range networks {
+		if net == "mcp-net" {
+			hasDefaultNetwork = true
+			break
+		}
+	}
+
+	if !hasDefaultNetwork && len(networks) == 0 {
+		// No networks specified, use default
+		networks = append(networks, "mcp-net")
+	} else if !hasDefaultNetwork && len(serverCfg.Networks) > 0 {
+		// Custom networks specified, but ensure connectivity with other MCP services
+		// Add mcp-net for proxy connectivity unless user explicitly excluded it
+		networks = append(networks, "mcp-net")
+	}
+
+	// Remove duplicates
+	uniqueNetworks := make([]string, 0, len(networks))
+	seen := make(map[string]bool)
+	for _, network := range networks {
+		if !seen[network] {
+			uniqueNetworks = append(uniqueNetworks, network)
+			seen[network] = true
+		}
+	}
+
+	return uniqueNetworks
 }
 
 func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
 	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
-	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName}) // Pass MCP_SERVER_NAME
+	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName})
 
 	isSocatHostedStdio := serverCfg.StdioHosterPort > 0
 	isHttp := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
 
-	dockerCommandForContainer := serverCfg.Command // This will be passed to entrypoint or become CMD
-	dockerArgsForContainer := serverCfg.Args       // These too
+	dockerCommandForContainer := serverCfg.Command
+	dockerArgsForContainer := serverCfg.Args
 
 	if isSocatHostedStdio {
 		fmt.Printf("Starting container '%s' for server '%s' (Socat STDIO Hoster mode on internal port %d).\n",
 			containerName, serverName, serverCfg.StdioHosterPort)
 		envVars["MCP_SOCAT_INTERNAL_PORT"] = strconv.Itoa(serverCfg.StdioHosterPort)
-		// The serverCfg.Command and serverCfg.Args will be passed to the entrypoint.sh inside the socat hoster image
 	} else if isHttp {
 		fmt.Printf("Starting container '%s' for server '%s' (HTTP mode on internal port %d).\n",
 			containerName, serverName, serverCfg.HttpPort)
@@ -136,43 +315,40 @@ func startServerContainer(serverName string, serverCfg config.ServerConfig, cRun
 			envVars["MCP_HTTP_PORT"] = strconv.Itoa(serverCfg.HttpPort)
 		}
 		envVars["MCP_TRANSPORT"] = "http"
-	} else { // Plain STDIO (direct exec model - may still be needed for servers not using socat hoster)
+	} else {
 		fmt.Printf("Starting container '%s' for server '%s' (Direct STDIO mode).\n",
 			containerName, serverName)
-		// No special env vars for transport needed for direct STDIO
 	}
 
 	// Add other env vars from config
 	for k, v := range serverCfg.Env {
-		if _, exists := envVars[k]; !exists { // Don't override already set specific vars
+		if _, exists := envVars[k]; !exists {
 			envVars[k] = v
 		}
 	}
 
-	networks := []string{"mcp-net"}
-	for _, net := range serverCfg.Networks {
-		isMcpNet := false
-		for _, existingNet := range networks {
-			if net == existingNet {
-				isMcpNet = true
-				break
-			}
-		}
-		if !isMcpNet {
-			networks = append(networks, net)
-		}
+	// Handle networks more intelligently
+	networks := determineServerNetworks(serverCfg)
+
+	// Log network configuration
+	if serverCfg.NetworkMode != "" {
+		fmt.Printf("Container '%s' will use network mode: %s\n", containerName, serverCfg.NetworkMode)
+	} else if len(networks) == 1 {
+		fmt.Printf("Container '%s' will join network: %s\n", containerName, networks[0])
+	} else if len(networks) > 1 {
+		fmt.Printf("Container '%s' will join networks: %s\n", containerName, strings.Join(networks, ", "))
 	}
 
 	opts := &container.ContainerOptions{
 		Name:        containerName,
-		Image:       serverCfg.Image,           // If using 'build', this will be the built image name/tag
-		Build:       serverCfg.Build,           // Pass build context if defined
-		Command:     dockerCommandForContainer, // Becomes CMD in container, args to ENTRYPOINT
+		Image:       serverCfg.Image,
+		Build:       serverCfg.Build,
+		Command:     dockerCommandForContainer,
 		Args:        dockerArgsForContainer,
 		Env:         envVars,
 		Pull:        serverCfg.Pull,
 		Volumes:     serverCfg.Volumes,
-		Ports:       serverCfg.Ports, //
+		Ports:       serverCfg.Ports,
 		Networks:    networks,
 		WorkDir:     serverCfg.WorkDir,
 		NetworkMode: serverCfg.NetworkMode,
@@ -206,7 +382,6 @@ func Down(configFile string, serverNames []string) error {
 	}
 	if cRuntime.GetRuntimeName() == "none" {
 		fmt.Println("No container runtime detected. 'down' command primarily targets containers.")
-		// Optionally, add logic here to stop process-based servers if they are managed by mcp-compose
 		return nil
 	}
 
@@ -216,7 +391,7 @@ func Down(configFile string, serverNames []string) error {
 		serversToStop = serverNames
 	} else {
 		for name, srvCfg := range cfg.Servers {
-			if srvCfg.Image != "" || srvCfg.Runtime != "" { // Only target containerized servers
+			if srvCfg.Image != "" || srvCfg.Runtime != "" {
 				serversToStop = append(serversToStop, name)
 			}
 		}
@@ -230,7 +405,6 @@ func Down(configFile string, serverNames []string) error {
 	successCount := 0
 	var composeErrors []string
 	for _, serverName := range serversToStop {
-		// Ensure server to stop is actually defined as a container
 		srvCfg, exists := cfg.Servers[serverName]
 		if !exists || (srvCfg.Image == "" && srvCfg.Runtime == "") {
 			fmt.Printf("Skipping '%s' as it's not defined as a containerized server.\n", serverName)
@@ -239,14 +413,12 @@ func Down(configFile string, serverNames []string) error {
 
 		containerName := fmt.Sprintf("mcp-compose-%s", serverName)
 		if err := cRuntime.StopContainer(containerName); err != nil {
-			// StopContainer should be idempotent (not error if already stopped/gone)
-			// but if it does error for other reasons, log it.
-			if !strings.Contains(err.Error(), "No such container") { // Example of specific error to ignore
+			if !strings.Contains(err.Error(), "No such container") {
 				composeErrors = append(composeErrors, fmt.Sprintf("Failed to stop %s: %v", serverName, err))
 				fmt.Printf("[✖] Server %-30s Error stopping: %v\n", serverName, err)
 			} else {
 				fmt.Printf("[✔] Server %-30s (container %s) already stopped or removed.\n", serverName, containerName)
-				successCount++ // Count as success if goal is "stopped"
+				successCount++
 			}
 		} else {
 			successCount++
@@ -268,7 +440,6 @@ func Down(configFile string, serverNames []string) error {
 }
 
 func Start(configFile string, serverNames []string) error {
-	// 'Start' should effectively be an alias for 'Up' for specified servers
 	if len(serverNames) == 0 {
 		return fmt.Errorf("no server names specified to start")
 	}
@@ -277,12 +448,10 @@ func Start(configFile string, serverNames []string) error {
 }
 
 func Stop(configFile string, serverNames []string) error {
-	// 'Stop' should target specific servers for shutdown.
-	// It's simpler than `Down` as it doesn't try to stop *all* if no names given.
 	if len(serverNames) == 0 {
 		return fmt.Errorf("no server names specified to stop")
 	}
-	return Down(configFile, serverNames) // Reuse Down's logic for specified servers
+	return Down(configFile, serverNames)
 }
 
 func List(configFile string) error {
@@ -304,8 +473,8 @@ func List(configFile string) error {
 	processColor := color.New(color.FgCyan).SprintFunc()
 
 	for serverName, srvConfig := range cfg.Servers {
-		identifier := fmt.Sprintf("mcp-compose-%s", serverName) // Default for containers
-		statusStr := unknownColor("Unknown")
+		identifier := fmt.Sprintf("mcp-compose-%s", serverName)
+		var statusStr string // Declare without initial assignment
 		isContainer := srvConfig.Image != "" || srvConfig.Runtime != ""
 
 		if isContainer {
@@ -326,15 +495,15 @@ func List(configFile string) error {
 			} else {
 				statusStr = stoppedColor("No Runtime")
 			}
-		} else { // Process-based
-			identifier = fmt.Sprintf("process-%s", serverName) // Or actual PID if managed
-			statusStr = processColor("Process")                // `mcp-compose ls` doesn't manage process status directly
+		} else {
+			identifier = fmt.Sprintf("process-%s", serverName)
+			statusStr = processColor("Process")
 		}
 
 		transport := "stdio (default)"
 		if srvConfig.Protocol == "http" {
 			transport = fmt.Sprintf("http (:%d)", srvConfig.HttpPort)
-		} else if srvConfig.HttpPort > 0 { // If http_port is set, assume http
+		} else if srvConfig.HttpPort > 0 {
 			transport = fmt.Sprintf("http (:%d)", srvConfig.HttpPort)
 		} else if serverCfgHasHTTPArg(srvConfig.Args) {
 			transport = "http (inferred)"
@@ -362,7 +531,7 @@ func serverCfgHasHTTPArg(args []string) bool {
 		if arg == "--transport" && i+1 < len(args) && strings.ToLower(args[i+1]) == "http" {
 			return true
 		}
-		if strings.HasPrefix(arg, "--port") { // Catches --port=X and --port X
+		if strings.HasPrefix(arg, "--port") {
 			return true
 		}
 	}
@@ -386,7 +555,7 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 	var serversToLog []string
 	if len(serverNames) == 0 {
 		for name, srvCfg := range cfg.Servers {
-			if srvCfg.Image != "" || srvCfg.Runtime != "" { // Only containerized
+			if srvCfg.Image != "" || srvCfg.Runtime != "" {
 				serversToLog = append(serversToLog, name)
 			}
 		}
@@ -412,10 +581,10 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 	}
 
 	for i, name := range serversToLog {
-		if len(serversToLog) > 1 && i > 0 && !follow { // Add separator if not following and more than one
+		if len(serversToLog) > 1 && i > 0 && !follow {
 			fmt.Println("\n---")
 		}
-		if len(serversToLog) > 1 || len(serverNames) > 1 { // Print header if multiple specified or all
+		if len(serversToLog) > 1 || len(serverNames) > 1 {
 			fmt.Printf("=== Logs for server '%s' ===\n", name)
 		}
 		containerName := fmt.Sprintf("mcp-compose-%s", name)
@@ -435,8 +604,6 @@ func Validate(configFile string) error {
 	return nil
 }
 
-// getServersToStart determines the order of server startup including dependencies.
-// For N servers depending on each other, this ensures a valid topological sort if possible.
 func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string {
 	allServerNames := make([]string, 0, len(cfg.Servers))
 	for name := range cfg.Servers {
@@ -462,7 +629,7 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 				fmt.Fprintf(os.Stderr, "Warning: Server '%s' depends on '%s', which is not defined. Skipping dependency.\n", name, dep)
 				continue
 			}
-			adj[dep] = append(adj[dep], name) // dep -> name
+			adj[dep] = append(adj[dep], name)
 			inDegree[name]++
 		}
 	}
@@ -490,11 +657,7 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 	}
 
 	if len(sortedOrder) != len(allServerNames) {
-		// This indicates a cycle in dependencies.
-		// For simplicity, we'll just return the list of target servers potentially with their known deps.
-		// A more robust solution would error out or report the cycle.
 		fmt.Fprintf(os.Stderr, "Warning: Cycle detected in server dependencies or some servers are unreachable. Startup order might be incorrect.\n")
-		// Fallback to a less strict ordering if topo sort fails
 		return buildFallbackOrder(cfg, targetServers)
 	}
 
@@ -505,21 +668,20 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 			fmt.Fprintf(os.Stderr, "Warning: Specified server '%s' not found in configuration, skipping.\n", name)
 			continue
 		}
-		addDependenciesRecursive(cfg, name, finalOrderMap) // This marks all deps
+		addDependenciesRecursive(cfg, name, finalOrderMap)
 	}
 
 	finalSortedOrder := make([]string, 0, len(finalOrderMap))
-	for _, name := range sortedOrder { // Iterate in topologically sorted order
-		if finalOrderMap[name] { // If this server is needed for the targets
+	for _, name := range sortedOrder {
+		if finalOrderMap[name] {
 			finalSortedOrder = append(finalSortedOrder, name)
 		}
 	}
 	return finalSortedOrder
 }
 
-// addDependenciesRecursive is used by getServersToStart to collect all necessary servers.
 func addDependenciesRecursive(cfg *config.ComposeConfig, serverName string, result map[string]bool) {
-	if result[serverName] { // Already visited
+	if result[serverName] {
 		return
 	}
 	result[serverName] = true
@@ -536,7 +698,6 @@ func addDependenciesRecursive(cfg *config.ComposeConfig, serverName string, resu
 	}
 }
 
-// buildFallbackOrder provides a basic order if topological sort fails (e.g. due to cycle)
 func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []string {
 	toProcessSet := make(map[string]bool)
 	for _, name := range serverNames {
@@ -548,16 +709,12 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 	}
 
 	fallbackOrder := make([]string, 0, len(toProcessSet))
-	// A simple approach: add defined dependencies first, then the rest
-	// This is not a perfect topological sort, but provides some ordering.
 
-	// Create a list of all servers to be processed
 	var processingList []string
 	for name := range toProcessSet {
 		processingList = append(processingList, name)
 	}
 
-	// Iteratively add servers whose dependencies are met
 	added := make(map[string]bool)
 	for len(fallbackOrder) < len(processingList) {
 		addedThisIteration := 0
@@ -568,7 +725,7 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 			depsMet := true
 			srvCfg := cfg.Servers[name]
 			for _, depName := range srvCfg.DependsOn {
-				if toProcessSet[depName] && !added[depName] { // dep is also in targets and not yet added
+				if toProcessSet[depName] && !added[depName] {
 					depsMet = false
 					break
 				}
@@ -580,14 +737,12 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 			}
 		}
 		if addedThisIteration == 0 && len(fallbackOrder) < len(processingList) {
-			// Cycle or missing dependency not in target set but required
 			fmt.Fprintf(os.Stderr, "Error: Unable to resolve full dependency order, possibly due to a cycle or unstartable dependency. Remaining servers:\n")
 			for _, name := range processingList {
 				if !added[name] {
 					fmt.Fprintf(os.Stderr, "- %s\n", name)
 				}
 			}
-			// Add remaining unconventionally
 			for _, name := range processingList {
 				if !added[name] {
 					fallbackOrder = append(fallbackOrder, name)

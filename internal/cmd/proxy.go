@@ -321,10 +321,5 @@ func generateProxyClaudeConfig(cfg *config.ComposeConfig, proxyBaseURL string, o
 	if err := os.WriteFile(configPath, configData, 0644); err != nil {
 		return fmt.Errorf("failed to write Claude Desktop config file: %w", err)
 	}
-	fmt.Printf("Claude Desktop configuration created at %s\n", configPath)
-	fmt.Println("To use with Claude Desktop:")
-	fmt.Println("1. Open Claude Desktop")
-	fmt.Println("2. Go to Settings > MCP Servers")
-	fmt.Println("3. Click 'Import Servers' and select the generated file.")
 	return nil
 }
