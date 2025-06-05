@@ -21,8 +21,9 @@ A Docker Compose-style orchestration tool for managing Model Context Protocol (M
 git clone <repository-url>
 cd mcp-compose
 
-# Build the binary
-go build -o mcp-compose cmd/mcp-compose/main.go
+# Build and install the binary
+make build
+make install
 ```
 
 ### 2. Create Configuration
