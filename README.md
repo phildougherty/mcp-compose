@@ -18,7 +18,7 @@ A Docker Compose-style orchestration tool for managing Model Context Protocol (M
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/phildougherty/mcp-compose.git
 cd mcp-compose
 
 # Build and install the binary
