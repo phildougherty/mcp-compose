@@ -1,0 +1,87 @@
+# MCP Compose Configuration Example
+# This file demonstrates basic configuration with official MCP servers
+# Copy this file to mcp-compose.yaml and modify the values for your setup
+
+version: '1'
+
+# Optional: Enable proxy authentication
+proxy_auth:
+  enabled: true
+  api_key: "your-secure-api-key-here"  # Change this to a secure API key
+
+servers:
+  # Official Filesystem MCP Server - provides file system access
+  filesystem:
+    build: 
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args: 
+        BASE_IMAGE: node:22-slim
+    runtime: docker
+    command: "npx" 
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/files"] 
+    env: 
+      MCP_SOCAT_INTERNAL_PORT: "12345"
+    stdio_hoster_port: 12345        
+    capabilities: [resources, tools]
+    volumes: 
+      - "/path/to/your/files:/files:rw"  # Change to your desired directory
+    networks: [mcp-net]
+
+  # Official GitHub MCP Server - requires GitHub token
+  github:
+    build: 
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args: 
+        BASE_IMAGE: node:22-slim
+    runtime: docker
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env: 
+      MCP_SOCAT_INTERNAL_PORT: "12346"
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"  # Set this environment variable
+    stdio_hoster_port: 12346
+    capabilities: [tools, resources]
+    networks: [mcp-net]
+
+  # Official Memory MCP Server - provides persistent memory capabilities
+  memory:
+    build: 
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args: 
+        BASE_IMAGE: node:22-slim
+    runtime: docker
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-memory"]
+    env: 
+      MCP_SOCAT_INTERNAL_PORT: "12347"
+    stdio_hoster_port: 12347
+    capabilities: [tools, resources]
+    networks: [mcp-net]
+
+# Network configuration for inter-container communication
+networks:
+  mcp-net:
+    driver: bridge
+
+# =============================================================================
+# SETUP INSTRUCTIONS:
+# =============================================================================
+#
+# Environment Variables to Set:
+# - GITHUB_TOKEN: Your GitHub personal access token
+#
+# Before running:
+# 1. Copy this file to mcp-compose.yaml
+# 2. Update the filesystem volume path to your desired directory
+# 3. Set the GITHUB_TOKEN environment variable
+# 4. Ensure docker_utils/socat_stdio_hoster build context exists
+# 5. Run: mcp-compose up
+#
+# Key Configuration Notes:
+# - stdio_hoster_port: Must be unique for each service
+# - capabilities: Define what the MCP server provides (tools, resources, or both)
+# - All servers shown use the stdio protocol with socat hosting
+# - Build context assumes you have the socat_stdio_hoster utility
