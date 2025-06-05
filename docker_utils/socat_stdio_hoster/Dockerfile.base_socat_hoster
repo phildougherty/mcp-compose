@@ -1,0 +1,20 @@
+# docker_utils/socat_stdio_hoster/Dockerfile.base_socat_hoster
+
+ARG BASE_IMAGE=node:22-slim 
+FROM ${BASE_IMAGE}
+
+# Install socat and any other common deps
+# Add curl for potential health checks or debugging inside the container
+RUN apt-get update && \
+    apt-get install -y socat netcat-openbsd curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# The actual MCP server command will be passed to this entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Optional: A default CMD if entrypoint is not given args (though our setup always gives args)
+# CMD ["echo", "Entrypoint expects server command and args. Example: npx -y some-mcp-server"]
