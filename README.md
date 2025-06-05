@@ -1,242 +1,461 @@
 # MCP-Compose
 
-A tool for orchestrating, managing, and running Model Context Protocol (MCP) servers in Docker containers.
+A Docker Compose-style orchestration tool for managing Model Context Protocol (MCP) servers. MCP-Compose simplifies the deployment, configuration, and management of multiple MCP servers with a unified HTTP proxy interface.
 
-## 📋 Overview
+## Features
 
-MCP-Compose simplifies the deployment and management of MCP servers, making it easy to define, configure, and run multiple services through a single YAML configuration file. It's inspired by Docker Compose but specifically tailored for MCP servers used with AI assistants.
+- **Docker Compose-style Configuration**: Define MCP servers using familiar YAML syntax
+- **Unified HTTP Proxy**: All MCP servers accessible through a single HTTP endpoint
+- **Multiple Transport Modes**: Support for STDIO, HTTP, and Socat-hosted STDIO servers
+- **Container & Process Management**: Run MCP servers as Docker containers or native processes
+- **Client Integration**: Easy integration with Claude Desktop, OpenWebUI, and other MCP clients
+- **Development Tools**: Built-in inspector, health checks, and logging
+- **OpenAPI Integration**: Auto-generated OpenAPI specs for each server
 
-## ✨ Features
+## Quick Start
 
-- **Simple Configuration**: Define all your MCP servers in a single YAML file
-- **Multiple Server Types**: Support for filesystem, memory, weather, and custom servers
-- **Docker Integration**: Run servers in containers or as local processes
-- **Resource Sharing**: Mount local directories as resources
-- **Proxy Server**: Expose all MCP servers through a unified HTTP endpoint
-- **Inspector Tool**: Debug and test MCP servers interactively
-- **Authentication**: Secure your endpoints with API key authentication
-- **OpenAPI Integration**: Auto-generated OpenAPI schemas for tools
-- **Client Integration**: Generate configuration for LLM clients
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Docker
-- Go 1.19+
-
-### Installation
+### 1. Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/phildougherty/mcp-compose.git
+git clone <repository-url>
 cd mcp-compose
 
-# Build the tool
-make build
+# Build the binary
+go build -o mcp-compose cmd/mcp-compose/main.go
 ```
 
-### Basic Usage
+### 2. Create Configuration
 
-1. Create an `mcp-compose.yaml` file:
+Copy the example configuration:
+
+```bash
+cp mcp-compose_example.yaml mcp-compose.yaml
+```
+
+Edit `mcp-compose.yaml` to configure your servers:
 
 ```yaml
 version: '1'
+proxy_auth:
+  enabled: true
+  api_key: "your-secure-api-key"
+
 servers:
   filesystem:
-    image: node:18-slim
+    build:
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args:
+        BASE_IMAGE: node:22-slim
     runtime: docker
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-    capabilities:
-      - resources
-      - tools
-    resources:
-      paths:
-        - source: "/tmp"
-          target: "/tmp"
-          watch: true
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/files"]
+    env:
+      MCP_SOCAT_INTERNAL_PORT: "12345"
+    stdio_hoster_port: 12345
+    capabilities: [resources, tools]
+    volumes:
+      - "/path/to/your/files:/files:rw"
+    networks: [mcp-net]
 
-  memory:
-    image: node:18-slim
+  github:
+    build:
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args:
+        BASE_IMAGE: node:22-slim
     runtime: docker
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-memory"]
-    capabilities:
-      - tools
-      - resources
-```
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      MCP_SOCAT_INTERNAL_PORT: "12346"
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    stdio_hoster_port: 12346
+    capabilities: [tools, resources]
+    networks: [mcp-net]
 
-2. Start all servers:
-
-```bash
-./mcp-compose up
-```
-
-3. Check server status:
-
-```bash
-./mcp-compose ls
-```
-
-## 📑 Configuration Reference
-
-### MCP-Compose YAML Structure
-
-The configuration file uses the following structure:
-
-```yaml
-version: '1'  # Configuration version
-
-servers:       # Define your MCP servers
-  server-name:  # Name for your server
-    # Container configuration (for Docker-based servers)
-    image: node:18-slim  # Docker image
-    runtime: docker      # Container runtime (docker or podman)
-    
-    # Process configuration (for process-based servers)
-    command: npx         # Command to run
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]  # Command arguments
-    
-    # Common settings
-    env:                 # Environment variables
-      DEBUG: "true"
-    ports:               # Port mappings
-      - "3000:3000"
-    volumes:             # Volume mappings
-      - "./data:/data"
-    capabilities:        # MCP capabilities
-      - resources
-      - tools
-    depends_on:          # Dependencies
-      - other-server
-      
-    # Enhanced settings
-    resources:           # Resource configuration
-      paths:
-        - source: "./data"
-          target: "/data"
-          watch: true
-    networks:
-      - mcp-net
-
-connections:    # Connection configuration
-  default:
-    transport: stdio
-  
-networks:       # Network configuration
+networks:
   mcp-net:
     driver: bridge
-  
-development:    # Development tools configuration
-  inspector:
-    enabled: true
-    port: 8090
 ```
 
-### Basic Commands
+### 3. Set Environment Variables
+
+```bash
+export GITHUB_TOKEN="your_github_token_here"
+```
+
+### 4. Start Services
 
 ```bash
 # Start all servers
 ./mcp-compose up
 
-# Stop all servers
-./mcp-compose down
+# Start specific servers
+./mcp-compose up filesystem github
 
-# List all servers and their status
+# Start with proxy
+./mcp-compose proxy --port 9876 --api-key "your-api-key"
+```
+
+### 5. Access Your Servers
+
+- **Proxy Dashboard**: http://localhost:9876
+- **Individual Server**: http://localhost:9876/filesystem
+- **OpenAPI Spec**: http://localhost:9876/filesystem/openapi.json
+- **Server Documentation**: http://localhost:9876/filesystem/docs
+
+## Configuration
+
+### Server Configuration
+
+Each server in the `servers` section can be configured with:
+
+#### Basic Properties
+- `command`: Command to run (for process-based servers)
+- `args`: Command arguments
+- `image`: Docker image (for container-based servers)
+- `runtime`: Container runtime (docker, podman)
+
+#### Transport Configuration
+- `protocol`: Transport protocol (`stdio`, `http`)
+- `http_port`: HTTP port for HTTP protocol servers
+- `stdio_hoster_port`: Port for socat-hosted STDIO servers
+
+#### Container Configuration
+- `build`: Build configuration for custom images
+- `volumes`: Volume mounts
+- `networks`: Docker networks
+- `ports`: Port mappings
+- `env`: Environment variables
+
+#### Capabilities
+- `capabilities`: List of MCP capabilities (`tools`, `resources`, `prompts`, `sampling`, `logging`)
+
+### Example Configurations
+
+#### Official MCP Filesystem Server
+```yaml
+filesystem:
+  build:
+    context: ./docker_utils/socat_stdio_hoster
+    dockerfile: Dockerfile.base_socat_hoster
+    args:
+      BASE_IMAGE: node:22-slim
+  runtime: docker
+  command: "npx"
+  args: ["-y", "@modelcontextprotocol/server-filesystem", "/files"]
+  env:
+    MCP_SOCAT_INTERNAL_PORT: "12345"
+  stdio_hoster_port: 12345
+  capabilities: [resources, tools]
+  volumes:
+    - "/home/user/documents:/files:rw"
+  networks: [mcp-net]
+```
+
+#### HTTP-based MCP Server
+```yaml
+dexcom:
+  image: dexcom-mcp-http:local
+  runtime: docker
+  build:
+    context: ./custom_mcp/dexcom
+    dockerfile: Dockerfile
+  protocol: http
+  http_port: 8007
+  env:
+    HTTP_PORT: "8007"
+    DEXCOM_USERNAME: "your-username"
+    DEXCOM_PASSWORD: "your-password"
+  capabilities: [tools, resources]
+  networks: [mcp-net]
+```
+
+## Commands
+
+### Core Commands
+- `up [SERVER...]`: Start servers
+- `down [SERVER...]`: Stop servers  
+- `start [SERVER...]`: Start specific stopped servers
+- `stop [SERVER...]`: Stop specific running servers
+- `ls`: List all servers and their status
+- `logs [SERVER...]`: Show server logs
+
+### Proxy Commands
+- `proxy`: Start HTTP proxy server
+- `reload`: Reload proxy configuration
+
+### Development Commands
+- `inspector [SERVER]`: Launch MCP inspector
+- `validate`: Validate configuration file
+- `create-config`: Generate client configurations
+
+### Examples
+
+```bash
+# Start all servers
+./mcp-compose up
+
+# Start specific servers
+./mcp-compose up filesystem github
+
+# Check status
 ./mcp-compose ls
 
 # View logs
-./mcp-compose logs [SERVER...]
+./mcp-compose logs filesystem
 
-# Start the MCP inspector
-./mcp-compose inspector [SERVER]
+# Start proxy on port 9876
+./mcp-compose proxy --port 9876 --api-key "mykey"
 
-# Start the MCP proxy
-./mcp-compose proxy
+# Validate configuration
+./mcp-compose validate
+
+# Generate client config
+./mcp-compose create-config --type claude --output client-configs
 ```
 
-## 🔄 Proxy Server
+## Client Integration
 
-The proxy server lets you access all your MCP services through a unified HTTP endpoint, making them accessible to AI models and other clients.
+### Claude Desktop
+
+Generate Claude Desktop configuration:
 
 ```bash
-# Start the proxy server
-./mcp-compose proxy
+./mcp-compose create-config --type claude --output client-configs
 ```
 
-### Proxy Features
+Or manually add to Claude Desktop settings:
 
-- **Unified HTTP Endpoint**: Access all MCP servers through a single entry point
-- **OpenAPI Integration**: Auto-generated OpenAPI schema and Swagger UI documentation
-- **API Authentication**: Secure your endpoints with API key authentication
-- **Cross-Origin Support**: Full CORS support for browser-based clients
-- **HTTP/JSON Bridge**: Converts between JSON-RPC over HTTP and stdio protocols
-- **Container Discovery**: Automatically detects and exposes running MCP containers
-- **Tool Forwarding**: Properly routes tool calls to appropriate servers
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "httpEndpoint": "http://localhost:9876/filesystem",
+      "capabilities": ["resources", "tools"],
+      "description": "MCP filesystem server (via proxy)"
+    }
+  ]
+}
+```
 
-Once running, the proxy is available at `http://localhost:9876` with:
+### OpenWebUI
 
-- Server endpoints: `http://localhost:9876/{server-name}`
-- Tool endpoints: `http://localhost:9876/{server-name}/{tool-name}`
-- OpenAPI schema: `http://localhost:9876/openapi.json`
-- Swagger UI docs: `http://localhost:9876/docs`
-- Server-specific docs: `http://localhost:9876/{server-name}/docs`
+Use individual server OpenAPI specs:
 
-## 🔍 Inspector Tool
+- **Filesystem**: `http://localhost:9876/filesystem/openapi.json`
+- **GitHub**: `http://localhost:9876/github/openapi.json`
+- **API Key**: Use the same API key configured in `proxy_auth`
 
-The inspector provides a web interface for debugging and testing MCP servers:
+### Custom Clients
+
+Access servers directly via HTTP:
 
 ```bash
-# Launch inspector UI
-./mcp-compose inspector
+# Initialize connection
+curl -X POST http://localhost:9876/filesystem \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    }
+  }'
+
+# Call a tool
+curl -X POST http://localhost:9876/filesystem \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "read_file",
+      "arguments": {"path": "/files/example.txt"}
+    }
+  }'
 ```
 
-The inspector lets you:
-- Browse available servers and their capabilities
-- Execute tool calls and view responses
-- View server metadata and resources
-- Test and diagnose MCP protocol issues
+## Architecture
 
-## 🔌 Client Integration
+### Transport Modes
 
-MCP-Compose can generate configuration for various LLM clients:
+MCP-Compose supports three transport modes:
+
+1. **STDIO**: Direct process communication via stdin/stdout
+2. **HTTP**: Native HTTP communication with MCP servers
+3. **Socat STDIO**: STDIO servers hosted via socat TCP proxy
+
+### Proxy Architecture
+
+```
+Client -> HTTP Proxy -> [STDIO/HTTP/Socat] -> MCP Server
+```
+
+The proxy handles:
+- Protocol translation between HTTP and STDIO/TCP
+- Session management and connection pooling  
+- Authentication and authorization
+- Request routing to appropriate servers
+- Response formatting and error handling
+
+### Container Networking
+
+Servers communicate via Docker networks:
+
+```
+mcp-net (bridge)
+├── mcp-compose-filesystem
+├── mcp-compose-github  
+├── mcp-compose-memory
+└── mcp-compose-proxy (when containerized)
+```
+
+## Development
+
+### Project Structure
+
+```
+mcp-compose/
+├── cmd/mcp-compose/          # Main application
+├── internal/
+│   ├── cmd/                  # CLI commands
+│   ├── config/               # Configuration handling
+│   ├── container/            # Container runtime abstraction
+│   ├── server/               # Server management and proxy
+│   ├── compose/              # Core orchestration logic
+│   └── logging/              # Logging utilities
+├── custom_mcp/               # Custom MCP server implementations
+├── docker_utils/             # Docker utilities and base images
+├── examples/                 # Example configurations
+└── client-configs/           # Generated client configurations
+```
+
+### Building
 
 ```bash
-# Generate client configurations
-./mcp-compose create-config
+# Build binary
+go build -o mcp-compose cmd/mcp-compose/main.go
+
+# Build with version info
+go build -ldflags "-X main.version=1.0.0" -o mcp-compose cmd/mcp-compose/main.go
+
+# Build for different platforms
+GOOS=linux GOARCH=amd64 go build -o mcp-compose-linux cmd/mcp-compose/main.go
+GOOS=darwin GOARCH=amd64 go build -o mcp-compose-darwin cmd/mcp-compose/main.go
 ```
 
-This creates configuration files for:
-- Claude Desktop
-- OpenAI API clients
-- Anthropic API clients
+### Adding New Servers
 
-## ✨ MCP-Compose-Proxy-Shim
+1. Create server directory in `custom_mcp/`
+2. Add Dockerfile and implementation
+3. Add server configuration to `mcp-compose.yaml`
+4. Test with `./mcp-compose up your-server`
 
-For users who want to use Docker-based MCP servers with clients that expect local servers (like the free version of Claude Desktop), check out [MCP-Compose-Proxy-Shim](https://github.com/phildougherty/mcp-compose-proxy-shim).
+### Custom Transport Implementations
 
-The shim works by:
-1. Intercepting calls from Claude Desktop to local MCP servers
-2. Forwarding these calls to your MCP-Compose proxy
-3. Returning results back to Claude as if they came from local servers
+Implement the `Transport` interface in `internal/protocol/`:
 
-This gives you the best of both worlds: the power of Docker-based servers with clients that need local servers.
-
-## 🛠️ Advanced Features
-
-- **Lifecycle Hooks**: Run custom scripts at different stages of server lifecycle
-- **Health Checks**: Monitor server health and automatically restart unhealthy servers
-- **Resource Watching**: Track changes to files and directories in real-time
-- **Network Management**: Create isolated or shared networks for MCP servers
-- **Environment Variables**: Configure servers using environment variables
-- **Custom Tool Definitions**: Define custom tools with rich parameters and schemas
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a pull request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+```go
+type Transport interface {
+    Send(msg MCPMessage) error
+    Receive() (MCPMessage, error)
+    Close() error
+}
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+**Server won't start**
+- Check port conflicts with `./mcp-compose ls`
+- Verify environment variables are set
+- Check container logs with `./mcp-compose logs server-name`
+
+**Proxy connection failed**
+- Ensure servers are running and healthy
+- Check network configurations
+- Verify API key authentication
+
+**Missing capabilities**
+- Check server `capabilities` configuration
+- Ensure server implements required MCP methods
+- Verify server initialization succeeded
+
+### Debug Mode
+
+Enable verbose logging:
+
+```bash
+# Enable debug logging
+./mcp-compose --verbose up
+
+# Check proxy status
+curl http://localhost:9876/api/status
+
+# View active connections
+curl http://localhost:9876/api/connections
+```
+
+### Health Checks
+
+Monitor server health:
+
+```yaml
+servers:
+  myserver:
+    # ... other config
+    lifecycle:
+      health_check:
+        endpoint: "/health"
+        interval: "30s"
+        timeout: "5s"
+        retries: 3
+        action: "restart"
+```
+
+## API Reference
+
+### Proxy Endpoints
+
+- `GET /` - Dashboard
+- `POST /{server}` - Forward MCP request
+- `GET /{server}` - Server details
+- `GET /{server}/openapi.json` - Server OpenAPI spec
+- `GET /{server}/docs` - Server documentation
+- `GET /api/servers` - List servers
+- `GET /api/status` - Proxy status
+- `GET /api/discovery` - MCP discovery
+- `POST /api/reload` - Reload configuration
+
+### MCP Protocol
+
+All servers support standard MCP methods:
+
+- `initialize` - Initialize connection
+- `tools/list` - List available tools
+- `tools/call` - Call a tool
+- `resources/list` - List resources
+- `resources/read` - Read resource
+- `prompts/list` - List prompts
+- `prompts/get` - Get prompt
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
+
