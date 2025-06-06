@@ -68,6 +68,11 @@ func NewProcess(command string, args []string, opts ProcessOptions) (*Process, e
 	cmd.Stdout = stdout
 	cmd.Stderr = stdout
 
+	// Set process group to detach from parent
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
 	return &Process{
 		cmd:     cmd,
 		pidFile: pidFile,
@@ -86,6 +91,11 @@ func (p *Process) Start() error {
 	// Write PID to file
 	if err := os.WriteFile(p.pidFile, []byte(strconv.Itoa(p.cmd.Process.Pid)), 0644); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)
+	}
+
+	// Close the file handles in the parent process since child has its own copy
+	if closer, ok := p.cmd.Stdout.(interface{ Close() error }); ok {
+		closer.Close()
 	}
 
 	// Detach process from parent
