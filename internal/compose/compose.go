@@ -300,6 +300,34 @@ func isContainerServer(serverCfg config.ServerConfig) bool {
 	return serverCfg.Image != "" || serverCfg.Runtime != ""
 }
 
+// startServerProcess handles process-based server startup
+func startServerProcess(serverName string, serverCfg config.ServerConfig) error {
+	fmt.Printf("Starting process '%s' for server '%s'.\n", serverCfg.Command, serverName)
+	
+	env := make(map[string]string)
+	if serverCfg.Env != nil {
+		for k, v := range serverCfg.Env {
+			env[k] = v
+		}
+	}
+	// Add standard MCP environment variables
+	env["MCP_SERVER_NAME"] = serverName
+
+	proc, err := runtime.NewProcess(serverCfg.Command, serverCfg.Args, runtime.ProcessOptions{
+		Env:     env,
+		WorkDir: serverCfg.WorkDir,
+		Name:    fmt.Sprintf("mcp-compose-%s", serverName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create process structure for server '%s': %w", serverName, err)
+	}
+	if err := proc.Start(); err != nil {
+		return fmt.Errorf("failed to start process for server '%s': %w", serverName, err)
+	}
+
+	return nil
+}
+
 func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
 	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
 	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName})
