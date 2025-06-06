@@ -313,7 +313,7 @@ func isContainerServer(serverCfg config.ServerConfig) bool {
 // startServerProcess handles process-based server startup
 func startServerProcess(serverName string, serverCfg config.ServerConfig) error {
 	fmt.Printf("Starting process '%s' for server '%s'.\n", serverCfg.Command, serverName)
-	
+
 	env := make(map[string]string)
 	if serverCfg.Env != nil {
 		for k, v := range serverCfg.Env {
