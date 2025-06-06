@@ -12,6 +12,7 @@ import (
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
+	"mcpcompose/internal/runtime"
 
 	"github.com/fatih/color"
 )
