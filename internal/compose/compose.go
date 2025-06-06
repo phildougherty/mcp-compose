@@ -162,13 +162,18 @@ func Up(configFile string, serverNames []string) error {
 	return nil
 }
 
-// collectRequiredNetworks gathers all networks used by the servers being started
+// collectRequiredNetworks gathers all networks used by the container servers being started
 func collectRequiredNetworks(cfg *config.ComposeConfig, serverNames []string) map[string][]string {
 	networkToServers := make(map[string][]string)
 
 	for _, serverName := range serverNames {
 		serverCfg, exists := cfg.Servers[serverName]
 		if !exists {
+			continue
+		}
+
+		// Only process container servers for network requirements
+		if !isContainerServer(serverCfg) {
 			continue
 		}
 
