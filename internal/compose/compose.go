@@ -97,7 +97,12 @@ func Up(configFile string, serverNames []string) error {
 				}
 			}
 
-			err := startServerContainer(name, serverCfg, cRuntime)
+			var err error
+			if isContainerServer(serverCfg) {
+				err = startServerContainer(name, serverCfg, cRuntime)
+			} else {
+				err = startServerProcess(name, serverCfg)
+			}
 			duration := time.Since(startTime)
 			results <- startResult{name, err, duration}
 		}(serverName)
