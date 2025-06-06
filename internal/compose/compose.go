@@ -143,7 +143,7 @@ func Up(configFile string, serverNames []string) error {
 			fmt.Printf("- %s\n", e)
 		}
 		if successCount == 0 {
-			return fmt.Errorf("failed to start any servers. Check server configurations for HTTP mode and port exposure, and ensure commands are correct for HTTP startup")
+			return fmt.Errorf("failed to start any servers. Check server configurations and ensure commands/images are correct")
 		}
 	}
 
