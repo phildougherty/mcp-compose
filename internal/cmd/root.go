@@ -6,11 +6,12 @@ import (
 )
 
 // in internal/cmd/root.go
-func NewRootCommand() *cobra.Command {
+func NewRootCommand(version string) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "mcp-compose",
-		Short: "Manage MCP servers with compose",
-		Long:  `MCP-Compose is a tool for defining and running multi-server Model Context Protocol applications.`,
+		Use:     "mcp-compose",
+		Short:   "Manage MCP servers with compose",
+		Long:    `MCP-Compose is a tool for defining and running multi-server Model Context Protocol applications.`,
+		Version: version,
 	}
 
 	rootCmd.PersistentFlags().StringP("file", "c", "mcp-compose.yaml", "Specify compose file")
