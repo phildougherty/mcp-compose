@@ -295,6 +295,11 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 	return uniqueNetworks
 }
 
+// isContainerServer determines if a server should run as a container
+func isContainerServer(serverCfg config.ServerConfig) bool {
+	return serverCfg.Image != "" || serverCfg.Runtime != ""
+}
+
 func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
 	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
 	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName})
