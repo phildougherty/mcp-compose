@@ -34,25 +34,66 @@ type MCPHTTPConnection struct {
 	mu           sync.Mutex             // To protect access to this connection's state (SessionID, Healthy, Initialized, LastUsed etc.)
 }
 
-// ProxyHandler handles HTTP requests and forwards them to MCP servers via HTTP
+type MCPSTDIOConnection struct {
+	ServerName  string
+	Host        string
+	Port        int
+	Connection  net.Conn
+	Reader      *bufio.Reader
+	Writer      *bufio.Writer
+	LastUsed    time.Time
+	Initialized bool
+	Healthy     bool
+	mu          sync.Mutex
+}
+
+type MCPSSEConnection struct {
+	ServerName      string
+	BaseURL         string
+	SSEEndpoint     string
+	SessionEndpoint string
+	LastUsed        time.Time
+	Initialized     bool
+	Healthy         bool
+	Capabilities    map[string]interface{}
+	ServerInfo      map[string]interface{}
+	SessionID       string
+
+	// Critical: Keep these alive for the session lifetime
+	sseResponse *http.Response
+	sseBody     io.ReadCloser
+	sseCancel   context.CancelFunc
+	sseReader   *bufio.Scanner
+
+	pendingRequests map[interface{}]chan map[string]interface{}
+	reqMutex        sync.Mutex
+	mu              sync.Mutex
+}
+
 type ProxyHandler struct {
 	Manager           *Manager
-	ConfigFile        string // Path to the mcp-compose.yaml
-	APIKey            string // API key for the proxy itself (comes from cmd flag or config)
-	EnableAPI         bool   // Whether to expose /api/* endpoints
+	ConfigFile        string
+	APIKey            string
+	EnableAPI         bool
 	ProxyStarted      time.Time
-	ServerConnections map[string]*MCPHTTPConnection // Stores active HTTP connections to backend MCP servers
-	ConnectionMutex   sync.RWMutex                  // Protects ServerConnections map
-	httpClient        *http.Client                  // HTTP client for outgoing requests from proxy to backend MCP servers
+	ServerConnections map[string]*MCPHTTPConnection // For HTTP transport
+	SSEConnections    map[string]*MCPSSEConnection  // For SSE transport
+	StdioConnections  map[string]*MCPSTDIOConnection
+	ConnectionMutex   sync.RWMutex
+	StdioMutex        sync.RWMutex
+	SSEMutex          sync.RWMutex // New mutex for SSE connections
 	logger            *logging.Logger
-	GlobalRequestID   int             // For generating unique JSON-RPC request IDs from the proxy
-	GlobalIDMutex     sync.Mutex      // Protects GlobalRequestID
-	ctx               context.Context // For graceful shutdown of the proxy handler
+	httpClient        *http.Client // For regular HTTP requests
+	sseClient         *http.Client // For SSE connections (no timeout)
+	GlobalRequestID   int
+	GlobalIDMutex     sync.Mutex
+	ctx               context.Context
 	cancel            context.CancelFunc
-	wg                sync.WaitGroup    // For managing goroutines like periodic maintenance
-	toolCache         map[string]string // toolName -> serverName mapping
-	toolCacheMu       sync.RWMutex      // Protects tool cache
-	cacheExpiry       time.Time         // When to refresh the cache
+	wg                sync.WaitGroup
+	toolCache         map[string]string
+	toolCacheMu       sync.RWMutex
+	cacheExpiry       time.Time
+	connectionStats   map[string]*ConnectionStats
 }
 
 // MCPRequest, MCPResponse, MCPError structs (standard JSON-RPC definitions)
@@ -74,6 +115,15 @@ type MCPError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+type ConnectionStats struct {
+	TotalRequests  int64
+	FailedRequests int64
+	TimeoutErrors  int64
+	LastError      time.Time
+	LastSuccess    time.Time
+	mu             sync.RWMutex
 }
 
 func (h *ProxyHandler) refreshToolCache() {
@@ -106,20 +156,36 @@ func (h *ProxyHandler) refreshToolCache() {
 	h.logger.Info("Tool cache refreshed with %d tools", len(newCache))
 }
 
-// NewProxyHandler creates a new proxy handler instance
 func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Regular HTTP client for short requests
 	customTransport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   20,
-		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          50,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		DisableKeepAlives:     false,
+		MaxConnsPerHost:       20,
+		WriteBufferSize:       4096,
+		ReadBufferSize:        4096,
 	}
 
-	logLvl := "info" // Default
+	// SSE client with no timeout for persistent connections
+	sseTransport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   5,
+		IdleConnTimeout:       5 * time.Minute, // Longer for SSE
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableKeepAlives:     false,
+		MaxConnsPerHost:       5,
+	}
+
+	logLvl := "info"
 	if mgr.config != nil && mgr.config.Logging.Level != "" {
 		logLvl = mgr.config.Logging.Level
 	}
@@ -131,21 +197,25 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		EnableAPI:         true,
 		ProxyStarted:      time.Now(),
 		ServerConnections: make(map[string]*MCPHTTPConnection),
+		SSEConnections:    make(map[string]*MCPSSEConnection),
+		StdioConnections:  make(map[string]*MCPSTDIOConnection),
 		httpClient: &http.Client{
 			Transport: customTransport,
-			Timeout:   120 * time.Second,
+			Timeout:   60 * time.Second,
 		},
-		logger:      logging.NewLogger(logLvl),
-		ctx:         ctx,
-		cancel:      cancel,
-		toolCache:   make(map[string]string),
-		cacheExpiry: time.Now(), // Force initial cache load
+		sseClient: &http.Client{
+			Transport: sseTransport,
+			// No timeout for SSE connections!
+		},
+		logger:          logging.NewLogger(logLvl),
+		ctx:             ctx,
+		cancel:          cancel,
+		toolCache:       make(map[string]string),
+		cacheExpiry:     time.Now(),
+		connectionStats: make(map[string]*ConnectionStats),
 	}
 
-	// Optional: Start periodic maintenance for connections
-	// handler.wg.Add(1)
-	// go handler.periodicConnectionMaintenance()
-
+	handler.startConnectionMaintenance()
 	return handler
 }
 
@@ -562,19 +632,52 @@ func (h *ProxyHandler) isConnectionHealthy(conn *MCPHTTPConnection) bool {
 }
 
 func (h *ProxyHandler) Shutdown() error {
-	h.logger.Info("Shutting down HTTP proxy handler...")
+	h.logger.Info("Shutting down proxy handler...")
+
 	if h.cancel != nil {
 		h.cancel()
 	}
 
+	// Close HTTP client connections
 	h.httpClient.CloseIdleConnections()
 
+	// Close HTTP connections
 	h.ConnectionMutex.Lock()
+	for name := range h.ServerConnections {
+		h.logger.Debug("Cleaning up HTTP connection to server %s", name)
+	}
 	h.ServerConnections = make(map[string]*MCPHTTPConnection)
 	h.ConnectionMutex.Unlock()
 
+	// Close SSE connections
+	h.SSEMutex.Lock()
+	for name := range h.SSEConnections {
+		h.logger.Debug("Cleaning up SSE connection to server %s", name)
+	}
+	h.SSEConnections = make(map[string]*MCPSSEConnection)
+	h.SSEMutex.Unlock()
+
+	// Close STDIO connections
+	h.StdioMutex.Lock()
+	for name, conn := range h.StdioConnections {
+		if conn != nil && conn.Connection != nil {
+			h.logger.Debug("Closing STDIO connection to server %s", name)
+			conn.Connection.Close()
+		}
+	}
+	h.StdioConnections = make(map[string]*MCPSTDIOConnection)
+	h.StdioMutex.Unlock()
+
+	// Clear tool cache
+	h.toolCacheMu.Lock()
+	h.toolCache = make(map[string]string)
+	h.cacheExpiry = time.Now()
+	h.toolCacheMu.Unlock()
+
+	// Wait for goroutines
 	h.wg.Wait()
-	h.logger.Info("HTTP proxy handler shutdown complete.")
+
+	h.logger.Info("Proxy handler shutdown complete.")
 	return nil
 }
 
@@ -917,71 +1020,124 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 		return h.getGenericToolForServer(serverName), nil
 	}
 
-	// Use the existing handleServerForward logic internally
 	serverConfig := h.Manager.config.Servers[serverName]
 
-	// Determine server type and route accordingly
-	isSocatSTDIO := serverConfig.StdioHosterPort > 0
-	isRegularHTTP := serverConfig.Protocol == "http" || serverConfig.HttpPort > 0
+	// Determine the transport protocol
+	protocol := serverConfig.Protocol
+	if protocol == "" {
+		protocol = "stdio" // default
+	}
 
-	// Check for HTTP args if not explicitly configured
-	if !isRegularHTTP && !isSocatSTDIO {
-		hasHTTPArgs := false
-		for _, arg := range serverConfig.Args {
-			if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
-				hasHTTPArgs = true
-				break
+	// Route based on protocol
+	h.logger.Info("Server %s using protocol: %s", serverName, protocol)
+
+	// Retry logic with exponential backoff
+	maxRetries := 3
+	baseTimeout := 10 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		h.logger.Debug("Tool discovery attempt %d/%d for server %s (protocol: %s)", attempt, maxRetries, serverName, protocol)
+		timeout := time.Duration(attempt) * baseTimeout // 10s, 20s, 30s
+
+		var response map[string]interface{}
+		var err error
+
+		switch protocol {
+		case "sse":
+			// Use SSE discovery
+			response, err = h.sendSSEToolsRequestWithRetry(serverName, toolsRequest, timeout, attempt)
+		case "http":
+			// Use HTTP discovery
+			response, err = h.sendHTTPToolsRequestWithRetry(serverName, toolsRequest, timeout, attempt)
+		case "stdio":
+			if serverConfig.StdioHosterPort > 0 {
+				// Use socat TCP connection
+				containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+				socatHost := containerName
+				socatPort := serverConfig.StdioHosterPort
+				response, err = h.sendRawTCPRequestWithRetry(socatHost, socatPort, toolsRequest, timeout, attempt)
+			} else {
+				// STDIO server - skip for now and use generic
+				h.logger.Warning("Direct STDIO server %s tool discovery not implemented, using generic fallback", serverName)
+				return h.getGenericToolForServer(serverName), nil
+			}
+		default:
+			h.logger.Warning("Unknown protocol %s for server %s, using generic fallback", protocol, serverName)
+			return h.getGenericToolForServer(serverName), nil
+		}
+
+		if err == nil {
+			// Success - parse and return tools
+			specs, parseErr := h.parseToolsResponse(serverName, response)
+			if parseErr == nil && len(specs) > 0 {
+				toolNames := make([]string, len(specs))
+				for i, spec := range specs {
+					toolNames[i] = spec.Name
+				}
+				h.logger.Info("Successfully discovered %d tools from %s: %v", len(specs), serverName, toolNames)
+				return specs, nil
+			}
+			if parseErr != nil {
+				h.logger.Warning("Failed to parse tools response from %s on attempt %d: %v", serverName, attempt, parseErr)
+				err = parseErr
 			}
 		}
-		if hasHTTPArgs {
-			isRegularHTTP = true
+
+		// Log the failure and decide whether to retry
+		isTimeout := strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout")
+		isConnectionError := strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host")
+
+		if attempt < maxRetries && (isTimeout || isConnectionError) {
+			waitTime := time.Duration(attempt*2) * time.Second // 2s, 4s wait between retries
+			h.logger.Warning("Tool discovery attempt %d/%d failed for %s (%v), retrying in %v", attempt, maxRetries, serverName, err, waitTime)
+			time.Sleep(waitTime)
+			continue
 		}
+
+		// Final attempt failed or non-retryable error
+		h.logger.Warning("Tool discovery failed for %s after %d attempts: %v, using generic fallback", serverName, attempt, err)
+		break
 	}
 
-	var response map[string]interface{}
-	var err error
+	// All retries failed, use generic fallback
+	return h.getGenericToolForServer(serverName), fmt.Errorf("failed to discover tools after %d attempts", maxRetries)
+}
 
-	if isSocatSTDIO {
-		// Use socat TCP connection
-		containerName := fmt.Sprintf("mcp-compose-%s", serverName)
-		socatHost := containerName
-		socatPort := serverConfig.StdioHosterPort
-		response, err = h.sendRawTCPRequest(socatHost, socatPort, toolsRequest, 10*time.Second)
-	} else if isRegularHTTP {
-		// Use HTTP connection
-		conn, connErr := h.getServerConnection(serverName)
-		if connErr != nil {
-			h.logger.Warning("Failed to get HTTP connection for %s: %v", serverName, connErr)
-			return h.getGenericToolForServer(serverName), connErr
-		}
-		response, err = h.sendHTTPJsonRequest(conn, toolsRequest, 10*time.Second)
-	} else {
-		// STDIO server - this is more complex, let's skip for now and use generic
-		h.logger.Warning("STDIO server %s tool discovery not implemented, using generic fallback", serverName)
-		return h.getGenericToolForServer(serverName), nil
+func (h *ProxyHandler) sendSSEToolsRequestWithRetry(serverName string, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {
+	h.logger.Debug("Attempting SSE request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
+
+	conn, connErr := h.getSSEConnection(serverName)
+	if connErr != nil {
+		return nil, connErr
 	}
 
-	if err != nil {
-		h.logger.Warning("Failed to get tools from %s: %v, using generic fallback", serverName, err)
-		return h.getGenericToolForServer(serverName), err
-	}
+	return h.sendSSERequest(conn, requestPayload)
+}
+
+func (h *ProxyHandler) parseToolsResponse(serverName string, response map[string]interface{}) ([]openapi.ToolSpec, error) {
+	h.logger.Debug("Parsing tools response for %s: %v", serverName, response)
 
 	// Check for JSON-RPC error
 	if errResp, ok := response["error"].(map[string]interface{}); ok {
-		h.logger.Warning("Server %s returned error for tools/list: %v", serverName, errResp)
-		return h.getGenericToolForServer(serverName), nil
+		return nil, fmt.Errorf("server returned error: %v", errResp)
 	}
 
 	// Parse the tools from the response
 	var specs []openapi.ToolSpec
 	if result, ok := response["result"].(map[string]interface{}); ok {
+		h.logger.Debug("Found result object for %s: %v", serverName, result)
+
 		if tools, ok := result["tools"].([]interface{}); ok {
-			for _, tool := range tools {
+			h.logger.Debug("Found tools array for %s with %d tools", serverName, len(tools))
+
+			for i, tool := range tools {
 				if toolMap, ok := tool.(map[string]interface{}); ok {
 					spec := openapi.ToolSpec{Type: "function"}
-
 					if name, ok := toolMap["name"].(string); ok {
 						spec.Name = name
+					} else {
+						h.logger.Warning("Tool %d in %s missing name field: %v", i, serverName, toolMap)
+						continue
 					}
 
 					if desc, ok := toolMap["description"].(string); ok {
@@ -999,24 +1155,190 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 							"required":   []string{},
 						}
 					}
-
 					specs = append(specs, spec)
+				} else {
+					h.logger.Warning("Tool %d in %s is not a map: %v", i, serverName, tool)
 				}
 			}
+		} else {
+			h.logger.Warning("No 'tools' array found in result for %s. Result keys: %v", serverName, getKeys(result))
+		}
+	} else {
+		h.logger.Warning("No 'result' object found in response for %s. Response keys: %v", serverName, getKeys(response))
+	}
+
+	h.logger.Debug("Parsed %d tools for %s: %v", len(specs), serverName, getToolNames(specs))
+
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("no tools found in response")
+	}
+	return specs, nil
+}
+
+// Helper functions for debugging
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func getToolNames(specs []openapi.ToolSpec) []string {
+	names := make([]string, len(specs))
+	for i, spec := range specs {
+		names[i] = spec.Name
+	}
+	return names
+}
+
+func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout time.Duration) (*MCPSTDIOConnection, error) {
+	serverConfig, exists := h.Manager.config.Servers[serverName]
+	if !exists {
+		return nil, fmt.Errorf("server %s not found in config", serverName)
+	}
+
+	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+	port := serverConfig.StdioHosterPort
+	address := fmt.Sprintf("%s:%d", containerName, port)
+
+	// Use the specified timeout for connection
+	var d net.Dialer
+	ctx, cancel := context.WithTimeout(h.ctx, timeout)
+	defer cancel()
+
+	netConn, err := d.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+	}
+
+	// Set up the connection but don't store it in the main connection pool
+	conn := &MCPSTDIOConnection{
+		ServerName:  serverName,
+		Host:        containerName,
+		Port:        port,
+		Connection:  netConn,
+		Reader:      bufio.NewReaderSize(netConn, 8192),
+		Writer:      bufio.NewWriterSize(netConn, 8192),
+		LastUsed:    time.Now(),
+		Healthy:     true,
+		Initialized: false,
+	}
+
+	// Quick initialization for tool discovery
+	if err := h.quickInitializeStdioConnection(conn, timeout); err != nil {
+		conn.Connection.Close()
+		return nil, fmt.Errorf("failed to initialize connection: %w", err)
+	}
+
+	return conn, nil
+}
+
+func (h *ProxyHandler) quickInitializeStdioConnection(conn *MCPSTDIOConnection, timeout time.Duration) error {
+	// Set deadline for entire initialization
+	deadline := time.Now().Add(timeout)
+	conn.Connection.SetWriteDeadline(deadline)
+	conn.Connection.SetReadDeadline(deadline)
+	defer func() {
+		conn.Connection.SetWriteDeadline(time.Time{})
+		conn.Connection.SetReadDeadline(time.Time{})
+	}()
+
+	// Send initialize request
+	initRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      h.getNextRequestID(),
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]interface{}{},
+			"clientInfo": map[string]interface{}{
+				"name":    "mcp-compose-proxy",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	if err := h.sendStdioRequestWithoutLock(conn, initRequest); err != nil {
+		return err
+	}
+
+	response, err := h.readStdioResponseWithoutLock(conn)
+	if err != nil {
+		return err
+	}
+
+	if mcpError, hasError := response["error"]; hasError {
+		return fmt.Errorf("initialize failed: %v", mcpError)
+	}
+
+	conn.Initialized = true
+	conn.Healthy = true
+	return nil
+}
+
+func (h *ProxyHandler) sendStdioRequestWithTimeout(conn *MCPSTDIOConnection, request map[string]interface{}, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	conn.Connection.SetWriteDeadline(deadline)
+	defer conn.Connection.SetWriteDeadline(time.Time{})
+
+	return h.sendStdioRequestWithoutLock(conn, request)
+}
+
+func (h *ProxyHandler) readStdioResponseWithTimeout(conn *MCPSTDIOConnection, timeout time.Duration) (map[string]interface{}, error) {
+	deadline := time.Now().Add(timeout)
+	conn.Connection.SetReadDeadline(deadline)
+	defer conn.Connection.SetReadDeadline(time.Time{})
+
+	return h.readStdioResponseWithoutLock(conn)
+}
+
+func (h *ProxyHandler) sendRawTCPRequestWithRetry(host string, port int, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {
+	// Find server name for connection tracking
+	var serverName string
+	for name, config := range h.Manager.config.Servers {
+		containerName := fmt.Sprintf("mcp-compose-%s", name)
+		if containerName == host && config.StdioHosterPort == port {
+			serverName = name
+			break
 		}
 	}
 
-	if len(specs) > 0 {
-		toolNames := make([]string, len(specs))
-		for i, spec := range specs {
-			toolNames[i] = spec.Name
-		}
-		h.logger.Info("Successfully discovered %d tools from %s: %v", len(specs), serverName, toolNames)
-		return specs, nil
+	if serverName == "" {
+		return nil, fmt.Errorf("could not identify server for host %s:%d", host, port)
 	}
 
-	h.logger.Warning("No tools found in response from %s, using generic fallback", serverName)
-	return h.getGenericToolForServer(serverName), nil
+	h.logger.Debug("Attempting TCP request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
+
+	// For tool discovery, create a fresh connection each time to avoid stale connection issues
+	conn, err := h.createFreshStdioConnection(serverName, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection: %w", err)
+	}
+	defer func() {
+		if conn.Connection != nil {
+			conn.Connection.Close()
+		}
+	}()
+
+	// Send request with the specified timeout
+	if err := h.sendStdioRequestWithTimeout(conn, requestPayload, timeout); err != nil {
+		return nil, err
+	}
+
+	// Read response with the specified timeout
+	return h.readStdioResponseWithTimeout(conn, timeout)
+}
+
+func (h *ProxyHandler) sendHTTPToolsRequestWithRetry(serverName string, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {
+	h.logger.Debug("Attempting HTTP request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
+
+	conn, connErr := h.getServerConnection(serverName)
+	if connErr != nil {
+		return nil, connErr
+	}
+
+	return h.sendHTTPJsonRequest(conn, requestPayload, timeout)
 }
 
 // Generic fallback that works with any MCP server
@@ -1169,7 +1491,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance) {
+func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Read request body
@@ -1188,10 +1510,10 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	reqIDVal, _ := requestPayload["id"]
+	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
-	// Get server config with safety check
+	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
 		h.logger.Error("Server config not found for %s", serverName)
@@ -1199,190 +1521,1218 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Determine server type and routing
-	isSocatSTDIO := serverConfig.StdioHosterPort > 0
-	isRegularHTTP := serverConfig.Protocol == "http" || serverConfig.HttpPort > 0
-
-	// Also check if there are HTTP-related args for regular HTTP servers
-	if !isRegularHTTP && !isSocatSTDIO {
-		hasHTTPArgs := false
-		for _, arg := range serverConfig.Args {
-			if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
-				hasHTTPArgs = true
-				break
-			}
-		}
-		if hasHTTPArgs {
-			isRegularHTTP = true
-		}
+	// Determine transport protocol
+	protocol := serverConfig.Protocol
+	if protocol == "" {
+		protocol = "stdio" // default
 	}
 
-	h.logger.Info("Forwarding request to server '%s' (SocatSTDIO: %v, RegularHTTP: %v): Method=%s, ID=%v",
-		serverName, isSocatSTDIO, isRegularHTTP, reqMethodVal, reqIDVal)
+	h.logger.Info("Forwarding request to server '%s' using '%s' transport: Method=%s, ID=%v",
+		serverName, protocol, reqMethodVal, reqIDVal)
 
-	// Route to appropriate handler
-	switch {
-	case isSocatSTDIO:
-		// Handle socat-hosted STDIO via TCP connection to socat port
-		h.handleSocatSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
-	case isRegularHTTP:
-		// Handle regular HTTP server
-		// Note: We get the instance fresh here since the parameter was unused
-		if instance, exists := h.Manager.GetServerInstance(serverName); exists {
-			h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+	// Route based on transport protocol
+	switch protocol {
+	case "http":
+		h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+	case "sse":
+		h.handleSSEServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+	case "stdio":
+		if serverConfig.StdioHosterPort > 0 {
+			h.handleSocatSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
 		} else {
-			h.logger.Error("Server instance not found for %s", serverName)
-			h.sendMCPError(w, reqIDVal, -32603, "Server instance not available")
+			h.handleSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
 		}
 	default:
-		// Handle direct docker exec STDIO (original method for non-socat STDIO servers)
-		h.handleSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
+		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocol, serverName)
+		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocol))
 	}
 }
 
-func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, _ *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
-	serverConfig := h.Manager.config.Servers[serverName]
-	socatPort := serverConfig.StdioHosterPort
-
-	if socatPort == 0 {
-		h.logger.Error("Socat STDIO server %s has no stdio_hoster_port configured", serverName)
-		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: no socat port configured")
-		return
-	}
-
-	// Connect to the socat TCP port inside the container via Docker network
-	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
-	socatHost := containerName
-
-	h.logger.Info("Connecting to socat STDIO server %s at %s:%d via raw TCP", serverName, socatHost, socatPort)
-
-	// Set timeout based on method type
-	requestTimeout := 30 * time.Second
-	if reqMethodVal == "initialize" {
-		requestTimeout = 60 * time.Second
-	}
-
-	// Send the request via raw TCP to the socat port
-	response, err := h.sendRawTCPRequest(socatHost, socatPort, requestPayload, requestTimeout)
+func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+	conn, err := h.getSSEConnection(serverName)
 	if err != nil {
-		h.logger.Error("Socat TCP request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
-		errData := map[string]interface{}{
-			"details":    err.Error(),
-			"socatHost":  socatHost,
-			"socatPort":  socatPort,
-			"serverType": "socat-stdio",
-		}
-
-		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
-			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Socat STDIO server '%s' is unreachable", serverName), errData)
-		} else {
-			h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during socat TCP call to '%s'", serverName), errData)
-		}
+		h.logger.Error("Failed to get/create SSE connection for %s: %v", serverName, err)
+		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s' via SSE", serverName))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		h.logger.Error("Failed to encode/send socat STDIO response for %s: %v", serverName, err)
+	// Forward client's Mcp-Session-Id to the backend if present
+	clientSessionID := r.Header.Get("Mcp-Session-Id")
+	conn.mu.Lock()
+	if clientSessionID != "" && conn.SessionID == "" {
+		h.logger.Info("Using client-provided Mcp-Session-Id '%s' for SSE backend request to %s", clientSessionID, serverName)
+		conn.SessionID = clientSessionID
+	} else if clientSessionID != "" && clientSessionID != conn.SessionID {
+		h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, conn.SessionID, serverName)
+	}
+	conn.mu.Unlock()
+
+	// Send request via SSE
+	responsePayload, err := h.sendSSERequest(conn, requestPayload)
+	if err != nil {
+		h.logger.Error("SSE request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
+		errData := map[string]interface{}{"details": err.Error()}
+		if conn != nil {
+			conn.mu.Lock()
+			errData["targetEndpoint"] = conn.SSEEndpoint
+			conn.mu.Unlock()
+		}
+		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during SSE call to '%s'", serverName), errData)
 		return
 	}
 
-	h.logger.Info("Successfully forwarded socat STDIO request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
+	// Relay Mcp-Session-Id from backend server's response
+	conn.mu.Lock()
+	if conn.SessionID != "" {
+		w.Header().Set("Mcp-Session-Id", conn.SessionID)
+	}
+	conn.mu.Unlock()
+
+	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
+		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	}
+
+	h.logger.Info("Successfully forwarded SSE request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
 
-func (h *ProxyHandler) sendRawTCPRequest(host string, port int, requestPayload map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
-	// Marshal the JSON-RPC request
-	requestData, err := json.Marshal(requestPayload)
+func (h *ProxyHandler) initializeSSEConnection(conn *MCPSSEConnection) error {
+	h.logger.Info("Initializing SSE connection to %s at %s", conn.ServerName, conn.SSEEndpoint)
+
+	// Phase 1: Get session endpoint via GET to /sse
+	sessionEndpoint, err := h.getSSESessionEndpoint(conn)
+	if err != nil {
+		return fmt.Errorf("failed to get SSE session endpoint: %w", err)
+	}
+
+	conn.mu.Lock()
+	conn.SessionEndpoint = sessionEndpoint
+	conn.mu.Unlock()
+
+	h.logger.Info("Got SSE session endpoint for %s: %s", conn.ServerName, sessionEndpoint)
+
+	// Phase 2: Send initialize request - but don't wait for response!
+	initRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      h.getNextRequestID(),
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]interface{}{},
+			"clientInfo": map[string]interface{}{
+				"name":    "mcp-compose-proxy",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	// Send initialize but don't wait for response
+	err = h.sendSSERequestNoResponse(conn, initRequest)
+	if err != nil {
+		return fmt.Errorf("failed to send initialize request: %w", err)
+	}
+
+	// Phase 3: Send initialized notification
+	initializedNotification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+
+	err = h.sendSSERequestNoResponse(conn, initializedNotification)
+	if err != nil {
+		h.logger.Warning("Failed to send initialized notification to %s: %v (continuing anyway)", conn.ServerName, err)
+	} else {
+		h.logger.Debug("Sent initialized notification to %s", conn.ServerName)
+	}
+
+	// Give the server a moment to process
+	time.Sleep(500 * time.Millisecond)
+
+	conn.mu.Lock()
+	conn.Initialized = true
+	conn.Healthy = true
+	// Set some default capabilities
+	conn.Capabilities = map[string]interface{}{
+		"tools": map[string]interface{}{},
+	}
+	conn.ServerInfo = map[string]interface{}{
+		"name":    "mcp-cron-oi",
+		"version": "1.0.0",
+	}
+	conn.mu.Unlock()
+
+	h.logger.Info("SSE connection to %s initialized successfully", conn.ServerName)
+	return nil
+}
+
+// New helper function that sends requests without waiting for responses
+func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request map[string]interface{}) error {
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	conn.mu.Lock()
+	sessionEndpoint := conn.SessionEndpoint
+	conn.mu.Unlock()
+
+	if sessionEndpoint == "" {
+		return fmt.Errorf("no session endpoint available")
+	}
+
+	method, _ := request["method"].(string)
+	h.logger.Info("Sending SSE %s request to %s: %s", method, conn.ServerName, string(requestData))
+
+	ctx, cancel := context.WithTimeout(h.ctx, 10*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
+	if err != nil {
+		return fmt.Errorf("failed to create session request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := h.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("session request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	h.logger.Info("SSE session response for %s %s (status %d): %s", method, conn.ServerName, resp.StatusCode, string(bodyBytes))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("unexpected response status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, error) {
+	// Use a context that WON'T be cancelled - we need this connection to stay alive
+	ctx, cancel := context.WithCancel(h.ctx)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", conn.SSEEndpoint, nil)
+	if err != nil {
+		cancel()
+		return "", fmt.Errorf("failed to create SSE session request: %w", err)
+	}
+
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Cache-Control", "no-cache")
+	httpReq.Header.Set("Connection", "keep-alive")
+
+	resp, err := h.sseClient.Do(httpReq)
+	if err != nil {
+		cancel()
+		return "", fmt.Errorf("SSE session request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		cancel()
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("SSE session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// CRITICAL: Store these and keep them alive
+	conn.mu.Lock()
+	conn.sseResponse = resp
+	conn.sseBody = resp.Body
+	conn.sseCancel = cancel
+	conn.sseReader = bufio.NewScanner(resp.Body)
+	conn.pendingRequests = make(map[interface{}]chan map[string]interface{})
+	conn.mu.Unlock()
+
+	// Read the session endpoint from the stream
+	sessionEndpoint := ""
+	for conn.sseReader.Scan() {
+		line := conn.sseReader.Text()
+		h.logger.Debug("SSE initial read from %s: %s", conn.ServerName, line)
+
+		if strings.HasPrefix(line, "event: endpoint") {
+			// Next line should have the endpoint data
+			if conn.sseReader.Scan() {
+				dataLine := conn.sseReader.Text()
+				if strings.HasPrefix(dataLine, "data: ") {
+					sessionPath := strings.TrimPrefix(dataLine, "data: ")
+					baseURL := strings.TrimSuffix(conn.BaseURL, "/")
+					sessionEndpoint = baseURL + sessionPath
+					break
+				}
+			}
+		}
+	}
+
+	if sessionEndpoint == "" {
+		h.closeSSEConnection(conn)
+		return "", fmt.Errorf("no session endpoint found in SSE stream")
+	}
+
+	// Start background reader to handle async responses
+	go h.readSSEResponses(conn)
+
+	h.logger.Info("Got SSE session endpoint for %s: %s", conn.ServerName, sessionEndpoint)
+	return sessionEndpoint, nil
+}
+
+func (h *ProxyHandler) closeSSEConnection(conn *MCPSSEConnection) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.sseBody != nil {
+		conn.sseBody.Close()
+		conn.sseBody = nil
+	}
+	if conn.sseCancel != nil {
+		conn.sseCancel()
+		conn.sseCancel = nil
+	}
+	conn.sseReader = nil
+	conn.Healthy = false
+
+	// Close all pending request channels
+	for _, ch := range conn.pendingRequests {
+		close(ch)
+	}
+	conn.pendingRequests = make(map[interface{}]chan map[string]interface{})
+
+	h.logger.Debug("Closed SSE connection for %s", conn.ServerName)
+}
+
+// Update the connection cleanup in maintainSSEConnections
+func (h *ProxyHandler) maintainSSEConnections() {
+	h.SSEMutex.Lock()
+	defer h.SSEMutex.Unlock()
+
+	for serverName, conn := range h.SSEConnections {
+		if conn == nil {
+			continue
+		}
+
+		maxIdleTime := 15 * time.Minute
+		if time.Since(conn.LastUsed) > maxIdleTime {
+			h.logger.Info("Removing idle SSE connection to %s (idle for %v)",
+				serverName, time.Since(conn.LastUsed))
+
+			h.closeSSEConnection(conn)
+			delete(h.SSEConnections, serverName)
+		}
+	}
+}
+
+func (h *ProxyHandler) readSSEResponses(conn *MCPSSEConnection) {
+	defer func() {
+		h.logger.Info("SSE response reader ending for %s", conn.ServerName)
+		h.closeSSEConnection(conn)
+	}()
+
+	h.logger.Info("Starting SSE response reader for %s", conn.ServerName)
+
+	lineCount := 0
+	for {
+		conn.mu.Lock()
+		reader := conn.sseReader
+		conn.mu.Unlock()
+
+		if reader == nil {
+			h.logger.Warning("SSE reader is nil for %s", conn.ServerName)
+			break
+		}
+
+		h.logger.Debug("Waiting for next SSE line from %s (line %d)", conn.ServerName, lineCount)
+
+		if !reader.Scan() {
+			if err := reader.Err(); err != nil {
+				h.logger.Error("SSE reader scan error for %s: %v", conn.ServerName, err)
+			} else {
+				h.logger.Info("SSE reader scan returned false (EOF?) for %s", conn.ServerName)
+			}
+			break
+		}
+
+		line := reader.Text()
+		lineCount++
+		h.logger.Info("SSE response line %d from %s: %q", lineCount, conn.ServerName, line)
+
+		if line == "" {
+			h.logger.Debug("Empty line from %s", conn.ServerName)
+			continue
+		}
+
+		if strings.HasPrefix(line, "event: message") {
+			h.logger.Info("Found message event from %s, reading next line", conn.ServerName)
+			// Next line should have the message data
+			if reader.Scan() {
+				lineCount++
+				dataLine := reader.Text()
+				h.logger.Info("Message data line %d from %s: %q", lineCount, conn.ServerName, dataLine)
+
+				if strings.HasPrefix(dataLine, "data: ") {
+					messageData := strings.TrimPrefix(dataLine, "data: ")
+					h.logger.Info("Processing message data from %s: %s", conn.ServerName, messageData)
+					h.processSSEMessage(conn, messageData)
+				} else {
+					h.logger.Warning("Expected data line but got: %q", dataLine)
+				}
+			} else {
+				h.logger.Warning("Could not read data line after message event from %s", conn.ServerName)
+			}
+		} else {
+			h.logger.Debug("Non-message event line from %s: %q", conn.ServerName, line)
+		}
+	}
+
+	h.logger.Warning("SSE response reader ended for %s after %d lines", conn.ServerName, lineCount)
+}
+
+func (h *ProxyHandler) processSSEMessage(conn *MCPSSEConnection, messageData string) {
+	h.logger.Info("Processing SSE message for %s: %s", conn.ServerName, messageData)
+
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(messageData), &response); err != nil {
+		h.logger.Error("Failed to parse SSE message JSON for %s: %v. Raw data: %q", conn.ServerName, err, messageData)
+		return
+	}
+
+	h.logger.Info("Parsed SSE response for %s: %+v", conn.ServerName, response)
+
+	// Check if this is a response to a pending request
+	if responseID := response["id"]; responseID != nil {
+		h.logger.Info("SSE response has ID %v (type: %T) for %s", responseID, responseID, conn.ServerName)
+
+		conn.reqMutex.Lock()
+
+		// CRITICAL FIX: Try multiple ID formats due to JSON unmarshaling differences
+		var matchingChannel chan map[string]interface{}
+		var foundKey interface{}
+
+		// Try direct lookup first
+		if respCh, exists := conn.pendingRequests[responseID]; exists {
+			matchingChannel = respCh
+			foundKey = responseID
+		} else {
+			// Try converting types - JSON might unmarshal numbers differently
+			for pendingID, pendingCh := range conn.pendingRequests {
+				if fmt.Sprintf("%v", pendingID) == fmt.Sprintf("%v", responseID) {
+					matchingChannel = pendingCh
+					foundKey = pendingID
+					h.logger.Info("Found pending request via string conversion: %v -> %v", pendingID, responseID)
+					break
+				}
+			}
+		}
+
+		if matchingChannel != nil {
+			h.logger.Info("Found pending request channel for ID %v to %s", foundKey, conn.ServerName)
+			select {
+			case matchingChannel <- response:
+				h.logger.Info("Successfully delivered SSE response for request ID %v to %s", foundKey, conn.ServerName)
+				delete(conn.pendingRequests, foundKey) // Clean up
+			default:
+				h.logger.Warning("Response channel full for request ID %v to %s", foundKey, conn.ServerName)
+			}
+		} else {
+			h.logger.Warning("No pending request found for response ID %v (type %T) from %s. Pending requests: %v",
+				responseID, responseID, conn.ServerName, getMapKeys(conn.pendingRequests))
+		}
+
+		conn.reqMutex.Unlock()
+	} else {
+		h.logger.Info("SSE message without ID from %s (notification?): %s", conn.ServerName, messageData)
+	}
+}
+
+// Helper function
+func getMapKeys(m map[interface{}]chan map[string]interface{}) []interface{} {
+	keys := make([]interface{}, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request map[string]interface{}) (map[string]interface{}, error) {
+	requestData, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Add newline as socat/STDIO expects line-delimited JSON
-	requestLine := string(requestData) + "\n"
+	conn.mu.Lock()
+	sessionEndpoint := conn.SessionEndpoint
+	conn.mu.Unlock()
 
-	// Create connection with timeout
-	address := fmt.Sprintf("%s:%d", host, port)
-	h.logger.Debug("Connecting to socat TCP server at %s", address)
+	if sessionEndpoint == "" {
+		return nil, fmt.Errorf("no session endpoint available")
+	}
 
-	ctx, cancel := context.WithTimeout(h.ctx, timeout)
+	h.logger.Debug("Sending SSE request to %s session endpoint %s: %s", conn.ServerName, sessionEndpoint, string(requestData))
+
+	// CRITICAL FIX: Set up response channel BEFORE sending request
+	requestID := request["id"]
+	if requestID != nil {
+		respCh := make(chan map[string]interface{}, 1)
+
+		conn.reqMutex.Lock()
+		conn.pendingRequests[requestID] = respCh
+		conn.reqMutex.Unlock()
+
+		defer func() {
+			conn.reqMutex.Lock()
+			delete(conn.pendingRequests, requestID)
+			conn.reqMutex.Unlock()
+			close(respCh)
+		}()
+
+		// Now send the request
+		ctx, cancel := context.WithTimeout(h.ctx, 60*time.Second)
+		defer cancel()
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create session request: %w", err)
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := h.httpClient.Do(httpReq)
+		if err != nil {
+			conn.mu.Lock()
+			conn.Healthy = false
+			conn.mu.Unlock()
+			return nil, fmt.Errorf("session request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		conn.mu.Lock()
+		conn.LastUsed = time.Now()
+		conn.mu.Unlock()
+
+		// For 202 Accepted, wait for async response via SSE
+		if resp.StatusCode == http.StatusAccepted {
+			method, _ := request["method"].(string)
+			h.logger.Info("Got 202 Accepted for %s, waiting for SSE response...", method)
+
+			// Wait for async response
+			select {
+			case response := <-respCh:
+				h.logger.Info("Received async SSE response for %s %s", method, conn.ServerName)
+				conn.mu.Lock()
+				conn.Healthy = true
+				conn.mu.Unlock()
+				return response, nil
+			case <-time.After(15 * time.Second):
+				return nil, fmt.Errorf("timeout waiting for SSE response to %s", method)
+			case <-h.ctx.Done():
+				return nil, h.ctx.Err()
+			}
+		}
+
+		// For 200 OK, response is in body
+		if resp.StatusCode == http.StatusOK {
+			conn.mu.Lock()
+			conn.Healthy = true
+			conn.mu.Unlock()
+
+			var response map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return nil, fmt.Errorf("failed to decode response: %w", err)
+			}
+			return response, nil
+		}
+
+		// Other status codes are errors
+		conn.mu.Lock()
+		conn.Healthy = false
+		conn.mu.Unlock()
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// For requests without ID (notifications), just send and return success
+	ctx, cancel := context.WithTimeout(h.ctx, 60*time.Second)
 	defer cancel()
 
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", address)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to socat TCP server %s: %w", address, err)
-	}
-	defer conn.Close()
-
-	// Set read/write deadlines
-	deadline := time.Now().Add(timeout)
-	conn.SetDeadline(deadline)
-
-	h.logger.Debug("Sending to socat TCP %s: %s", address, strings.TrimSpace(requestLine))
-
-	// Send the JSON-RPC request
-	_, err = conn.Write([]byte(requestLine))
-	if err != nil {
-		return nil, fmt.Errorf("failed to write to socat TCP connection %s: %w", address, err)
+		return nil, fmt.Errorf("failed to create session request: %w", err)
 	}
 
-	// Read multiple lines until we get a valid JSON-RPC response
-	reader := bufio.NewReader(conn)
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	for {
-		responseLine, isPrefix, err := reader.ReadLine()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read from socat TCP connection %s: %w", address, err)
+	resp, err := h.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("session request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK {
+		return map[string]interface{}{
+			"jsonrpc": "2.0",
+			"result":  "accepted",
+		}, nil
+	}
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+}
+
+func (h *ProxyHandler) sendSSERequest(conn *MCPSSEConnection, request map[string]interface{}) (map[string]interface{}, error) {
+	return h.sendSSERequestToSession(conn, request)
+}
+
+func (h *ProxyHandler) getSSEConnection(serverName string) (*MCPSSEConnection, error) {
+	h.SSEMutex.RLock()
+	conn, exists := h.SSEConnections[serverName]
+	h.SSEMutex.RUnlock()
+
+	if exists && h.isSSEConnectionHealthy(conn) {
+		conn.mu.Lock()
+		conn.LastUsed = time.Now()
+		conn.mu.Unlock()
+		h.logger.Debug("Reusing healthy SSE connection for %s", serverName)
+		return conn, nil
+	}
+
+	// Clean up unhealthy connection
+	if exists && !h.isSSEConnectionHealthy(conn) {
+		h.logger.Info("Cleaning up unhealthy SSE connection for %s", serverName)
+		h.SSEMutex.Lock()
+		delete(h.SSEConnections, serverName)
+		h.SSEMutex.Unlock()
+	}
+
+	h.logger.Info("Creating new SSE connection for server: %s", serverName)
+
+	serverConfig, cfgExists := h.Manager.config.Servers[serverName]
+	if !cfgExists {
+		return nil, fmt.Errorf("configuration for server '%s' not found", serverName)
+	}
+
+	newConn, err := h.createSSEConnection(serverName, serverConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSE connection: %w", err)
+	}
+
+	h.SSEMutex.Lock()
+	if h.SSEConnections == nil {
+		h.SSEConnections = make(map[string]*MCPSSEConnection)
+	}
+	h.SSEConnections[serverName] = newConn
+	h.SSEMutex.Unlock()
+
+	return newConn, nil
+}
+
+func (h *ProxyHandler) createSSEConnection(serverName string, serverConfig config.ServerConfig) (*MCPSSEConnection, error) {
+	baseURL, sseEndpoint := h.getServerSSEURL(serverName, serverConfig)
+
+	conn := &MCPSSEConnection{
+		ServerName:   serverName,
+		BaseURL:      baseURL,
+		SSEEndpoint:  sseEndpoint,
+		LastUsed:     time.Now(),
+		Healthy:      true,
+		Capabilities: make(map[string]interface{}),
+		ServerInfo:   make(map[string]interface{}),
+	}
+
+	// Initialize SSE connection
+	if err := h.initializeSSEConnection(conn); err != nil {
+		return nil, fmt.Errorf("failed to initialize SSE connection: %w", err)
+	}
+
+	h.logger.Info("Successfully created and initialized SSE connection for %s", serverName)
+	return conn, nil
+}
+
+func (h *ProxyHandler) getServerSSEURL(serverName string, serverConfig config.ServerConfig) (string, string) {
+	targetHost := fmt.Sprintf("mcp-compose-%s", serverName)
+	targetPort := serverConfig.HttpPort
+	if serverConfig.SSEPort > 0 {
+		targetPort = serverConfig.SSEPort
+	}
+
+	// Build the base URL
+	baseURL := fmt.Sprintf("http://%s:%d", targetHost, targetPort)
+
+	// Determine SSE endpoint - use sse_path if specified
+	sseEndpoint := "/sse" // default
+	if serverConfig.SSEPath != "" {
+		sseEndpoint = serverConfig.SSEPath
+	} else if serverConfig.HttpPath != "" {
+		sseEndpoint = serverConfig.HttpPath
+	}
+
+	if !strings.HasPrefix(sseEndpoint, "/") {
+		sseEndpoint = "/" + sseEndpoint
+	}
+
+	sseURL := baseURL + sseEndpoint
+	h.logger.Debug("Resolved SSE URL for server %s: %s", serverName, sseURL)
+
+	return baseURL, sseURL
+}
+
+func (h *ProxyHandler) isSSEConnectionHealthy(conn *MCPSSEConnection) bool {
+	if conn == nil {
+		return false
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	return conn.Healthy && conn.Initialized
+}
+
+func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+	serverCfg, cfgExists := h.Manager.config.Servers[serverName]
+	if !cfgExists {
+		h.logger.Error("Config not found for STDIO server %s", serverName)
+		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: missing server config")
+		return
+	}
+
+	h.logger.Info("Executing STDIO request for server '%s' via container '%s' using its defined command.", serverName, containerName)
+
+	requestJSON, err := json.Marshal(requestPayload)
+	if err != nil {
+		h.logger.Error("Failed to marshal request for STDIO server %s: %v", serverName, err)
+		h.sendMCPError(w, reqIDVal, -32700, "Failed to marshal request")
+		return
+	}
+
+	jsonInputWithNewline := string(append(requestJSON, '\n'))
+
+	// Prepare the command to be executed inside the container
+	execCmdAndArgs := []string{"exec", "-i", containerName}
+	if serverCfg.Command == "" {
+		h.logger.Error("STDIO Server '%s' has no command defined in config. Cannot execute.", serverName)
+		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: STDIO server has no command")
+		return
+	}
+
+	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Command)
+	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Args...)
+
+	ctx, cancel := context.WithTimeout(h.ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.Command("docker", execCmdAndArgs...)
+	cmd.Stdin = strings.NewReader(jsonInputWithNewline)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	h.logger.Debug("Executing for STDIO '%s': docker %s", serverName, strings.Join(execCmdAndArgs, " "))
+
+	err = cmd.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			h.logger.Error("Docker exec for STDIO server %s timed out. Stderr: %s. Stdout: %s", serverName, stderr.String(), stdout.String())
+			h.recordConnectionEvent(serverName, false, true)
+			h.sendMCPError(w, reqIDVal, -32000, fmt.Sprintf("Timeout communicating with STDIO server '%s'", serverName))
+			return
+		}
+		h.logger.Error("Docker exec for STDIO server %s failed: %v. Stderr: %s. Stdout: %s", serverName, err, stderr.String(), stdout.String())
+		h.recordConnectionEvent(serverName, false, false)
+		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Failed to execute command in STDIO server '%s'", serverName))
+		return
+	}
+
+	responseData := stdout.Bytes()
+	if len(responseData) == 0 {
+		h.logger.Error("No stdout response from STDIO server %s. Stderr: %s", serverName, stderr.String())
+		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("No stdout from STDIO server '%s'", serverName))
+		return
+	}
+
+	h.logger.Debug("Raw stdout from STDIO server '%s': %s", serverName, string(responseData))
+
+	// Parse the response
+	var response map[string]interface{}
+	trimmedResponseData := bytes.TrimSpace(responseData)
+	if err := json.Unmarshal(trimmedResponseData, &response); err != nil {
+		h.logger.Error("Invalid JSON response from STDIO server %s: %v. Raw: %s", serverName, err, string(trimmedResponseData))
+		h.sendMCPError(w, reqIDVal, -32700, fmt.Sprintf("Invalid response from STDIO server '%s'", serverName))
+		return
+	}
+
+	h.recordConnectionEvent(serverName, true, false)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+
+	h.logger.Info("Successfully forwarded STDIO request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
+}
+
+func (h *ProxyHandler) isStdioConnectionReallyHealthy(conn *MCPSTDIOConnection) bool {
+	if conn == nil || conn.Connection == nil {
+		return false
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	// Simply check the flags, don't do active probing
+	return conn.Healthy && conn.Initialized
+}
+
+func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnection, error) {
+	h.StdioMutex.RLock()
+	conn, exists := h.StdioConnections[serverName]
+	h.StdioMutex.RUnlock()
+
+	if exists && h.isStdioConnectionReallyHealthy(conn) {
+		conn.mu.Lock()
+		conn.LastUsed = time.Now()
+		conn.mu.Unlock()
+		h.logger.Debug("Reusing healthy STDIO connection for %s", serverName)
+		return conn, nil
+	}
+
+	// If we have an unhealthy connection, clean it up
+	if exists && !h.isStdioConnectionReallyHealthy(conn) {
+		h.logger.Info("Cleaning up unhealthy STDIO connection for %s", serverName)
+		h.StdioMutex.Lock()
+		if conn.Connection != nil {
+			conn.Connection.Close()
+		}
+		delete(h.StdioConnections, serverName)
+		h.StdioMutex.Unlock()
+	}
+
+	h.logger.Info("Creating new STDIO connection for server: %s", serverName)
+
+	// Retry connection creation up to 3 times
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		conn, err := h.createStdioConnection(serverName)
+		if err == nil {
+			return conn, nil
 		}
 
-		// Handle case where line is too long and was truncated
-		if isPrefix {
-			var fullLine []byte
-			fullLine = append(fullLine, responseLine...)
-			for isPrefix {
-				var moreLine []byte
-				moreLine, isPrefix, err = reader.ReadLine()
-				if err != nil {
-					return nil, fmt.Errorf("failed to read continuation from socat TCP connection %s: %w", address, err)
-				}
-				fullLine = append(fullLine, moreLine...)
+		lastErr = err
+		h.logger.Warning("STDIO connection attempt %d/3 failed for %s: %v", attempt, serverName, err)
+
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+
+	return nil, fmt.Errorf("failed to create STDIO connection after 3 attempts: %w", lastErr)
+}
+
+func (h *ProxyHandler) startConnectionMaintenance() {
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				h.maintainStdioConnections()
+				h.maintainHttpConnections()
+				h.maintainSSEConnections() // Add this line
+			case <-h.ctx.Done():
+				return
 			}
-			responseLine = fullLine
 		}
+	}()
+}
 
-		lineStr := string(responseLine)
-		h.logger.Debug("Received line from socat TCP %s: %s", address, lineStr)
+func (h *ProxyHandler) maintainHttpConnections() {
+	h.ConnectionMutex.Lock()
+	defer h.ConnectionMutex.Unlock()
 
-		// Skip empty lines
-		if strings.TrimSpace(lineStr) == "" {
+	for serverName, conn := range h.ServerConnections {
+		if conn == nil {
 			continue
 		}
 
-		// Try to parse as JSON
-		var candidateResponse map[string]interface{}
-		if err := json.Unmarshal(responseLine, &candidateResponse); err != nil {
-			// Not valid JSON, might be debug output or echo - skip this line
-			h.logger.Debug("Skipping non-JSON line from %s: %s", address, lineStr)
+		// Clean up old HTTP connections
+		maxIdleTime := 10 * time.Minute
+		if time.Since(conn.LastUsed) > maxIdleTime {
+			h.logger.Info("Removing idle HTTP connection to %s (idle for %v)",
+				serverName, time.Since(conn.LastUsed))
+			delete(h.ServerConnections, serverName)
+		}
+	}
+
+	// Force HTTP client to close idle connections periodically
+	h.httpClient.CloseIdleConnections()
+}
+
+func (h *ProxyHandler) recordConnectionEvent(serverName string, success bool, isTimeout bool) {
+	if h.connectionStats == nil {
+		h.connectionStats = make(map[string]*ConnectionStats)
+	}
+
+	stats, exists := h.connectionStats[serverName]
+	if !exists {
+		stats = &ConnectionStats{}
+		h.connectionStats[serverName] = stats
+	}
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	stats.TotalRequests++
+
+	if success {
+		stats.LastSuccess = time.Now()
+	} else {
+		stats.FailedRequests++
+		stats.LastError = time.Now()
+		if isTimeout {
+			stats.TimeoutErrors++
+		}
+	}
+}
+
+func (h *ProxyHandler) maintainStdioConnections() {
+	h.StdioMutex.Lock()
+	defer h.StdioMutex.Unlock()
+
+	for serverName, conn := range h.StdioConnections {
+		if conn == nil {
 			continue
 		}
 
-		// Check if this is a JSON-RPC response (has "result" or "error", not "method")
-		_, hasResult := candidateResponse["result"]
-		_, hasError := candidateResponse["error"]
-		_, hasMethod := candidateResponse["method"]
+		// Increase idle time back to reasonable levels
+		maxIdleTime := 15 * time.Minute // Increased from 5 minutes
+
+		if time.Since(conn.LastUsed) > maxIdleTime {
+			h.logger.Info("Closing idle STDIO connection to %s (idle for %v)",
+				serverName, time.Since(conn.LastUsed))
+			if conn.Connection != nil {
+				conn.Connection.Close()
+			}
+			delete(h.StdioConnections, serverName)
+		}
+		// Remove the aggressive health checking - it's causing more problems
+	}
+}
+
+func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnection, error) {
+	serverConfig, exists := h.Manager.config.Servers[serverName]
+	if !exists {
+		return nil, fmt.Errorf("server %s not found in config", serverName)
+	}
+
+	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
+	port := serverConfig.StdioHosterPort
+	address := fmt.Sprintf("%s:%d", containerName, port)
+
+	// Use shorter connection timeout
+	var d net.Dialer
+	ctx, cancel := context.WithTimeout(h.ctx, 15*time.Second) // Reduced from 30s
+	defer cancel()
+
+	netConn, err := d.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+	}
+
+	// Enable TCP keepalive with aggressive settings
+	if tcpConn, ok := netConn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(15 * time.Second) // More frequent keepalive
+		tcpConn.SetNoDelay(true)                     // Disable Nagle's algorithm
+		h.logger.Debug("Enabled TCP keepalive for connection to %s", serverName)
+	}
+
+	conn := &MCPSTDIOConnection{
+		ServerName:  serverName,
+		Host:        containerName,
+		Port:        port,
+		Connection:  netConn,
+		Reader:      bufio.NewReaderSize(netConn, 8192), // Larger buffer
+		Writer:      bufio.NewWriterSize(netConn, 8192), // Larger buffer
+		LastUsed:    time.Now(),
+		Healthy:     true,
+		Initialized: false,
+	}
+
+	// Initialize the connection with shorter timeout
+	if err := h.initializeStdioConnection(conn); err != nil {
+		conn.Connection.Close()
+		return nil, fmt.Errorf("failed to initialize STDIO connection to %s: %w", serverName, err)
+	}
+
+	h.StdioMutex.Lock()
+	if h.StdioConnections == nil {
+		h.StdioConnections = make(map[string]*MCPSTDIOConnection)
+	}
+	h.StdioConnections[serverName] = conn
+	h.StdioMutex.Unlock()
+
+	h.logger.Info("Successfully created and initialized STDIO connection for %s", serverName)
+	return conn, nil
+}
+
+func (h *ProxyHandler) initializeStdioConnection(conn *MCPSTDIOConnection) error {
+	h.logger.Info("Initializing STDIO connection to %s", conn.ServerName)
+
+	// Send initialize request
+	initRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      h.getNextRequestID(),
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]interface{}{},
+			"clientInfo": map[string]interface{}{
+				"name":    "mcp-compose-proxy",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	// Set initial deadline for initialization
+	conn.Connection.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	conn.Connection.SetReadDeadline(time.Now().Add(30 * time.Second))
+
+	if err := h.sendStdioRequestWithoutLock(conn, initRequest); err != nil {
+		return fmt.Errorf("failed to send initialize request: %w", err)
+	}
+
+	// Read initialize response
+	response, err := h.readStdioResponseWithoutLock(conn)
+	if err != nil {
+		return fmt.Errorf("failed to read initialize response: %w", err)
+	}
+
+	if mcpError, hasError := response["error"]; hasError {
+		return fmt.Errorf("initialize failed: %v", mcpError)
+	}
+
+	// Send initialized notification - this is critical and was missing proper handling
+	initNotification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+		"params":  map[string]interface{}{},
+	}
+
+	if err := h.sendStdioRequestWithoutLock(conn, initNotification); err != nil {
+		// Don't fail if notification fails, some servers don't support it
+		h.logger.Warning("Failed to send initialized notification to %s: %v (continuing anyway)", conn.ServerName, err)
+	}
+
+	// Reset deadlines after successful initialization
+	conn.Connection.SetWriteDeadline(time.Time{})
+	conn.Connection.SetReadDeadline(time.Time{})
+
+	conn.mu.Lock()
+	conn.Initialized = true
+	conn.Healthy = true
+	conn.mu.Unlock()
+
+	h.logger.Info("STDIO connection to %s initialized successfully", conn.ServerName)
+	return nil
+}
+
+func (h *ProxyHandler) sendStdioRequestWithoutLock(conn *MCPSTDIOConnection, request map[string]interface{}) error {
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	h.logger.Debug("Sending STDIO request to %s: %s", conn.ServerName, string(requestData))
+
+	// Write with newline
+	_, err = conn.Writer.WriteString(string(requestData) + "\n")
+	if err != nil {
+		conn.Healthy = false
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+
+	err = conn.Writer.Flush()
+	if err != nil {
+		conn.Healthy = false
+		return fmt.Errorf("failed to flush request: %w", err)
+	}
+
+	return nil
+}
+
+func (h *ProxyHandler) readStdioResponseWithoutLock(conn *MCPSTDIOConnection) (map[string]interface{}, error) {
+	for {
+		line, err := conn.Reader.ReadString('\n')
+		if err != nil {
+			conn.Healthy = false
+			return nil, fmt.Errorf("failed to read line: %w", err)
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		h.logger.Debug("Received STDIO line from %s: %s", conn.ServerName, line)
+
+		var response map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &response); err != nil {
+			h.logger.Debug("Skipping non-JSON line from %s: %s", conn.ServerName, line)
+			continue
+		}
+
+		_, hasResult := response["result"]
+		_, hasError := response["error"]
+		_, hasMethod := response["method"]
 
 		if (hasResult || hasError) && !hasMethod {
-			h.logger.Debug("Found valid JSON-RPC response from socat TCP %s: %s", address, lineStr)
-			return candidateResponse, nil
+			h.logger.Debug("Found valid JSON-RPC response from %s", conn.ServerName)
+			return response, nil
 		} else if hasMethod {
-			// This is an echo of our request, skip it
-			h.logger.Debug("Skipping echoed request from %s: %s", address, lineStr)
+			h.logger.Debug("Skipping echoed request/notification from %s: %s", conn.ServerName, line)
 			continue
 		} else {
-			// Unknown JSON structure, skip it
-			h.logger.Debug("Skipping unknown JSON structure from %s: %s", address, lineStr)
+			h.logger.Debug("Skipping unknown JSON structure from %s: %s", conn.ServerName, line)
 			continue
 		}
+	}
+}
+
+func (h *ProxyHandler) sendStdioRequest(conn *MCPSTDIOConnection, request map[string]interface{}) error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	h.logger.Debug("Sending STDIO request to %s: %s", conn.ServerName, string(requestData))
+
+	// Set reasonable write deadline - longer than before
+	writeDeadline := time.Now().Add(60 * time.Second)
+	conn.Connection.SetWriteDeadline(writeDeadline)
+	defer conn.Connection.SetWriteDeadline(time.Time{})
+
+	// Write with newline
+	_, err = conn.Writer.WriteString(string(requestData) + "\n")
+	if err != nil {
+		conn.Healthy = false
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+
+	err = conn.Writer.Flush()
+	if err != nil {
+		conn.Healthy = false
+		return fmt.Errorf("failed to flush request: %w", err)
+	}
+
+	return nil
+}
+
+func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]interface{}, error) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	// Set reasonable read deadline - longer for complex operations
+	readDeadline := time.Now().Add(60 * time.Second)
+	conn.Connection.SetReadDeadline(readDeadline)
+	defer conn.Connection.SetReadDeadline(time.Time{})
+
+	for {
+		line, err := conn.Reader.ReadString('\n')
+		if err != nil {
+			conn.Healthy = false
+			return nil, fmt.Errorf("failed to read line: %w", err)
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		h.logger.Debug("Received STDIO line from %s: %s", conn.ServerName, line)
+
+		var response map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &response); err != nil {
+			h.logger.Debug("Skipping non-JSON line from %s: %s", conn.ServerName, line)
+			continue
+		}
+
+		_, hasResult := response["result"]
+		_, hasError := response["error"]
+		_, hasMethod := response["method"]
+
+		if (hasResult || hasError) && !hasMethod {
+			h.logger.Debug("Found valid JSON-RPC response from %s", conn.ServerName)
+			return response, nil
+		} else if hasMethod {
+			h.logger.Debug("Skipping echoed request/notification from %s: %s", conn.ServerName, line)
+			continue
+		} else {
+			h.logger.Debug("Skipping unknown JSON structure from %s: %s", conn.ServerName, line)
+			continue
+		}
+	}
+}
+
+func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, _ string) {
+	conn, err := h.getStdioConnection(serverName)
+	if err != nil {
+		h.logger.Error("Failed to get STDIO connection for %s: %v", serverName, err)
+		h.recordConnectionEvent(serverName, false, strings.Contains(err.Error(), "timeout"))
+
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout") {
+			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Server '%s' timed out - connection may be overloaded", serverName))
+		} else {
+			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Cannot connect to server '%s'", serverName))
+		}
+		return
+	}
+
+	// Increase timeout for complex operations
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second) // Back to 2 minutes for complex ops
+	defer cancel()
+
+	// Create channels to handle the response
+	responseChan := make(chan map[string]interface{}, 1)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		// Send the request
+		if err := h.sendStdioRequest(conn, requestPayload); err != nil {
+			errorChan <- err
+			return
+		}
+
+		// Read the response
+		response, err := h.readStdioResponse(conn)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		responseChan <- response
+	}()
+
+	select {
+	case response := <-responseChan:
+		h.recordConnectionEvent(serverName, true, false)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	case err := <-errorChan:
+		h.logger.Error("Failed to communicate with %s: %v", serverName, err)
+		isTimeout := strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout")
+		h.recordConnectionEvent(serverName, false, isTimeout)
+
+		if isTimeout {
+			h.sendMCPError(w, reqIDVal, -32000, fmt.Sprintf("Server '%s' request timed out", serverName))
+		} else {
+			h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error communicating with server '%s'", serverName))
+		}
+	case <-ctx.Done():
+		h.logger.Error("Request to %s timed out", serverName)
+		h.recordConnectionEvent(serverName, false, true)
+		h.sendMCPError(w, reqIDVal, -32000, fmt.Sprintf("Request to server '%s' timed out", serverName))
 	}
 }
 
@@ -1439,125 +2789,6 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
 	}
 	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
-}
-
-func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.Request, serverName string, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
-	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
-	serverCfg, cfgExists := h.Manager.config.Servers[serverName]
-	if !cfgExists {
-		h.logger.Error("Config not found for STDIO server %s", serverName)
-		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: missing server config")
-		return
-	}
-
-	h.logger.Info("Executing STDIO request for server '%s' via container '%s' using its defined command.", serverName, containerName)
-
-	requestJSON, err := json.Marshal(requestPayload)
-	if err != nil {
-		h.logger.Error("Failed to marshal request for STDIO server %s: %v", serverName, err)
-		h.sendMCPError(w, reqIDVal, -32700, "Failed to marshal request")
-		return
-	}
-	jsonInputWithNewline := string(append(requestJSON, '\n'))
-
-	// Prepare the command to be executed inside the container
-	// This will be like: docker exec -i <container_name> npx -y @modelcontextprotocol/server-filesystem /tmp_mcp
-	execCmdAndArgs := []string{"exec", "-i", containerName}
-	if serverCfg.Command == "" {
-		h.logger.Error("STDIO Server '%s' has no command defined in config. Cannot execute.", serverName)
-		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: STDIO server has no command")
-		return
-	}
-	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Command)
-	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Args...)
-
-	ctx, cancel := context.WithTimeout(h.ctx, 30*time.Second) // 30s timeout for this interaction
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "docker", execCmdAndArgs...)
-	cmd.Stdin = strings.NewReader(jsonInputWithNewline)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	h.logger.Debug("Executing for STDIO '%s': docker %s <<EOF\n%sEOF", serverName, strings.Join(execCmdAndArgs, " "), jsonInputWithNewline)
-
-	err = cmd.Run() // Use Run as we expect the command to complete for each request
-
-	if err != nil {
-		// Check context error first
-		if ctx.Err() == context.DeadlineExceeded {
-			h.logger.Error("Docker exec for STDIO server %s timed out. Stderr: %s. Stdout: %s", serverName, stderr.String(), stdout.String())
-			errData := map[string]interface{}{"stderr": stderr.String(), "stdout": stdout.String(), "details": "timeout"}
-			h.sendMCPError(w, reqIDVal, -32000, fmt.Sprintf("Timeout communicating with STDIO server '%s'", serverName), errData)
-			return
-		}
-		h.logger.Error("Docker exec for STDIO server %s failed: %v. Stderr: %s. Stdout: %s", serverName, err, stderr.String(), stdout.String())
-		errData := map[string]interface{}{"stderr": stderr.String(), "stdout": stdout.String(), "details": err.Error()}
-		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Failed to execute command in STDIO server '%s'", serverName), errData)
-		return
-	}
-
-	responseData := stdout.Bytes()
-	if len(responseData) == 0 {
-		h.logger.Error("No stdout response from STDIO server %s. Stderr: %s", serverName, stderr.String())
-		errData := map[string]interface{}{"stderr": stderr.String()}
-		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("No stdout from STDIO server '%s'", serverName), errData)
-		return
-	}
-
-	h.logger.Debug("Raw stdout from STDIO server '%s' (exec %s %v): %s", serverName, serverCfg.Command, serverCfg.Args, string(responseData))
-	if stderr.Len() > 0 {
-		h.logger.Warning("Stderr from STDIO server %s (exec %s %v): %s", serverName, serverCfg.Command, serverCfg.Args, stderr.String())
-	}
-
-	// Attempt to parse the *entire stdout* as a single JSON response.
-	// This assumes the invoked command prints exactly one JSON-RPC response for the given input.
-	var response map[string]interface{}
-	// Trim whitespace which might include trailing newlines
-	trimmedResponseData := bytes.TrimSpace(responseData)
-	if err := json.Unmarshal(trimmedResponseData, &response); err != nil {
-		// If direct unmarshal fails, try to find the first JSON object (like before)
-		h.logger.Warning("Direct JSON unmarshal of STDIO response failed for %s (err: %v), trying to find first JSON object. Raw: %s", serverName, err, string(trimmedResponseData))
-		decoder := json.NewDecoder(bytes.NewReader(trimmedResponseData)) // Use trimmed data
-		foundResponse := false
-		for { // Removed decoder.More() as it might not work well with non-streamed single responses
-			var tempResponse map[string]interface{}
-			decodeErr := decoder.Decode(&tempResponse)
-			if decodeErr == io.EOF {
-				break
-			}
-			if decodeErr != nil {
-				h.logger.Debug("Skipping non-JSON segment from STDIO server %s (decode attempt): %v", serverName, decodeErr)
-				// If there's a decode error but we HAVE some data, it's likely not a stream of multiple JSONs.
-				// The first attempt to unmarshal trimmedResponseData should have worked if it was a single clean JSON.
-				// If it reaches here, the output is likely problematic.
-				break // Stop trying if there's a decode error on a segment
-			}
-			if _, okRpc := tempResponse["jsonrpc"]; okRpc {
-				if idInResp, okId := tempResponse["id"]; (okId && idInResp == reqIDVal) || tempResponse["error"] != nil {
-					response = tempResponse
-					foundResponse = true
-					break
-				}
-			}
-		}
-		if !foundResponse {
-			h.logger.Error("Invalid or no matching JSON-RPC response from STDIO server %s. Full stdout: [%s]. Stderr: [%s]", serverName, string(responseData), stderr.String())
-			errData := map[string]interface{}{"raw_stdout": string(responseData), "stderr": stderr.String()}
-			h.sendMCPError(w, reqIDVal, -32700, fmt.Sprintf("Invalid/no response from STDIO server '%s'", serverName), errData)
-			return
-		}
-	}
-
-	h.logger.Info("Proxy sending this JSON response for STDIO server %s to client: %+v", serverName, response)
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		h.logger.Error("Failed to encode/send STDIO response for %s: %v", serverName, err)
-	}
-
-	h.logger.Info("Successfully forwarded STDIO request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
 
 func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.Request, serverName string) {
@@ -1824,7 +3055,7 @@ func (h *ProxyHandler) handleDiscoveryEndpoint(w http.ResponseWriter, r *http.Re
 		h.ConnectionMutex.RUnlock()
 
 		description := fmt.Sprintf("MCP %s server (via proxy)", serverNameInConfig)
-		if serverConfigFromFile.Tools != nil && len(serverConfigFromFile.Tools) > 0 && serverConfigFromFile.Tools[0].Description != "" {
+		if len(serverConfigFromFile.Tools) > 0 && serverConfigFromFile.Tools[0].Description != "" {
 			// A more specific description if available from config
 			// description = serverConfigFromFile.Tools[0].Description // This is too specific, just an example
 		}
@@ -2107,24 +3338,20 @@ func (h *ProxyHandler) handleIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.ServerConfig) string {
-	// WHEN PROXY IS CONTAINERIZED (as with --container flag):
-	// Target Docker internal hostname and the server's internal HTTP port.
-	targetHost := fmt.Sprintf("mcp-compose-%s", serverName) // e.g., mcp-compose-filesystem
-	targetPort := serverConfig.HttpPort                     // The port an HTTP server listens on *inside* its own container
+	targetHost := fmt.Sprintf("mcp-compose-%s", serverName)
+	targetPort := serverConfig.HttpPort
 
-	// If HttpPort is not explicitly set in YAML, try to infer it from the 'ports' mapping (container side)
-	// This is a common fallback if `http_port` is missed in the config for an HTTP server.
-	if targetPort == 0 && serverConfig.Protocol == "http" { // Only infer for explicitly HTTP protocol servers
+	// If HttpPort is not explicitly set in YAML, try to infer it from the 'ports' mapping
+	if targetPort == 0 && serverConfig.Protocol == "http" {
 		if len(serverConfig.Ports) > 0 {
-			for _, portMapping := range serverConfig.Ports { // e.g., "8001:8001" or "8001" (implies 8001 inside)
+			for _, portMapping := range serverConfig.Ports {
 				parts := strings.Split(portMapping, ":")
 				var containerPortStr string
-				if len(parts) == 2 { // host:container
+				if len(parts) == 2 {
 					containerPortStr = parts[1]
-				} else if len(parts) == 1 { // just container port (if only one number, it's the container port)
+				} else if len(parts) == 1 {
 					containerPortStr = parts[0]
 				}
-
 				if p, err := strconv.Atoi(containerPortStr); err == nil && p > 0 {
 					targetPort = p
 					h.logger.Info("Server %s: Inferred internal http_port %d from 'ports' mapping ('%s'). Consider defining 'http_port' explicitly.", serverName, targetPort, portMapping)
@@ -2134,26 +3361,33 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 		}
 	}
 
-	// If still no port, and it's meant to be an HTTP server, this is a configuration error.
 	if targetPort == 0 && serverConfig.Protocol == "http" {
 		h.logger.Error("Server %s (HTTP): 'http_port' is 0 and could not be inferred from 'ports'. This is a critical configuration error for HTTP communication within Docker network.", serverName)
-		// Return a clearly invalid URL to make failure obvious
 		return fmt.Sprintf("http://%s:INVALID_PORT_CONFIG_FOR_HTTP_SERVER", targetHost)
 	}
 
-	// For STDIO servers, this URL won't be used by getServerConnection for making HTTP calls,
-	// but it might be used by other parts like API discovery for display.
-	// So, construct it if possible, but the main forwarding logic for STDIO will use docker exec.
 	if targetPort == 0 && serverConfig.Protocol != "http" {
 		h.logger.Debug("Server %s is likely STDIO (http_port is 0 and protocol is not http). URL constructed for display purposes only if needed.", serverName)
-		// For STDIO, port is irrelevant for direct connection, but discovery might still list an N/A port.
-		// Let's use 0 to signify no actual HTTP port.
 		return fmt.Sprintf("http://%s:0/ (STDIO server, no HTTP port)", targetHost)
 	}
 
-	url := fmt.Sprintf("http://%s:%d/", targetHost, targetPort)
-	h.logger.Debug("Resolved internal HTTP URL (MCP Endpoint for containerized proxy) for server %s: %s", serverName, url)
-	return url
+	// Build the URL with the HTTP path
+	baseURL := fmt.Sprintf("http://%s:%d", targetHost, targetPort)
+
+	// Add the HTTP path if specified
+	if serverConfig.HttpPath != "" {
+		// Ensure path starts with /
+		path := serverConfig.HttpPath
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		baseURL += path
+	} else {
+		baseURL += "/"
+	}
+
+	h.logger.Debug("Resolved internal HTTP URL (MCP Endpoint for containerized proxy) for server %s: %s", serverName, baseURL)
+	return baseURL
 }
 
 func (h *ProxyHandler) isKnownTool(toolName string) bool {

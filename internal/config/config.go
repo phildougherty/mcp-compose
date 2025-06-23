@@ -29,27 +29,30 @@ type ComposeConfig struct {
 	CurrentEnv   string                       `yaml:"-"` // Runtime environment name
 }
 
-// ServerConfig represents an individual MCP server configuration
 type ServerConfig struct {
 	// Process-based setup
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
+
 	// Container-based setup
 	Image   string      `yaml:"image,omitempty"`
-	Build   BuildConfig `yaml:"build,omitempty"`   // Add this
-	Runtime string      `yaml:"runtime,omitempty"` // docker, podman, etc.
-	Pull    bool        `yaml:"pull,omitempty"`    // whether to pull image before starting
+	Build   BuildConfig `yaml:"build,omitempty"`
+	Runtime string      `yaml:"runtime,omitempty"`
+	Pull    bool        `yaml:"pull,omitempty"`
+
 	// Common settings
 	WorkDir         string            `yaml:"workdir,omitempty"`
 	Env             map[string]string `yaml:"env,omitempty"`
-	Ports           []string          `yaml:"ports,omitempty"`             // For mapping container ports to host
-	HttpPort        int               `yaml:"http_port,omitempty"`         // Port server listens on *inside* container for HTTP
-	Protocol        string            `yaml:"protocol,omitempty"`          // "http" or "stdio" (default)
-	StdioHosterPort int               `yaml:"stdio_hoster_port,omitempty"` // New field for socat-hosted STDIO
+	Ports           []string          `yaml:"ports,omitempty"`
+	HttpPort        int               `yaml:"http_port,omitempty"`
+	HttpPath        string            `yaml:"http_path,omitempty"`
+	Protocol        string            `yaml:"protocol,omitempty"` // "http", "sse", or "stdio" (default)
+	StdioHosterPort int               `yaml:"stdio_hoster_port,omitempty"`
 	Capabilities    []string          `yaml:"capabilities,omitempty"`
 	DependsOn       []string          `yaml:"depends_on,omitempty"`
+
 	// Enhanced settings
-	Volumes       []string            `yaml:"volumes,omitempty"` // <--- ADD THIS LINE BACK
+	Volumes       []string            `yaml:"volumes,omitempty"`
 	Resources     ResourcesConfig     `yaml:"resources,omitempty"`
 	Tools         []ToolConfig        `yaml:"tools,omitempty"`
 	Prompts       []PromptConfig      `yaml:"prompts,omitempty"`
@@ -59,8 +62,11 @@ type ServerConfig struct {
 	CapabilityOpt CapabilityOptConfig `yaml:"capability_options,omitempty"`
 	NetworkMode   string              `yaml:"network_mode,omitempty"`
 	Networks      []string            `yaml:"networks,omitempty"`
-	// HttpPath is not used by the current proxy design which proxies based on server name in URL path
-	// HttpPath      string              `yaml:"http_path,omitempty"`
+
+	// Transport-specific settings
+	SSEPath      string `yaml:"sse_path,omitempty"`      // Path for SSE endpoint
+	SSEPort      int    `yaml:"sse_port,omitempty"`      // Port for SSE (if different from http_port)
+	SSEHeartbeat int    `yaml:"sse_heartbeat,omitempty"` // SSE heartbeat interval in seconds
 }
 
 type BuildConfig struct {
@@ -378,92 +384,63 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 
 // validateConfig performs basic validation on the loaded configuration
 func validateConfig(config *ComposeConfig) error {
-	if config.Version != "1" { // Ensure this matches your expected version string
+	if config.Version != "1" {
 		return fmt.Errorf("unsupported version: '%s', expected '1'", config.Version)
 	}
-	if len(config.Servers) == 0 {
-		// This might be a valid state if no servers are defined,
-		// but usually, you'd expect at least one.
-		// For now, let's not error, as a file with just proxy_auth might be valid.
-		// return fmt.Errorf("no servers defined")
-	}
+
 	for name, server := range config.Servers {
 		if server.Command == "" && server.Image == "" {
 			return fmt.Errorf("server '%s' must specify either command or image", name)
 		}
-		if server.Image != "" && server.Runtime != "" {
-			if server.Runtime != "docker" && server.Runtime != "podman" { // Add other supported runtimes if any
-				return fmt.Errorf("server '%s' has invalid runtime: %s", name, server.Runtime)
+
+		// Validate protocol
+		if server.Protocol != "" && server.Protocol != "stdio" && server.Protocol != "http" && server.Protocol != "sse" {
+			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be 'stdio', 'http', or 'sse'", name, server.Protocol)
+		}
+
+		// Validate HTTP/SSE configuration
+		if (server.Protocol == "http" || server.Protocol == "sse") && server.HttpPort == 0 {
+			// Check if port can be inferred from args or ports
+			hasPortInArgs := false
+			for _, arg := range server.Args {
+				if strings.HasPrefix(arg, "--port") {
+					hasPortInArgs = true
+					break
+				}
+			}
+
+			hasPortMapping := false
+			if len(server.Ports) > 0 {
+				for _, p := range server.Ports {
+					parts := strings.Split(p, ":")
+					if len(parts) > 0 && parts[len(parts)-1] != "" {
+						hasPortMapping = true
+						break
+					}
+				}
+			}
+
+			if !hasPortInArgs && !hasPortMapping {
+				return fmt.Errorf("server '%s' uses '%s' protocol but 'http_port' is not defined and cannot be inferred", name, server.Protocol)
 			}
 		}
-		// Validate capabilities (optional, depends on how strict you want parsing to be)
+
+		// Validate capabilities
 		validCaps := map[string]bool{"resources": true, "tools": true, "prompts": true, "sampling": true, "logging": true}
 		for _, cap := range server.Capabilities {
 			if !validCaps[cap] {
 				return fmt.Errorf("server '%s' has invalid capability: '%s'", name, cap)
 			}
 		}
-		for _, path := range server.Resources.Paths {
-			if path.Source == "" || path.Target == "" {
-				return fmt.Errorf("server '%s' has invalid resource path: source and target are required", name)
-			}
-		}
-		for _, tool := range server.Tools {
-			if tool.Name == "" {
-				return fmt.Errorf("server '%s' has a tool with an empty name", name)
-			}
-		}
-		for _, prompt := range server.Prompts {
-			if prompt.Name == "" || prompt.Template == "" {
-				return fmt.Errorf("server '%s' has invalid prompt: name and template are required", name)
-			}
-		}
+
+		// Validate dependencies
 		for _, dep := range server.DependsOn {
 			if _, exists := config.Servers[dep]; !exists {
 				return fmt.Errorf("server '%s' depends on undefined server '%s'", name, dep)
 			}
 		}
-		// Validate protocol if specified
-		if server.Protocol != "" && server.Protocol != "stdio" && server.Protocol != "http" {
-			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be 'stdio' or 'http'", name, server.Protocol)
-		}
-		if server.Protocol == "http" && server.HttpPort == 0 {
-			// Check if http port can be inferred from args or ports for HTTP protocol servers
-			hasPortInArgs := false
-			for _, arg := range server.Args {
-				if strings.HasPrefix(arg, "--port") { // covers --port=X and --port X (if next arg is num)
-					hasPortInArgs = true
-					break
-				}
-			}
-			hasPortMapping := false
-			if len(server.Ports) > 0 {
-				for _, p := range server.Ports { // "8001:8001" or "8001"
-					parts := strings.Split(p, ":")
-					if len(parts) > 0 && parts[len(parts)-1] != "" { // check container port
-						hasPortMapping = true
-						break
-					}
-				}
-			}
-			if !hasPortInArgs && !hasPortMapping {
-				return fmt.Errorf("server '%s' uses 'http' protocol but 'http_port' is not defined, and cannot be inferred from args or ports mappings", name)
-			}
-		}
+	}
 
-	}
-	// Validate connections (if any are defined)
-	for name, conn := range config.Connections {
-		switch conn.Transport {
-		case "stdio", "http+sse", "tcp", "websocket":
-			// Valid transports
-		default:
-			return fmt.Errorf("connection '%s' has invalid transport: %s", name, conn.Transport)
-		}
-		if (conn.Transport == "http+sse" || conn.Transport == "websocket") && conn.Port == 0 && conn.Expose {
-			return fmt.Errorf("connection '%s' is exposed but has no port specified", name)
-		}
-	}
 	return nil
 }
 

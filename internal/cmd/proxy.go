@@ -135,7 +135,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 	return nil
 }
 
-func startNativeGoProxy(cfg *config.ComposeConfig, projectName string, port int, apiKey string, configFile string) error {
+func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey string, configFile string) error {
 	fmt.Printf("Starting native Go MCP proxy (HTTP transport) on port %d...\n", port)
 
 	// Detect container runtime. Although proxy runs natively, it needs to know if servers are in containers.
@@ -260,16 +260,9 @@ func getProjectName(configFile string) string {
 	return projectName
 }
 
-func getAbsolutePath(path string) string {
-	if abs, err := filepath.Abs(path); err == nil {
-		return abs
-	}
-	return path
-}
-
 // generateProxyClientConfig remains useful for generating client-side import files
 // It should now generate httpEndpoint based on the proxy's address.
-func generateProxyClientConfig(cfg *config.ComposeConfig, projectName string, proxyPort int, clientType string, outputDir string) error {
+func generateProxyClientConfig(cfg *config.ComposeConfig, _ string, proxyPort int, clientType string, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}

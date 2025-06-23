@@ -779,6 +779,7 @@ func (w *ResourcesWatcher) Stop() {
 }
 
 // --- HealthCheck and other utility methods ---
+// --- HealthCheck and other utility methods ---
 func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Added fixedIdentifier
 	instance, ok := m.servers[serverName]
 	if !ok {
@@ -790,7 +791,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Adde
 		m.logger.Debug("HealthCheck: No endpoint for server '%s'.", serverName)
 		return
 	}
-
 	interval, err := time.ParseDuration(healthCfg.Interval)
 	if err != nil {
 		interval = 30 * time.Second // Default
@@ -805,7 +805,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Adde
 	if retries <= 0 {
 		retries = 3 // Default
 	}
-
 	m.logger.Info("HealthCheck: Starting for server '%s' (identifier: %s), endpoint: %s, interval: %v, timeout: %v, retries: %d",
 		serverName, fixedIdentifier, healthCfg.Endpoint, interval, timeout, retries)
 
@@ -813,8 +812,10 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Adde
 		// Create a new ticker for this specific health check goroutine
 		healthCheckTicker := time.NewTicker(interval)
 		defer healthCheckTicker.Stop()
+
 		failCount := 0
 
+		// Use a proper loop that the linter understands
 		for {
 			select {
 			case <-healthCheckTicker.C:
@@ -884,9 +885,11 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) { // Adde
 					}
 				}
 				m.mu.Unlock() // Unlock after updating status
-				// How to stop this goroutine if m.StopServer is called externally?
-				// One way is for StopServer to signal a channel that this goroutine also selects on.
-				// Or, if instance.Status is set to "stopped" by StopServer, this loop will exit on next tick.
+
+			case <-m.ctx.Done():
+				// Exit when the manager context is cancelled
+				m.logger.Info("HealthCheck: Manager shutting down, stopping health checks for '%s'", serverName)
+				return
 			}
 		}
 	}()
