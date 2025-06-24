@@ -1,16 +1,16 @@
-// internal/cmd/root.go (updated version)
+// internal/cmd/root.go
 package cmd
 
 import (
 	"github.com/spf13/cobra"
 )
 
-// in internal/cmd/root.go
-func NewRootCommand() *cobra.Command {
+func NewRootCommand(version string) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "mcp-compose",
-		Short: "Manage MCP servers with compose",
-		Long:  `MCP-Compose is a tool for defining and running multi-server Model Context Protocol applications.`,
+		Use:     "mcp-compose",
+		Short:   "Manage MCP servers with compose",
+		Long:    `MCP-Compose is a tool for defining and running multi-server Model Context Protocol applications.`,
+		Version: version, // ← Add this line to enable --version flag
 	}
 
 	rootCmd.PersistentFlags().StringP("file", "c", "mcp-compose.yaml", "Specify compose file")
