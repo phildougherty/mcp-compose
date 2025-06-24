@@ -12,6 +12,7 @@ import (
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
+	"mcpcompose/internal/runtime"
 
 	"github.com/fatih/color"
 )
@@ -96,7 +97,12 @@ func Up(configFile string, serverNames []string) error {
 				}
 			}
 
-			err := startServerContainer(name, serverCfg, cRuntime)
+			var err error
+			if isContainerServer(serverCfg) {
+				err = startServerContainer(name, serverCfg, cRuntime)
+			} else {
+				err = startServerProcess(name, serverCfg)
+			}
 			duration := time.Since(startTime)
 			results <- startResult{name, err, duration}
 		}(serverName)
@@ -137,7 +143,7 @@ func Up(configFile string, serverNames []string) error {
 			fmt.Printf("- %s\n", e)
 		}
 		if successCount == 0 {
-			return fmt.Errorf("failed to start any servers. Check server configurations for HTTP mode and port exposure, and ensure commands are correct for HTTP startup")
+			return fmt.Errorf("failed to start any servers. Check server configurations and ensure commands/images are correct")
 		}
 	}
 
@@ -156,13 +162,18 @@ func Up(configFile string, serverNames []string) error {
 	return nil
 }
 
-// collectRequiredNetworks gathers all networks used by the servers being started
+// collectRequiredNetworks gathers all networks used by the container servers being started
 func collectRequiredNetworks(cfg *config.ComposeConfig, serverNames []string) map[string][]string {
 	networkToServers := make(map[string][]string)
 
 	for _, serverName := range serverNames {
 		serverCfg, exists := cfg.Servers[serverName]
 		if !exists {
+			continue
+		}
+
+		// Only process container servers for network requirements
+		if !isContainerServer(serverCfg) {
 			continue
 		}
 
@@ -292,6 +303,39 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 	}
 
 	return uniqueNetworks
+}
+
+// isContainerServer determines if a server should run as a container
+func isContainerServer(serverCfg config.ServerConfig) bool {
+	return serverCfg.Image != "" || serverCfg.Runtime != ""
+}
+
+// startServerProcess handles process-based server startup
+func startServerProcess(serverName string, serverCfg config.ServerConfig) error {
+	fmt.Printf("Starting process '%s' for server '%s'.\n", serverCfg.Command, serverName)
+
+	env := make(map[string]string)
+	if serverCfg.Env != nil {
+		for k, v := range serverCfg.Env {
+			env[k] = v
+		}
+	}
+	// Add standard MCP environment variables
+	env["MCP_SERVER_NAME"] = serverName
+
+	proc, err := runtime.NewProcess(serverCfg.Command, serverCfg.Args, runtime.ProcessOptions{
+		Env:     env,
+		WorkDir: serverCfg.WorkDir,
+		Name:    fmt.Sprintf("mcp-compose-%s", serverName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create process structure for server '%s': %w", serverName, err)
+	}
+	if err := proc.Start(); err != nil {
+		return fmt.Errorf("failed to start process for server '%s': %w", serverName, err)
+	}
+
+	return nil
 }
 
 func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
