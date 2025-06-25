@@ -10,7 +10,7 @@
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 transition-colors">
     <div id="app" v-cloak>
-        <dashboard-app 
+        <dashboard-app
             :config="{
                 proxyUrl: '{{.ProxyURL}}',
                 apiKey: '{{.APIKey}}',
@@ -18,19 +18,15 @@
                 port: {{.Port}},
                 enabledTabs: {
                     logs: true,
-                    metrics: true,
                     config: true
                 }
             }"
         ></dashboard-app>
     </div>
-
     <!-- Load Vue components -->
     <script src="/static/components/dashboard.js"></script>
     <script src="/static/components/logs.js"></script>
-    <script src="/static/components/metrics.js"></script>
     <script src="/static/components/activity.js"></script>
-    
     <!-- Initialize app -->
     <script src="/static/app.js"></script>
 </body>
