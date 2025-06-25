@@ -8,7 +8,6 @@ const app = createApp({
 });
 
 // Register components globally so they can be used within other components
-app.component('server-manager', ServerManager);
 app.component('log-viewer', LogViewer);
 app.component('metrics-display', MetricsDisplay);
 app.component('activity-viewer', ActivityViewer);

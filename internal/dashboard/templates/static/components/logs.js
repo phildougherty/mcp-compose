@@ -159,7 +159,14 @@ const LogViewer = {
             if (this.selectedServer) {
                 this.loadLogs();
             }
-        }
+        },
+
+        setSelectedServer(serverName) {
+            this.selectedServer = serverName;
+            if (serverName) {
+                this.loadLogs();
+            }
+        },
     },
 
     watch: {

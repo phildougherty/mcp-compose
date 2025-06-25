@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/auth"
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/dashboard"
 	"mcpcompose/internal/logging"
@@ -99,6 +100,10 @@ type ProxyHandler struct {
 	subscriptionManager       *protocol.SubscriptionManager
 	changeNotificationManager *protocol.ChangeNotificationManager
 	standardHandler           *protocol.StandardMethodHandler
+	authServer                *auth.AuthorizationServer
+	authMiddleware            *auth.AuthenticationMiddleware
+	resourceMeta              *auth.ResourceMetadataHandler
+	oauthEnabled              bool
 }
 
 // MCPRequest, MCPResponse, MCPError structs (standard JSON-RPC definitions)
@@ -212,6 +217,45 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		Sampling:  &protocol.SamplingOpts{},
 	}
 
+	// Initialize OAuth if enabled
+	var authServer *auth.AuthorizationServer
+	var authMiddleware *auth.AuthenticationMiddleware
+	var resourceMeta *auth.ResourceMetadataHandler
+	var oauthEnabled bool
+
+	if mgr.config.OAuth != nil && mgr.config.OAuth.Enabled {
+		// Create authorization server config
+		serverConfig := &auth.AuthorizationServerConfig{
+			Issuer:                            "http://localhost:9876", // Should be configurable
+			AuthorizationEndpoint:             "/oauth/authorize",
+			TokenEndpoint:                     "/oauth/token",
+			RegistrationEndpoint:              "/oauth/register",
+			ScopesSupported:                   []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"},
+			ResponseTypesSupported:            []string{"code"},
+			GrantTypesSupported:               []string{"authorization_code", "client_credentials", "refresh_token"},
+			TokenEndpointAuthMethodsSupported: []string{"client_secret_post", "client_secret_basic", "none"},
+			CodeChallengeMethodsSupported:     []string{"plain", "S256"},
+		}
+
+		// Override with config values if provided
+		if mgr.config.OAuth.Issuer != "" {
+			serverConfig.Issuer = mgr.config.OAuth.Issuer
+		}
+		if len(mgr.config.OAuth.ScopesSupported) > 0 {
+			serverConfig.ScopesSupported = mgr.config.OAuth.ScopesSupported
+		}
+
+		authServer = auth.NewAuthorizationServer(serverConfig, logger)
+		authMiddleware = auth.NewAuthenticationMiddleware(authServer)
+
+		// Create resource metadata handler
+		authServers := []string{serverConfig.Issuer}
+		resourceMeta = auth.NewResourceMetadataHandler(authServers, serverConfig.ScopesSupported)
+
+		oauthEnabled = true
+		logger.Info("OAuth 2.1 authorization server initialized")
+	}
+
 	handler := &ProxyHandler{
 		Manager:           mgr,
 		ConfigFile:        configFile,
@@ -228,17 +272,37 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		sseClient: &http.Client{
 			Transport: sseTransport,
 		},
-		logger:          logger, // Use the logger we created above
-		ctx:             ctx,
-		cancel:          cancel,
-		toolCache:       make(map[string]string),
-		cacheExpiry:     time.Now(),
-		connectionStats: make(map[string]*ConnectionStats),
-		// INITIALIZE NOTIFICATION MANAGERS
+		logger:                    logger, // Use the logger we created above
+		ctx:                       ctx,
+		cancel:                    cancel,
+		toolCache:                 make(map[string]string),
+		cacheExpiry:               time.Now(),
+		connectionStats:           make(map[string]*ConnectionStats),
 		subscriptionManager:       protocol.NewSubscriptionManager(),
 		changeNotificationManager: protocol.NewChangeNotificationManager(),
-		// INITIALIZE STANDARD HANDLER - NOW WITH LOGGER
-		standardHandler: protocol.NewStandardMethodHandler(serverInfo, capabilities, logger),
+		standardHandler:           protocol.NewStandardMethodHandler(serverInfo, capabilities, logger),
+		authServer:                authServer,
+		authMiddleware:            authMiddleware,
+		resourceMeta:              resourceMeta,
+		oauthEnabled:              oauthEnabled,
+	}
+
+	// Start periodic token cleanup if OAuth is enabled
+	if oauthEnabled && authServer != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute) // Clean up every 5 minutes
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					authServer.CleanupExpiredTokens()
+				case <-handler.ctx.Done():
+					return
+				}
+			}
+		}()
+		logger.Info("OAuth token cleanup scheduled every 5 minutes")
 	}
 
 	handler.startConnectionMaintenance()
@@ -761,6 +825,32 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 3)
 
+	// Handle OAuth endpoints if enabled
+	if h.oauthEnabled && h.authServer != nil {
+		switch path {
+		case "/.well-known/oauth-authorization-server":
+			h.authServer.HandleDiscovery(w, r)
+			return
+		case "/.well-known/oauth-protected-resource":
+			if h.resourceMeta != nil {
+				h.resourceMeta.HandleProtectedResourceMetadata(w, r)
+			}
+			return
+		case "/oauth/authorize":
+			h.authServer.HandleAuthorize(w, r)
+			return
+		case "/oauth/token":
+			h.authServer.HandleToken(w, r)
+			return
+		case "/oauth/register":
+			h.authServer.HandleRegister(w, r)
+			return
+		case "/api/oauth/status":
+			h.handleOAuthStatus(w, r)
+			return
+		}
+	}
+
 	// Handle server-specific OpenAPI specs (like MCPO does)
 	if len(parts) >= 2 && parts[1] == "openapi.json" {
 		serverName := parts[0]
@@ -987,6 +1077,29 @@ func (h *ProxyHandler) handleNotificationsAPI(w http.ResponseWriter, r *http.Req
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *ProxyHandler) handleOAuthStatus(w http.ResponseWriter, _ *http.Request) {
+	if !h.oauthEnabled || h.authServer == nil {
+		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+		return
+	}
+
+	accessTokens, refreshTokens, authCodes := h.authServer.GetTokenCount()
+
+	response := map[string]interface{}{
+		"oauth_enabled": true,
+		"active_tokens": map[string]int{
+			"access_tokens":  accessTokens,
+			"refresh_tokens": refreshTokens,
+			"auth_codes":     authCodes,
+		},
+		"issuer":           h.authServer.GetMetadata().Issuer,
+		"scopes_supported": h.authServer.GetMetadata().ScopesSupported,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -1729,8 +1842,12 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
-	w.Header().Set("Content-Type", "application/json")
+	// Authentication check - validate before processing the request
+	if !h.authenticateRequest(w, r, serverName, instance) {
+		return // Authentication failed, response already sent
+	}
 
+	w.Header().Set("Content-Type", "application/json")
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -1738,7 +1855,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
 		return
 	}
-
 	// Parse JSON payload
 	var requestPayload map[string]interface{}
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
@@ -1746,9 +1862,13 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
 		return
 	}
-
 	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
+
+	// Log authentication context for debugging
+	if authType, ok := auth.GetAuthTypeFromContext(r.Context()); ok {
+		h.logger.Debug("Request authenticated via %s for server %s, method %s", authType, serverName, reqMethodVal)
+	}
 
 	dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
 		fmt.Sprintf("MCP Request: %s", reqMethodVal),
@@ -1761,7 +1881,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	// ONLY handle proxy-specific standard methods, NOT server methods
 	if isProxyStandardMethod(reqMethodVal) {
 		h.logger.Info("Handling proxy standard MCP method '%s'", reqMethodVal)
-
 		var params json.RawMessage
 		if requestPayload["params"] != nil {
 			paramsBytes, marshalErr := json.Marshal(requestPayload["params"])
@@ -1771,7 +1890,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 			}
 			params = paramsBytes
 		}
-
 		// Handle standard method
 		if strings.HasPrefix(reqMethodVal, "notifications/") {
 			// Handle notification
@@ -1814,16 +1932,13 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
 		return
 	}
-
 	// Determine transport protocol
 	protocolType := serverConfig.Protocol
 	if protocolType == "" {
 		protocolType = "stdio" // default
 	}
-
 	h.logger.Info("Forwarding request to server '%s' using '%s' transport: Method=%s, ID=%v",
 		serverName, protocolType, reqMethodVal, reqIDVal)
-
 	// Route based on transport protocol
 	switch protocolType {
 	case "http":
@@ -1842,7 +1957,187 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// Add this helper function - ONLY proxy management methods
+// authenticateRequest handles authentication for server requests
+func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) bool {
+	// Skip authentication for OPTIONS requests
+	if r.Method == "OPTIONS" {
+		return true
+	}
+
+	var authenticatedViaOAuth bool
+	var authenticatedViaAPIKey bool
+	var requiresAuth bool
+
+	// Determine if authentication is required
+	apiKeyToCheck := h.getAPIKeyToCheck()
+	oauthRequired := h.oauthEnabled && instance.Config.Authentication != nil && instance.Config.Authentication.Enabled
+	apiKeyRequired := apiKeyToCheck != ""
+
+	// Check if any authentication is required
+	requiresAuth = oauthRequired || apiKeyRequired
+
+	// If no authentication is configured, allow access
+	if !requiresAuth {
+		return true
+	}
+
+	// Extract token from Authorization header
+	token := h.extractBearerToken(r)
+	if token == "" {
+		if requiresAuth && !(instance.Config.Authentication != nil && instance.Config.Authentication.OptionalAuth) {
+			h.sendAuthenticationError(w, "missing_token", "Access token required")
+			return false
+		}
+		return true // Allow if no auth required or optional auth
+	}
+
+	// Try OAuth authentication first (if enabled and configured)
+	if h.oauthEnabled && h.authServer != nil {
+		accessToken, err := h.validateOAuthToken(token)
+		if err == nil && accessToken != nil {
+			// OAuth token is valid
+			authenticatedViaOAuth = true
+
+			// Check server-specific OAuth scope requirements
+			if instance.Config.Authentication != nil && instance.Config.Authentication.RequiredScope != "" {
+				if !h.hasRequiredScope(accessToken.Scope, instance.Config.Authentication.RequiredScope) {
+					h.sendOAuthError(w, "insufficient_scope", "Required scope not granted: "+instance.Config.Authentication.RequiredScope)
+					return false
+				}
+			}
+
+			// Add OAuth context to request
+			client, _ := h.authServer.GetClient(accessToken.ClientID)
+			ctx := context.WithValue(r.Context(), auth.ClientContextKey, client)
+			ctx = context.WithValue(ctx, auth.TokenContextKey, accessToken)
+			ctx = context.WithValue(ctx, auth.UserContextKey, accessToken.UserID)
+			ctx = context.WithValue(ctx, auth.ScopeContextKey, accessToken.Scope)
+			ctx = context.WithValue(ctx, auth.AuthTypeContextKey, "oauth")
+			*r = *r.WithContext(ctx)
+
+			h.logger.Debug("Request authenticated via OAuth for server %s (scope: %s)", serverName, accessToken.Scope)
+			return true
+		}
+		// OAuth validation failed, but don't return error yet - try API key fallback
+	}
+
+	// Try API key authentication if not authenticated via OAuth
+	if !authenticatedViaOAuth && apiKeyToCheck != "" {
+		if token == apiKeyToCheck {
+			authenticatedViaAPIKey = true
+
+			// Add API key context
+			ctx := context.WithValue(r.Context(), auth.AuthTypeContextKey, "api_key")
+			*r = *r.WithContext(ctx)
+
+			h.logger.Debug("Request authenticated via API key for server %s", serverName)
+			return true
+		}
+	}
+
+	// Check if API key fallback is allowed for OAuth-configured servers
+	if oauthRequired && !authenticatedViaOAuth {
+		// Check if server allows API key fallback
+		allowAPIKey := instance.Config.Authentication == nil ||
+			instance.Config.Authentication.AllowAPIKey == nil ||
+			*instance.Config.Authentication.AllowAPIKey
+
+		if !allowAPIKey {
+			h.sendOAuthError(w, "invalid_token", "OAuth authentication required (API key not allowed)")
+			return false
+		}
+	}
+
+	// Authentication failed
+	if requiresAuth && !authenticatedViaOAuth && !authenticatedViaAPIKey {
+		if h.oauthEnabled {
+			h.sendOAuthError(w, "invalid_token", "Invalid access token or API key")
+		} else {
+			h.sendAuthenticationError(w, "invalid_token", "Invalid API key")
+		}
+		return false
+	}
+
+	// Check if server requires authentication but none was provided
+	if oauthRequired && !instance.Config.Authentication.OptionalAuth && !authenticatedViaOAuth && !authenticatedViaAPIKey {
+		h.sendOAuthError(w, "access_denied", "Authentication required for this server")
+		return false
+	}
+
+	return true
+}
+
+// Helper methods for authentication
+
+func (h *ProxyHandler) extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+
+	return parts[1]
+}
+
+func (h *ProxyHandler) validateOAuthToken(token string) (*auth.AccessToken, error) {
+	if h.authServer == nil {
+		return nil, fmt.Errorf("OAuth not enabled")
+	}
+
+	return h.authServer.ValidateAccessToken(token)
+}
+
+func (h *ProxyHandler) hasRequiredScope(tokenScope, requiredScope string) bool {
+	if h.authServer == nil {
+		return false
+	}
+
+	return h.authServer.HasScope(tokenScope, requiredScope)
+}
+
+func (h *ProxyHandler) getAPIKeyToCheck() string {
+	var apiKeyToCheck string
+	if h.Manager != nil && h.Manager.config != nil && h.Manager.config.ProxyAuth.Enabled {
+		apiKeyToCheck = h.Manager.config.ProxyAuth.APIKey
+	}
+	if h.APIKey != "" {
+		apiKeyToCheck = h.APIKey
+	}
+	return apiKeyToCheck
+}
+
+func (h *ProxyHandler) sendOAuthError(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("WWW-Authenticate", `Bearer realm="mcp-compose"`)
+	w.WriteHeader(http.StatusUnauthorized)
+
+	response := map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *ProxyHandler) sendAuthenticationError(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	if errorCode == "missing_token" {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+
+	response := map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
 func isProxyStandardMethod(method string) bool {
 	proxyMethods := map[string]bool{
 		"initialize":                true, // Proxy initialization

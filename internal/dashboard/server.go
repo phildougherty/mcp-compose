@@ -113,28 +113,25 @@ func (d *DashboardServer) Start(port int, host string) error {
 		return fmt.Errorf("failed to create static file system: %w", err)
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-
-	// Main dashboard page
 	mux.HandleFunc("/", d.handleIndex)
-
-	// API endpoints
 	mux.HandleFunc("/api/servers", d.handleServers)
 	mux.HandleFunc("/api/status", d.handleStatus)
 	mux.HandleFunc("/api/connections", d.handleConnections)
 	mux.HandleFunc("/api/containers/", d.handleContainers)
 	mux.HandleFunc("/api/logs/", d.handleLogs)
-
-	// WebSocket endpoints
 	mux.HandleFunc("/ws/logs", d.handleLogWebSocket)
 	mux.HandleFunc("/ws/metrics", d.handleMetricsWebSocket)
 	mux.HandleFunc("/ws/activity", d.handleActivityWebSocket)
 	mux.HandleFunc("/api/activity", d.handleActivityReceive)
-
-	// Server management endpoints
 	mux.HandleFunc("/api/servers/start", d.handleServerStart)
 	mux.HandleFunc("/api/servers/stop", d.handleServerStop)
 	mux.HandleFunc("/api/servers/restart", d.handleServerRestart)
 	mux.HandleFunc("/api/proxy/reload", d.handleProxyReload)
+	mux.HandleFunc("/api/server-docs/", d.handleServerDocs)
+	mux.HandleFunc("/api/server-openapi/", d.handleServerOpenAPI)
+	mux.HandleFunc("/api/server-direct/", d.handleServerDirect)
+	mux.HandleFunc("/api/server-logs/", d.handleServerLogs)
+	mux.HandleFunc("/", d.handleCatchAll)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)

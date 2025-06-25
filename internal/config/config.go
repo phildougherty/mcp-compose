@@ -30,46 +30,48 @@ type ComposeConfig struct {
 	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
 	CurrentEnv   string                       `yaml:"-"`
 	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
+	OAuth        *OAuthConfig                 `yaml:"oauth,omitempty"`
 }
 
 type ServerConfig struct {
 	// Process-based setup
-	Command string   `yaml:"command,omitempty"`
-	Args    []string `yaml:"args,omitempty"`
+	Command         string              `yaml:"command,omitempty"`
+	Args            []string            `yaml:"args,omitempty"`
+	Image           string              `yaml:"image,omitempty"`
+	Build           BuildConfig         `yaml:"build,omitempty"`
+	Runtime         string              `yaml:"runtime,omitempty"`
+	Pull            bool                `yaml:"pull,omitempty"`
+	WorkDir         string              `yaml:"workdir,omitempty"`
+	Env             map[string]string   `yaml:"env,omitempty"`
+	Ports           []string            `yaml:"ports,omitempty"`
+	HttpPort        int                 `yaml:"http_port,omitempty"`
+	HttpPath        string              `yaml:"http_path,omitempty"`
+	Protocol        string              `yaml:"protocol,omitempty"` // "http", "sse", or "stdio" (default)
+	StdioHosterPort int                 `yaml:"stdio_hoster_port,omitempty"`
+	Capabilities    []string            `yaml:"capabilities,omitempty"`
+	DependsOn       []string            `yaml:"depends_on,omitempty"`
+	Volumes         []string            `yaml:"volumes,omitempty"`
+	Resources       ResourcesConfig     `yaml:"resources,omitempty"`
+	Tools           []ToolConfig        `yaml:"tools,omitempty"`
+	Prompts         []PromptConfig      `yaml:"prompts,omitempty"`
+	Sampling        SamplingConfig      `yaml:"sampling,omitempty"`
+	Security        SecurityConfig      `yaml:"security,omitempty"`
+	Lifecycle       LifecycleConfig     `yaml:"lifecycle,omitempty"`
+	CapabilityOpt   CapabilityOptConfig `yaml:"capability_options,omitempty"`
+	NetworkMode     string              `yaml:"network_mode,omitempty"`
+	Networks        []string            `yaml:"networks,omitempty"`
+	Authentication  *ServerAuthConfig   `yaml:"authentication,omitempty"`
+	SSEPath         string              `yaml:"sse_path,omitempty"`      // Path for SSE endpoint
+	SSEPort         int                 `yaml:"sse_port,omitempty"`      // Port for SSE (if different from http_port)
+	SSEHeartbeat    int                 `yaml:"sse_heartbeat,omitempty"` // SSE heartbeat interval in seconds
+}
 
-	// Container-based setup
-	Image   string      `yaml:"image,omitempty"`
-	Build   BuildConfig `yaml:"build,omitempty"`
-	Runtime string      `yaml:"runtime,omitempty"`
-	Pull    bool        `yaml:"pull,omitempty"`
-
-	// Common settings
-	WorkDir         string            `yaml:"workdir,omitempty"`
-	Env             map[string]string `yaml:"env,omitempty"`
-	Ports           []string          `yaml:"ports,omitempty"`
-	HttpPort        int               `yaml:"http_port,omitempty"`
-	HttpPath        string            `yaml:"http_path,omitempty"`
-	Protocol        string            `yaml:"protocol,omitempty"` // "http", "sse", or "stdio" (default)
-	StdioHosterPort int               `yaml:"stdio_hoster_port,omitempty"`
-	Capabilities    []string          `yaml:"capabilities,omitempty"`
-	DependsOn       []string          `yaml:"depends_on,omitempty"`
-
-	// Enhanced settings
-	Volumes       []string            `yaml:"volumes,omitempty"`
-	Resources     ResourcesConfig     `yaml:"resources,omitempty"`
-	Tools         []ToolConfig        `yaml:"tools,omitempty"`
-	Prompts       []PromptConfig      `yaml:"prompts,omitempty"`
-	Sampling      SamplingConfig      `yaml:"sampling,omitempty"`
-	Security      SecurityConfig      `yaml:"security,omitempty"`
-	Lifecycle     LifecycleConfig     `yaml:"lifecycle,omitempty"`
-	CapabilityOpt CapabilityOptConfig `yaml:"capability_options,omitempty"`
-	NetworkMode   string              `yaml:"network_mode,omitempty"`
-	Networks      []string            `yaml:"networks,omitempty"`
-
-	// Transport-specific settings
-	SSEPath      string `yaml:"sse_path,omitempty"`      // Path for SSE endpoint
-	SSEPort      int    `yaml:"sse_port,omitempty"`      // Port for SSE (if different from http_port)
-	SSEHeartbeat int    `yaml:"sse_heartbeat,omitempty"` // SSE heartbeat interval in seconds
+type ServerAuthConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	RequiredScope string   `yaml:"required_scope,omitempty"`
+	OptionalAuth  bool     `yaml:"optional_auth,omitempty"`
+	Scopes        []string `yaml:"scopes,omitempty"`
+	AllowAPIKey   *bool    `yaml:"allow_api_key,omitempty"`
 }
 
 type BuildConfig struct {
@@ -175,6 +177,19 @@ type AuthConfig struct {
 	Type        string `yaml:"type"` // api_key, oauth, none
 	Header      string `yaml:"header,omitempty"`
 	TokenSource string `yaml:"token_source,omitempty"`
+}
+
+// OAuthConfig represents OAuth configuration
+type OAuthConfig struct {
+	Enabled              bool     `yaml:"enabled"`
+	AuthorizationServer  string   `yaml:"authorization_server,omitempty"`
+	Issuer               string   `yaml:"issuer,omitempty"`
+	ClientRegistration   bool     `yaml:"client_registration,omitempty"`
+	ScopesSupported      []string `yaml:"scopes_supported,omitempty"`
+	DefaultScopes        []string `yaml:"default_scopes,omitempty"`
+	TokenLifetime        string   `yaml:"token_lifetime,omitempty"`
+	RefreshTokenLifetime string   `yaml:"refresh_token_lifetime,omitempty"`
+	AuthCodeLifetime     string   `yaml:"auth_code_lifetime,omitempty"`
 }
 
 // AccessControlConfig defines access control rules
