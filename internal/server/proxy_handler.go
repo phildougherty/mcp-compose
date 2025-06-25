@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/dashboard"
 	"mcpcompose/internal/logging"
 	"mcpcompose/internal/openapi"
 )
@@ -683,6 +684,14 @@ func (h *ProxyHandler) Shutdown() error {
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+
+	dashboard.BroadcastActivity("INFO", "request", getServerNameFromPath(r.URL.Path), getClientIP(r),
+		fmt.Sprintf("Request: %s to %s", r.Method, r.URL.Path),
+		map[string]interface{}{
+			"method":   r.Method,
+			"endpoint": r.URL.Path,
+		})
+
 	h.logger.Info("Request: %s %s from %s (User-Agent: %s)", r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"))
 
 	// CORS Headers
@@ -805,22 +814,72 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		h.corsError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Method not allowed - use POST",
+		})
 		return
 	}
 
+	h.logger.Info("Received reload request from %s", r.RemoteAddr)
+
+	// Set JSON content type early
+	w.Header().Set("Content-Type", "application/json")
+
 	// Clear connection cache and reload config
 	h.ConnectionMutex.Lock()
+	oldHTTPConnCount := len(h.ServerConnections)
 	h.ServerConnections = make(map[string]*MCPHTTPConnection)
 	h.ConnectionMutex.Unlock()
+
+	// Clear SSE connections
+	h.SSEMutex.Lock()
+	oldSSEConnCount := len(h.SSEConnections)
+	for _, conn := range h.SSEConnections {
+		if conn != nil {
+			h.closeSSEConnection(conn)
+		}
+	}
+	h.SSEConnections = make(map[string]*MCPSSEConnection)
+	h.SSEMutex.Unlock()
+
+	// Clear STDIO connections
+	h.StdioMutex.Lock()
+	oldSTDIOConnCount := len(h.StdioConnections)
+	for name, conn := range h.StdioConnections {
+		if conn != nil && conn.Connection != nil {
+			h.logger.Debug("Closing STDIO connection to server %s during reload", name)
+			conn.Connection.Close()
+		}
+	}
+	h.StdioConnections = make(map[string]*MCPSTDIOConnection)
+	h.StdioMutex.Unlock()
 
 	// Refresh tool cache
 	h.toolCacheMu.Lock()
 	h.cacheExpiry = time.Now() // Force cache refresh
+	h.toolCache = make(map[string]string)
 	h.toolCacheMu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
+	h.logger.Info("Proxy reload completed: cleared %d HTTP, %d SSE, %d STDIO connections",
+		oldHTTPConnCount, oldSSEConnCount, oldSTDIOConnCount)
+
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Proxy connections and cache reloaded",
+		"cleared": map[string]int{
+			"httpConnections":  oldHTTPConnCount,
+			"sseConnections":   oldSSEConnCount,
+			"stdioConnections": oldSTDIOConnCount,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("Failed to encode reload response: %v", err)
+	}
 }
 
 func (h *ProxyHandler) corsError(w http.ResponseWriter, message string, code int) {
@@ -1513,6 +1572,14 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
+	dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+		fmt.Sprintf("MCP Request: %s", reqMethodVal),
+		map[string]interface{}{
+			"method":   reqMethodVal,
+			"id":       reqIDVal,
+			"endpoint": r.URL.Path,
+		})
+
 	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
@@ -1570,6 +1637,9 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 	// Send request via SSE
 	responsePayload, err := h.sendSSERequest(conn, requestPayload)
 	if err != nil {
+		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
+			map[string]interface{}{"error": err.Error()})
 		h.logger.Error("SSE request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
 		if conn != nil {
@@ -1590,6 +1660,10 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 
 	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	} else {
+		// Add success broadcast here
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
 	}
 
 	h.logger.Info("Successfully forwarded SSE request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
@@ -2717,6 +2791,8 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 	select {
 	case response := <-responseChan:
 		h.recordConnectionEvent(serverName, true, false)
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			"Response: STDIO request completed successfully", nil)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	case err := <-errorChan:
@@ -2762,6 +2838,9 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 
 	responsePayload, err := h.sendHTTPJsonRequest(conn, requestPayload, mcpCallTimeout)
 	if err != nil {
+		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
+			map[string]interface{}{"error": err.Error()})
 		h.logger.Error("MCP request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
 		if conn != nil {
@@ -2787,6 +2866,10 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 
 	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	} else {
+		// Add success broadcast here
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
 	}
 	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
@@ -3438,6 +3521,10 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 
 	h.logger.Info("Routing tool %s to server %s", toolName, serverName)
 
+	dashboard.BroadcastActivity("INFO", "tool", serverName, getClientIP(r),
+		fmt.Sprintf("Tool called: %s", toolName),
+		map[string]interface{}{"tool": toolName, "arguments": arguments})
+
 	// Create MCP tools/call request
 	mcpRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -3584,4 +3671,34 @@ func (h *ProxyHandler) findServerForTool(toolName string) (string, bool) {
 
 	h.logger.Warning("Tool %s not found in cache", toolName)
 	return "", false
+}
+
+func getClientIP(r *http.Request) string {
+	// Try X-Forwarded-For header first
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the list
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Try X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func getServerNameFromPath(path string) string {
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
+	if len(parts) > 0 && parts[0] != "" && parts[0] != "api" {
+		return parts[0]
+	}
+	return "proxy"
 }

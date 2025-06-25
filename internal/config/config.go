@@ -19,14 +19,15 @@ type ProxyAuthConfig struct {
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
 	Version      string                       `yaml:"version"`
-	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"` // <--- ADD THIS LINE
+	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
 	Servers      map[string]ServerConfig      `yaml:"servers"`
 	Connections  map[string]ConnectionConfig  `yaml:"connections,omitempty"`
 	Logging      LoggingConfig                `yaml:"logging,omitempty"`
 	Monitoring   MonitoringConfig             `yaml:"monitoring,omitempty"`
 	Development  DevelopmentConfig            `yaml:"development,omitempty"`
 	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
-	CurrentEnv   string                       `yaml:"-"` // Runtime environment name
+	CurrentEnv   string                       `yaml:"-"`
+	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
 }
 
 type ServerConfig struct {
@@ -315,6 +316,18 @@ type ServerOverrideConfig struct {
 	Resources ResourcesConfig   `yaml:"resources,omitempty"`
 }
 
+// DashboardConfig defines configuration for the MCP-Compose Dashboard
+type DashboardConfig struct {
+	Enabled      bool   `yaml:"enabled,omitempty"`
+	Port         int    `yaml:"port,omitempty"`
+	Host         string `yaml:"host,omitempty"`
+	ProxyURL     string `yaml:"proxy_url,omitempty"`
+	Theme        string `yaml:"theme,omitempty"`
+	LogStreaming bool   `yaml:"log_streaming,omitempty"`
+	ConfigEditor bool   `yaml:"config_editor,omitempty"`
+	Metrics      bool   `yaml:"metrics,omitempty"`
+}
+
 // LoadConfig loads and parses the compose file with environment support
 func LoadConfig(filePath string) (*ComposeConfig, error) {
 	// Read file
@@ -490,4 +503,18 @@ func ConvertToEnvList(env map[string]string) []string {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
 	return result
+}
+
+// SaveConfig saves the configuration to a file
+func SaveConfig(filePath string, config *ComposeConfig) error {
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file '%s': %w", filePath, err)
+	}
+
+	return nil
 }
