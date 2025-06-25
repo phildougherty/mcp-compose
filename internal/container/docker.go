@@ -24,6 +24,19 @@ func NewDockerRuntime(path string) (Runtime, error) {
 	return &DockerRuntime{execPath: path}, nil
 }
 
+func (d *DockerRuntime) RemoveNetwork(name string) error {
+	cmd := exec.Command("docker", "network", "rm", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if network doesn't exist (not an error for cleanup)
+		if strings.Contains(string(output), "not found") {
+			return nil
+		}
+		return fmt.Errorf("failed to remove network %s: %w. Output: %s", name, err, string(output))
+	}
+	return nil
+}
+
 func (d *DockerRuntime) GetRuntimeName() string {
 	return "docker"
 }
