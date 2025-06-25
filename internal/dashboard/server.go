@@ -131,7 +131,6 @@ func (d *DashboardServer) Start(port int, host string) error {
 	mux.HandleFunc("/api/server-openapi/", d.handleServerOpenAPI)
 	mux.HandleFunc("/api/server-direct/", d.handleServerDirect)
 	mux.HandleFunc("/api/server-logs/", d.handleServerLogs)
-	mux.HandleFunc("/", d.handleCatchAll)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
