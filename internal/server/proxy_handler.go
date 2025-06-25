@@ -1730,6 +1730,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 
 func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
 	w.Header().Set("Content-Type", "application/json")
+
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -1737,6 +1738,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
 		return
 	}
+
 	// Parse JSON payload
 	var requestPayload map[string]interface{}
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
@@ -1744,6 +1746,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
 		return
 	}
+
 	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
@@ -1755,11 +1758,10 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 			"endpoint": r.URL.Path,
 		})
 
-	// CHECK FOR STANDARD MCP METHODS FIRST
-	if protocol.IsStandardMethod(reqMethodVal) {
-		h.logger.Info("Handling standard MCP method '%s' for server '%s'", reqMethodVal, serverName)
+	// ONLY handle proxy-specific standard methods, NOT server methods
+	if isProxyStandardMethod(reqMethodVal) {
+		h.logger.Info("Handling proxy standard MCP method '%s'", reqMethodVal)
 
-		// Handle standard methods through the standard handler
 		var params json.RawMessage
 		if requestPayload["params"] != nil {
 			paramsBytes, marshalErr := json.Marshal(requestPayload["params"])
@@ -1782,7 +1784,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 				}
 				return
 			}
-
 			// Notifications don't have responses
 			w.WriteHeader(http.StatusOK)
 			return
@@ -1797,7 +1798,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 				}
 				return
 			}
-
 			// Send successful response
 			if err := json.NewEncoder(w).Encode(response); err != nil {
 				h.logger.Error("Failed to encode standard method response: %v", err)
@@ -1806,7 +1806,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// CONTINUE WITH EXISTING FORWARDING LOGIC FOR NON-STANDARD METHODS
+	// FORWARD ALL OTHER METHODS TO THE ACTUAL MCP SERVERS
 	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
@@ -1840,6 +1840,18 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocolType, serverName)
 		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocolType))
 	}
+}
+
+// Add this helper function - ONLY proxy management methods
+func isProxyStandardMethod(method string) bool {
+	proxyMethods := map[string]bool{
+		"initialize":                true, // Proxy initialization
+		"notifications/initialized": true, // Proxy initialization notification
+		"ping":                      true, // Proxy ping
+		"notifications/cancelled":   true, // Request cancellation
+		// DO NOT include server methods like tools/call, tools/list, resources/read, etc.
+	}
+	return proxyMethods[method]
 }
 
 func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
