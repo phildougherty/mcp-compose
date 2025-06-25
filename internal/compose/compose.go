@@ -12,10 +12,145 @@ import (
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
+	"mcpcompose/internal/logging"
+	"mcpcompose/internal/protocol"
 	"mcpcompose/internal/runtime"
+	"mcpcompose/internal/server"
 
 	"github.com/fatih/color"
 )
+
+// Composer orchestrates the entire MCP compose environment
+type Composer struct {
+	config           *config.ComposeConfig
+	manager          *server.Manager
+	lifecycleManager *LifecycleManager
+	protocolManagers map[string]*ProtocolManagerSet
+	logger           *logging.Logger
+	mu               sync.RWMutex
+}
+
+// ProtocolManagerSet contains all protocol managers for a server
+type ProtocolManagerSet struct {
+	Progress     *protocol.ProgressManager
+	Resource     *protocol.ResourceManager
+	Sampling     *protocol.SamplingManager
+	Subscription *protocol.SubscriptionManager
+	Change       *protocol.ChangeNotificationManager
+}
+
+// NewComposer creates a new composer instance
+func NewComposer(configPath string) (*Composer, error) {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Use DetectRuntime instead of NewRuntime
+	containerRuntime, err := container.DetectRuntime()
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect container runtime: %w", err)
+	}
+
+	mgr, err := server.NewManager(cfg, containerRuntime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server manager: %w", err)
+	}
+
+	logger := logging.NewLogger(cfg.Logging.Level)
+	lifecycleManager := NewLifecycleManager(cfg, logger, ".")
+
+	composer := &Composer{
+		config:           cfg,
+		manager:          mgr,
+		lifecycleManager: lifecycleManager,
+		protocolManagers: make(map[string]*ProtocolManagerSet),
+		logger:           logger,
+	}
+
+	// Initialize protocol managers for each server
+	for serverName := range cfg.Servers {
+		composer.protocolManagers[serverName] = &ProtocolManagerSet{
+			Progress:     protocol.NewProgressManager(),
+			Resource:     protocol.NewResourceManager(),
+			Sampling:     protocol.NewSamplingManager(),
+			Subscription: protocol.NewSubscriptionManager(),
+			Change:       protocol.NewChangeNotificationManager(),
+		}
+
+		// Register default transformer
+		composer.protocolManagers[serverName].Resource.RegisterTransformer(
+			"default",
+			&protocol.DefaultTextTransformer{},
+		)
+	}
+
+	return composer, nil
+}
+
+// GetProtocolManagers returns protocol managers for a server
+func (c *Composer) GetProtocolManagers(serverName string) *ProtocolManagerSet {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.protocolManagers[serverName]
+}
+
+// StartServer starts a specific server with protocol integration
+func (c *Composer) StartServer(serverName string) error {
+	return c.manager.StartServer(serverName)
+}
+
+// StopServer stops a specific server
+func (c *Composer) StopServer(serverName string) error {
+	return c.manager.StopServer(serverName)
+}
+
+// StartAll starts all configured servers
+func (c *Composer) StartAll() error {
+	for serverName := range c.config.Servers {
+		if err := c.StartServer(serverName); err != nil {
+			c.logger.Error("Failed to start server %s: %v", serverName, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// StopAll stops all running servers
+func (c *Composer) StopAll() error {
+	for serverName := range c.config.Servers {
+		if err := c.StopServer(serverName); err != nil {
+			c.logger.Warning("Failed to stop server %s: %v", serverName, err)
+		}
+	}
+	return nil
+}
+
+// Shutdown gracefully shuts down the composer
+func (c *Composer) Shutdown() error {
+	c.logger.Info("Shutting down composer...")
+
+	// Stop all servers
+	if err := c.StopAll(); err != nil {
+		c.logger.Warning("Error stopping servers during shutdown: %v", err)
+	}
+
+	// Shutdown protocol managers
+	c.mu.Lock()
+	for serverName, managers := range c.protocolManagers {
+		c.logger.Debug("Cleaning up protocol managers for %s", serverName)
+		managers.Subscription.CleanupExpiredSubscriptions(0)
+		managers.Change.CleanupInactiveSubscribers(0)
+	}
+	c.mu.Unlock()
+
+	// Shutdown server manager
+	if err := c.manager.Shutdown(); err != nil {
+		c.logger.Warning("Error shutting down server manager: %v", err)
+	}
+
+	return nil
+}
 
 func Up(configFile string, serverNames []string) error {
 	cfg, err := config.LoadConfig(configFile)

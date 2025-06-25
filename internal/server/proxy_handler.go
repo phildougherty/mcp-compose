@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/dashboard"
 	"mcpcompose/internal/logging"
 	"mcpcompose/internal/openapi"
+	"mcpcompose/internal/protocol"
 )
 
 // MCPHTTPConnection represents a persistent HTTP connection to an MCP server
@@ -71,29 +73,32 @@ type MCPSSEConnection struct {
 }
 
 type ProxyHandler struct {
-	Manager           *Manager
-	ConfigFile        string
-	APIKey            string
-	EnableAPI         bool
-	ProxyStarted      time.Time
-	ServerConnections map[string]*MCPHTTPConnection // For HTTP transport
-	SSEConnections    map[string]*MCPSSEConnection  // For SSE transport
-	StdioConnections  map[string]*MCPSTDIOConnection
-	ConnectionMutex   sync.RWMutex
-	StdioMutex        sync.RWMutex
-	SSEMutex          sync.RWMutex // New mutex for SSE connections
-	logger            *logging.Logger
-	httpClient        *http.Client // For regular HTTP requests
-	sseClient         *http.Client // For SSE connections (no timeout)
-	GlobalRequestID   int
-	GlobalIDMutex     sync.Mutex
-	ctx               context.Context
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
-	toolCache         map[string]string
-	toolCacheMu       sync.RWMutex
-	cacheExpiry       time.Time
-	connectionStats   map[string]*ConnectionStats
+	Manager                   *Manager
+	ConfigFile                string
+	APIKey                    string
+	EnableAPI                 bool
+	ProxyStarted              time.Time
+	ServerConnections         map[string]*MCPHTTPConnection
+	SSEConnections            map[string]*MCPSSEConnection
+	StdioConnections          map[string]*MCPSTDIOConnection
+	ConnectionMutex           sync.RWMutex
+	StdioMutex                sync.RWMutex
+	SSEMutex                  sync.RWMutex
+	logger                    *logging.Logger
+	httpClient                *http.Client
+	sseClient                 *http.Client
+	GlobalRequestID           int
+	GlobalIDMutex             sync.Mutex
+	ctx                       context.Context
+	cancel                    context.CancelFunc
+	wg                        sync.WaitGroup
+	toolCache                 map[string]string
+	toolCacheMu               sync.RWMutex
+	cacheExpiry               time.Time
+	connectionStats           map[string]*ConnectionStats
+	subscriptionManager       *protocol.SubscriptionManager
+	changeNotificationManager *protocol.ChangeNotificationManager
+	standardHandler           *protocol.StandardMethodHandler
 }
 
 // MCPRequest, MCPResponse, MCPError structs (standard JSON-RPC definitions)
@@ -190,6 +195,23 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		logLvl = mgr.config.Logging.Level
 	}
 
+	// CREATE LOGGER FIRST - we'll need it for the standard handler
+	logger := logging.NewLogger(logLvl)
+
+	// CREATE STANDARD METHOD HANDLER
+	serverInfo := protocol.ServerInfo{
+		Name:    "mcp-compose-proxy",
+		Version: "1.0.0",
+	}
+	capabilities := protocol.CapabilitiesOpts{
+		Resources: &protocol.ResourcesOpts{ListChanged: true, Subscribe: true},
+		Tools:     &protocol.ToolsOpts{ListChanged: true},
+		Prompts:   &protocol.PromptsOpts{ListChanged: true},
+		Roots:     &protocol.RootsOpts{ListChanged: true},
+		Logging:   &protocol.LoggingOpts{},
+		Sampling:  &protocol.SamplingOpts{},
+	}
+
 	handler := &ProxyHandler{
 		Manager:           mgr,
 		ConfigFile:        configFile,
@@ -205,17 +227,23 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		},
 		sseClient: &http.Client{
 			Transport: sseTransport,
-			// No timeout for SSE connections!
 		},
-		logger:          logging.NewLogger(logLvl),
+		logger:          logger, // Use the logger we created above
 		ctx:             ctx,
 		cancel:          cancel,
 		toolCache:       make(map[string]string),
 		cacheExpiry:     time.Now(),
 		connectionStats: make(map[string]*ConnectionStats),
+		// INITIALIZE NOTIFICATION MANAGERS
+		subscriptionManager:       protocol.NewSubscriptionManager(),
+		changeNotificationManager: protocol.NewChangeNotificationManager(),
+		// INITIALIZE STANDARD HANDLER - NOW WITH LOGGER
+		standardHandler: protocol.NewStandardMethodHandler(serverInfo, capabilities, logger),
 	}
 
 	handler.startConnectionMaintenance()
+	// INITIALIZE NOTIFICATION SUPPORT
+	handler.initializeNotificationSupport()
 	return handler
 }
 
@@ -631,6 +659,7 @@ func (h *ProxyHandler) isConnectionHealthy(conn *MCPHTTPConnection) bool {
 	return true
 }
 
+// Update the existing Shutdown method to include notification cleanup
 func (h *ProxyHandler) Shutdown() error {
 	h.logger.Info("Shutting down proxy handler...")
 
@@ -668,6 +697,15 @@ func (h *ProxyHandler) Shutdown() error {
 	h.StdioConnections = make(map[string]*MCPSTDIOConnection)
 	h.StdioMutex.Unlock()
 
+	// CLEANUP NOTIFICATIONS
+	if h.subscriptionManager != nil {
+		h.subscriptionManager.CleanupExpiredSubscriptions(0) // Force cleanup all
+	}
+
+	if h.changeNotificationManager != nil {
+		h.changeNotificationManager.CleanupInactiveSubscribers(0) // Force cleanup all
+	}
+
 	// Clear tool cache
 	h.toolCacheMu.Lock()
 	h.toolCache = make(map[string]string)
@@ -683,12 +721,18 @@ func (h *ProxyHandler) Shutdown() error {
 
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	dashboard.BroadcastActivity("INFO", "request", getServerNameFromPath(r.URL.Path), getClientIP(r),
+		fmt.Sprintf("Request: %s to %s", r.Method, r.URL.Path),
+		map[string]interface{}{
+			"method":   r.Method,
+			"endpoint": r.URL.Path,
+		})
 	h.logger.Info("Request: %s %s from %s (User-Agent: %s)", r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"))
 
 	// CORS Headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Mcp-Session-Id")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Mcp-Session-Id, X-Client-ID, X-MCP-Capabilities, X-Supports-Notifications")
 	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, Content-Type")
 
 	if r.Method == http.MethodOptions {
@@ -704,7 +748,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.APIKey != "" {
 		apiKeyToCheck = h.APIKey
 	}
-
 	if apiKeyToCheck != "" {
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(authHeader, "Bearer ")
@@ -756,6 +799,12 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "/api/connections":
 			h.handleConnectionsAPI(w, r)
 			handled = true
+		case "/api/subscriptions":
+			h.handleSubscriptionsAPI(w, r)
+			handled = true
+		case "/api/notifications":
+			h.handleNotificationsAPI(w, r)
+			handled = true
 		case "/openapi.json":
 			h.handleOpenAPISpec(w, r)
 			handled = true
@@ -783,7 +832,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		serverName := parts[0]
 		if instance, exists := h.Manager.GetServerInstance(serverName); exists {
 			if r.Method == http.MethodPost {
-				h.handleServerForward(w, r, serverName, instance)
+				// Use the new notification-aware method handler
+				h.handleMCPMethodForwarding(w, r, serverName, instance)
 			} else if r.Method == http.MethodGet && (len(parts) == 1 || (len(parts) > 1 && strings.HasSuffix(parts[1], ".json"))) {
 				h.handleServerDetails(w, r, serverName, instance)
 			} else if r.Method == http.MethodDelete && len(parts) == 1 && r.Header.Get("Mcp-Session-Id") != "" {
@@ -800,27 +850,214 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warning("Path not found: %s", r.URL.Path)
 		h.corsError(w, "Not Found", http.StatusNotFound)
 	}
+
 	h.logger.Info("Processed request %s %s (%s) in %v", r.Method, r.URL.Path, path, time.Since(start))
+}
+
+func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.logger.Error("Failed to read request body for %s: %v", serverName, err)
+		h.sendMCPError(w, nil, -32700, "Error reading request body")
+		return
+	}
+
+	// Parse JSON payload
+	var requestPayload map[string]interface{}
+	if err := json.Unmarshal(body, &requestPayload); err != nil {
+		h.logger.Error("Invalid JSON in request for %s: %v. Body: %s", serverName, err, string(body))
+		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
+		return
+	}
+
+	reqIDVal := requestPayload["id"]
+	reqMethodVal, _ := requestPayload["method"].(string)
+
+	dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+		fmt.Sprintf("MCP Request: %s", reqMethodVal),
+		map[string]interface{}{
+			"method":   reqMethodVal,
+			"id":       reqIDVal,
+			"endpoint": r.URL.Path,
+		})
+
+	// Handle notification-related methods first
+	switch reqMethodVal {
+	case "resources/subscribe":
+		h.handleResourceSubscribe(w, r, serverName, requestPayload)
+		return
+	case "resources/unsubscribe":
+		h.handleResourceUnsubscribe(w, r, serverName, requestPayload)
+		return
+	case "tools/list":
+		// Check if client wants change notifications
+		if h.supportsNotifications(r) {
+			clientID := h.getClientID(r)
+			sessionID := r.Header.Get("Mcp-Session-Id")
+
+			notifyFunc := func(notification *protocol.ChangeNotification) error {
+				return h.sendChangeNotificationToClient(clientID, notification)
+			}
+
+			h.changeNotificationManager.SubscribeToToolChanges(clientID, sessionID, notifyFunc)
+			h.logger.Debug("Client %s subscribed to tool changes for server %s", clientID, serverName)
+		}
+
+		// Continue with normal tools/list handling
+		h.handleServerForward(w, r, serverName, instance)
+		return
+	case "prompts/list":
+		// Check if client wants change notifications
+		if h.supportsNotifications(r) {
+			clientID := h.getClientID(r)
+			sessionID := r.Header.Get("Mcp-Session-Id")
+
+			notifyFunc := func(notification *protocol.ChangeNotification) error {
+				return h.sendChangeNotificationToClient(clientID, notification)
+			}
+
+			h.changeNotificationManager.SubscribeToPromptChanges(clientID, sessionID, notifyFunc)
+			h.logger.Debug("Client %s subscribed to prompt changes for server %s", clientID, serverName)
+		}
+
+		// Continue with normal prompts/list handling
+		h.handleServerForward(w, r, serverName, instance)
+		return
+	default:
+		// Handle normally through existing method
+		h.handleServerForward(w, r, serverName, instance)
+	}
+}
+
+func (h *ProxyHandler) handleSubscriptionsAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		// List all subscriptions
+		clientID := h.getClientID(r)
+		subscriptions := h.subscriptionManager.GetSubscriptions(clientID)
+
+		response := map[string]interface{}{
+			"subscriptions": subscriptions,
+			"clientId":      clientID,
+			"timestamp":     time.Now().Format(time.RFC3339),
+		}
+
+		json.NewEncoder(w).Encode(response)
+
+	case http.MethodDelete:
+		// Cleanup expired subscriptions
+		h.subscriptionManager.CleanupExpiredSubscriptions(30 * time.Minute)
+		h.changeNotificationManager.CleanupInactiveSubscribers(30 * time.Minute)
+
+		response := map[string]interface{}{
+			"status":    "cleaned",
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+
+		json.NewEncoder(w).Encode(response)
+
+	default:
+		h.corsError(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *ProxyHandler) handleNotificationsAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		h.corsError(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	toolSubscribers := h.changeNotificationManager.GetToolSubscribers()
+	promptSubscribers := h.changeNotificationManager.GetPromptSubscribers()
+
+	response := map[string]interface{}{
+		"toolSubscribers":   len(toolSubscribers),
+		"promptSubscribers": len(promptSubscribers),
+		"subscribers": map[string]interface{}{
+			"tools":   toolSubscribers,
+			"prompts": promptSubscribers,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		h.corsError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Method not allowed - use POST",
+		})
 		return
 	}
 
+	h.logger.Info("Received reload request from %s", r.RemoteAddr)
+
+	// Set JSON content type early
+	w.Header().Set("Content-Type", "application/json")
+
 	// Clear connection cache and reload config
 	h.ConnectionMutex.Lock()
+	oldHTTPConnCount := len(h.ServerConnections)
 	h.ServerConnections = make(map[string]*MCPHTTPConnection)
 	h.ConnectionMutex.Unlock()
+
+	// Clear SSE connections
+	h.SSEMutex.Lock()
+	oldSSEConnCount := len(h.SSEConnections)
+	for _, conn := range h.SSEConnections {
+		if conn != nil {
+			h.closeSSEConnection(conn)
+		}
+	}
+	h.SSEConnections = make(map[string]*MCPSSEConnection)
+	h.SSEMutex.Unlock()
+
+	// Clear STDIO connections
+	h.StdioMutex.Lock()
+	oldSTDIOConnCount := len(h.StdioConnections)
+	for name, conn := range h.StdioConnections {
+		if conn != nil && conn.Connection != nil {
+			h.logger.Debug("Closing STDIO connection to server %s during reload", name)
+			conn.Connection.Close()
+		}
+	}
+	h.StdioConnections = make(map[string]*MCPSTDIOConnection)
+	h.StdioMutex.Unlock()
 
 	// Refresh tool cache
 	h.toolCacheMu.Lock()
 	h.cacheExpiry = time.Now() // Force cache refresh
+	h.toolCache = make(map[string]string)
 	h.toolCacheMu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
+	h.logger.Info("Proxy reload completed: cleared %d HTTP, %d SSE, %d STDIO connections",
+		oldHTTPConnCount, oldSSEConnCount, oldSTDIOConnCount)
+
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Proxy connections and cache reloaded",
+		"cleared": map[string]int{
+			"httpConnections":  oldHTTPConnCount,
+			"sseConnections":   oldSSEConnCount,
+			"stdioConnections": oldSTDIOConnCount,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("Failed to encode reload response: %v", err)
+	}
 }
 
 func (h *ProxyHandler) corsError(w http.ResponseWriter, message string, code int) {
@@ -1493,7 +1730,6 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 
 func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
 	w.Header().Set("Content-Type", "application/json")
-
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -1501,7 +1737,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
 		return
 	}
-
 	// Parse JSON payload
 	var requestPayload map[string]interface{}
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
@@ -1509,10 +1744,69 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
 		return
 	}
-
 	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
+	dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+		fmt.Sprintf("MCP Request: %s", reqMethodVal),
+		map[string]interface{}{
+			"method":   reqMethodVal,
+			"id":       reqIDVal,
+			"endpoint": r.URL.Path,
+		})
+
+	// CHECK FOR STANDARD MCP METHODS FIRST
+	if protocol.IsStandardMethod(reqMethodVal) {
+		h.logger.Info("Handling standard MCP method '%s' for server '%s'", reqMethodVal, serverName)
+
+		// Handle standard methods through the standard handler
+		var params json.RawMessage
+		if requestPayload["params"] != nil {
+			paramsBytes, marshalErr := json.Marshal(requestPayload["params"])
+			if marshalErr != nil {
+				h.sendMCPError(w, reqIDVal, protocol.InvalidParams, "Failed to marshal parameters")
+				return
+			}
+			params = paramsBytes
+		}
+
+		// Handle standard method
+		if strings.HasPrefix(reqMethodVal, "notifications/") {
+			// Handle notification
+			err := h.standardHandler.HandleStandardNotification(reqMethodVal, params)
+			if err != nil {
+				if mcpErr, ok := err.(*protocol.MCPError); ok {
+					h.sendMCPError(w, reqIDVal, mcpErr.Code, mcpErr.Message, mcpErr.Data)
+				} else {
+					h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
+				}
+				return
+			}
+
+			// Notifications don't have responses
+			w.WriteHeader(http.StatusOK)
+			return
+		} else {
+			// Handle request method
+			response, err := h.standardHandler.HandleStandardMethod(reqMethodVal, params, reqIDVal)
+			if err != nil {
+				if mcpErr, ok := err.(*protocol.MCPError); ok {
+					h.sendMCPError(w, reqIDVal, mcpErr.Code, mcpErr.Message, mcpErr.Data)
+				} else {
+					h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
+				}
+				return
+			}
+
+			// Send successful response
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				h.logger.Error("Failed to encode standard method response: %v", err)
+			}
+			return
+		}
+	}
+
+	// CONTINUE WITH EXISTING FORWARDING LOGIC FOR NON-STANDARD METHODS
 	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
@@ -1522,16 +1816,16 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Determine transport protocol
-	protocol := serverConfig.Protocol
-	if protocol == "" {
-		protocol = "stdio" // default
+	protocolType := serverConfig.Protocol
+	if protocolType == "" {
+		protocolType = "stdio" // default
 	}
 
 	h.logger.Info("Forwarding request to server '%s' using '%s' transport: Method=%s, ID=%v",
-		serverName, protocol, reqMethodVal, reqIDVal)
+		serverName, protocolType, reqMethodVal, reqIDVal)
 
 	// Route based on transport protocol
-	switch protocol {
+	switch protocolType {
 	case "http":
 		h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
 	case "sse":
@@ -1543,8 +1837,8 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 			h.handleSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
 		}
 	default:
-		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocol, serverName)
-		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocol))
+		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocolType, serverName)
+		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocolType))
 	}
 }
 
@@ -1570,6 +1864,9 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 	// Send request via SSE
 	responsePayload, err := h.sendSSERequest(conn, requestPayload)
 	if err != nil {
+		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
+			map[string]interface{}{"error": err.Error()})
 		h.logger.Error("SSE request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
 		if conn != nil {
@@ -1590,6 +1887,10 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 
 	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	} else {
+		// Add success broadcast here
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
 	}
 
 	h.logger.Info("Successfully forwarded SSE request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
@@ -2717,6 +3018,8 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 	select {
 	case response := <-responseChan:
 		h.recordConnectionEvent(serverName, true, false)
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			"Response: STDIO request completed successfully", nil)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	case err := <-errorChan:
@@ -2762,6 +3065,9 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 
 	responsePayload, err := h.sendHTTPJsonRequest(conn, requestPayload, mcpCallTimeout)
 	if err != nil {
+		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
+			map[string]interface{}{"error": err.Error()})
 		h.logger.Error("MCP request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
 		if conn != nil {
@@ -2787,6 +3093,10 @@ func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Re
 
 	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	} else {
+		// Add success broadcast here
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
 	}
 	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
@@ -3017,8 +3327,11 @@ func (h *ProxyHandler) handleAPIStatus(w http.ResponseWriter, _ *http.Request) {
 		"activeHttpConnectionsToServers": activeHTTPConnections,
 		"initializedMcpSessions":         initializedHTTPSessions,
 		"proxyTransportMode":             "HTTP",
-		"mcpComposeVersion":              "dev", // TODO: Inject version at build time
-		"mcpSpecVersionUsedByProxy":      "2025-03-26",
+		"mcpComposeVersion":              "dev",
+		"mcpSpecVersionUsedByProxy":      protocol.MCPVersion, // Use the constant
+		"standardMethodsSupported":       true,
+		"standardHandlerInitialized":     h.standardHandler.IsInitialized(),
+		"supportedCapabilities":          h.standardHandler.GetCapabilities(),
 	}
 
 	if err := json.NewEncoder(w).Encode(apiStatus); err != nil {
@@ -3438,6 +3751,10 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 
 	h.logger.Info("Routing tool %s to server %s", toolName, serverName)
 
+	dashboard.BroadcastActivity("INFO", "tool", serverName, getClientIP(r),
+		fmt.Sprintf("Tool called: %s", toolName),
+		map[string]interface{}{"tool": toolName, "arguments": arguments})
+
 	// Create MCP tools/call request
 	mcpRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -3584,4 +3901,34 @@ func (h *ProxyHandler) findServerForTool(toolName string) (string, bool) {
 
 	h.logger.Warning("Tool %s not found in cache", toolName)
 	return "", false
+}
+
+func getClientIP(r *http.Request) string {
+	// Try X-Forwarded-For header first
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the list
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Try X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func getServerNameFromPath(path string) string {
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
+	if len(parts) > 0 && parts[0] != "" && parts[0] != "api" {
+		return parts[0]
+	}
+	return "proxy"
 }

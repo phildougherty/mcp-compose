@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings" // Import the strings package
+	"strconv"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,14 +21,15 @@ type ProxyAuthConfig struct {
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
 	Version      string                       `yaml:"version"`
-	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"` // <--- ADD THIS LINE
+	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
 	Servers      map[string]ServerConfig      `yaml:"servers"`
 	Connections  map[string]ConnectionConfig  `yaml:"connections,omitempty"`
 	Logging      LoggingConfig                `yaml:"logging,omitempty"`
 	Monitoring   MonitoringConfig             `yaml:"monitoring,omitempty"`
 	Development  DevelopmentConfig            `yaml:"development,omitempty"`
 	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
-	CurrentEnv   string                       `yaml:"-"` // Runtime environment name
+	CurrentEnv   string                       `yaml:"-"`
+	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
 }
 
 type ServerConfig struct {
@@ -189,11 +192,21 @@ type AccessRule struct {
 
 // LifecycleConfig defines server lifecycle hooks
 type LifecycleConfig struct {
-	PreStart    string      `yaml:"pre_start,omitempty"`
-	PostStart   string      `yaml:"post_start,omitempty"`
-	PreStop     string      `yaml:"pre_stop,omitempty"`
-	PostStop    string      `yaml:"post_stop,omitempty"`
-	HealthCheck HealthCheck `yaml:"health_check,omitempty"`
+	PreStart     string              `yaml:"pre_start,omitempty"`
+	PostStart    string              `yaml:"post_start,omitempty"`
+	PreStop      string              `yaml:"pre_stop,omitempty"`
+	PostStop     string              `yaml:"post_stop,omitempty"`
+	HealthCheck  HealthCheck         `yaml:"health_check,omitempty"`
+	HumanControl *HumanControlConfig `yaml:"human_control,omitempty"`
+}
+
+type HumanControlConfig struct {
+	RequireApproval     bool     `yaml:"require_approval,omitempty"`
+	AutoApprovePatterns []string `yaml:"auto_approve_patterns,omitempty"`
+	BlockPatterns       []string `yaml:"block_patterns,omitempty"`
+	MaxTokens           int      `yaml:"max_tokens,omitempty"`
+	AllowedModels       []string `yaml:"allowed_models,omitempty"`
+	TimeoutSeconds      int      `yaml:"timeout_seconds,omitempty"`
 }
 
 // HealthCheck defines health check configuration
@@ -315,6 +328,18 @@ type ServerOverrideConfig struct {
 	Resources ResourcesConfig   `yaml:"resources,omitempty"`
 }
 
+// DashboardConfig defines configuration for the MCP-Compose Dashboard
+type DashboardConfig struct {
+	Enabled      bool   `yaml:"enabled,omitempty"`
+	Port         int    `yaml:"port,omitempty"`
+	Host         string `yaml:"host,omitempty"`
+	ProxyURL     string `yaml:"proxy_url,omitempty"`
+	Theme        string `yaml:"theme,omitempty"`
+	LogStreaming bool   `yaml:"log_streaming,omitempty"`
+	ConfigEditor bool   `yaml:"config_editor,omitempty"`
+	Metrics      bool   `yaml:"metrics,omitempty"`
+}
+
 // LoadConfig loads and parses the compose file with environment support
 func LoadConfig(filePath string) (*ComposeConfig, error) {
 	// Read file
@@ -346,7 +371,7 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	}
 
 	// Validate config
-	if err := validateConfig(&config); err != nil {
+	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("invalid configuration in '%s': %w", filePath, err)
 	}
 	return &config, nil
@@ -382,55 +407,15 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 	}
 }
 
-// validateConfig performs basic validation on the loaded configuration
-func validateConfig(config *ComposeConfig) error {
+// In internal/config/config.go, change the function signature to make it public:
+func ValidateConfig(config *ComposeConfig) error {
 	if config.Version != "1" {
 		return fmt.Errorf("unsupported version: '%s', expected '1'", config.Version)
 	}
 
 	for name, server := range config.Servers {
-		if server.Command == "" && server.Image == "" {
-			return fmt.Errorf("server '%s' must specify either command or image", name)
-		}
-
-		// Validate protocol
-		if server.Protocol != "" && server.Protocol != "stdio" && server.Protocol != "http" && server.Protocol != "sse" {
-			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be 'stdio', 'http', or 'sse'", name, server.Protocol)
-		}
-
-		// Validate HTTP/SSE configuration
-		if (server.Protocol == "http" || server.Protocol == "sse") && server.HttpPort == 0 {
-			// Check if port can be inferred from args or ports
-			hasPortInArgs := false
-			for _, arg := range server.Args {
-				if strings.HasPrefix(arg, "--port") {
-					hasPortInArgs = true
-					break
-				}
-			}
-
-			hasPortMapping := false
-			if len(server.Ports) > 0 {
-				for _, p := range server.Ports {
-					parts := strings.Split(p, ":")
-					if len(parts) > 0 && parts[len(parts)-1] != "" {
-						hasPortMapping = true
-						break
-					}
-				}
-			}
-
-			if !hasPortInArgs && !hasPortMapping {
-				return fmt.Errorf("server '%s' uses '%s' protocol but 'http_port' is not defined and cannot be inferred", name, server.Protocol)
-			}
-		}
-
-		// Validate capabilities
-		validCaps := map[string]bool{"resources": true, "tools": true, "prompts": true, "sampling": true, "logging": true}
-		for _, cap := range server.Capabilities {
-			if !validCaps[cap] {
-				return fmt.Errorf("server '%s' has invalid capability: '%s'", name, cap)
-			}
+		if err := validateServerConfig(name, server); err != nil {
+			return err
 		}
 
 		// Validate dependencies
@@ -439,6 +424,231 @@ func validateConfig(config *ComposeConfig) error {
 				return fmt.Errorf("server '%s' depends on undefined server '%s'", name, dep)
 			}
 		}
+
+		// Validate human control configuration
+		if server.Lifecycle.HumanControl != nil {
+			if err := validateHumanControlConfig(name, server.Lifecycle.HumanControl); err != nil {
+				return err
+			}
+		}
+
+		// Validate resource paths
+		if err := validateResourcePaths(name, server.Resources); err != nil {
+			return err
+		}
+
+		// Validate tools configuration
+		if err := validateToolsConfig(name, server.Tools); err != nil {
+			return err
+		}
+	}
+
+	// Validate global configuration
+	if err := validateGlobalConfig(config); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Now used by the main validateConfig function
+func validateServerConfig(name string, server ServerConfig) error {
+	if server.Command == "" && server.Image == "" {
+		return fmt.Errorf("server '%s' must specify either command or image", name)
+	}
+
+	// Validate protocol
+	if server.Protocol != "" {
+		validProtocols := []string{"stdio", "http", "sse", "tcp"}
+		valid := false
+		for _, p := range validProtocols {
+			if server.Protocol == p {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be one of: %v", name, server.Protocol, validProtocols)
+		}
+	}
+
+	// Validate HTTP/SSE configuration
+	if (server.Protocol == "http" || server.Protocol == "sse") && server.HttpPort == 0 {
+		if !hasPortInArgsOrMapping(server) {
+			return fmt.Errorf("server '%s' uses '%s' protocol but 'http_port' is not defined and cannot be inferred", name, server.Protocol)
+		}
+	}
+
+	// Validate capabilities
+	validCaps := map[string]bool{
+		"resources": true, "tools": true, "prompts": true,
+		"sampling": true, "logging": true, "roots": true,
+	}
+	for _, cap := range server.Capabilities {
+		if !validCaps[cap] {
+			return fmt.Errorf("server '%s' has invalid capability: '%s'", name, cap)
+		}
+	}
+
+	// Validate ports format
+	for i, port := range server.Ports {
+		if err := validatePortMapping(port); err != nil {
+			return fmt.Errorf("server '%s' has invalid port mapping at index %d: %w", name, i, err)
+		}
+	}
+
+	return nil
+}
+
+// Helper function to check if port can be inferred
+func hasPortInArgsOrMapping(server ServerConfig) bool {
+	// Check if port can be inferred from args
+	for _, arg := range server.Args {
+		if strings.HasPrefix(arg, "--port") || strings.HasPrefix(arg, "-p") {
+			return true
+		}
+	}
+
+	// Check if port mapping exists
+	if len(server.Ports) > 0 {
+		for _, p := range server.Ports {
+			parts := strings.Split(p, ":")
+			if len(parts) > 0 && parts[len(parts)-1] != "" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// Validate human control configuration
+func validateHumanControlConfig(serverName string, hc *HumanControlConfig) error {
+	if hc.TimeoutSeconds < 0 {
+		return fmt.Errorf("server '%s' has invalid human control timeout: %d (must be >= 0)", serverName, hc.TimeoutSeconds)
+	}
+	if hc.MaxTokens < 0 {
+		return fmt.Errorf("server '%s' has invalid human control max_tokens: %d (must be >= 0)", serverName, hc.MaxTokens)
+	}
+	if hc.TimeoutSeconds > 0 && hc.TimeoutSeconds < 5 {
+		return fmt.Errorf("server '%s' human control timeout too low: %d seconds (minimum 5 seconds)", serverName, hc.TimeoutSeconds)
+	}
+	return nil
+}
+
+// Validate resource paths
+func validateResourcePaths(serverName string, resources ResourcesConfig) error {
+	for i, path := range resources.Paths {
+		if path.Source == "" {
+			return fmt.Errorf("server '%s' resource path %d missing source", serverName, i)
+		}
+		if path.Target == "" {
+			return fmt.Errorf("server '%s' resource path %d missing target", serverName, i)
+		}
+
+		// Check if source path exists (warning, not error)
+		if _, err := os.Stat(path.Source); os.IsNotExist(err) {
+			// This could be a warning instead of an error
+			continue
+		}
+	}
+
+	// Validate sync interval if specified
+	if resources.SyncInterval != "" {
+		if _, err := time.ParseDuration(resources.SyncInterval); err != nil {
+			return fmt.Errorf("server '%s' has invalid resource sync_interval '%s': %w", serverName, resources.SyncInterval, err)
+		}
+	}
+
+	return nil
+}
+
+// Validate tools configuration
+func validateToolsConfig(serverName string, tools []ToolConfig) error {
+	toolNames := make(map[string]bool)
+
+	for i, tool := range tools {
+		if tool.Name == "" {
+			return fmt.Errorf("server '%s' tool %d missing name", serverName, i)
+		}
+
+		if toolNames[tool.Name] {
+			return fmt.Errorf("server '%s' has duplicate tool name: '%s'", serverName, tool.Name)
+		}
+		toolNames[tool.Name] = true
+
+		// Validate timeout if specified
+		if tool.Timeout != "" {
+			if _, err := time.ParseDuration(tool.Timeout); err != nil {
+				return fmt.Errorf("server '%s' tool '%s' has invalid timeout '%s': %w", serverName, tool.Name, tool.Timeout, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Validate port mapping format
+func validatePortMapping(portMapping string) error {
+	parts := strings.Split(portMapping, ":")
+	for _, part := range parts {
+		if part == "" {
+			return fmt.Errorf("empty port in mapping '%s'", portMapping)
+		}
+		// Check if it's a valid number
+		if _, err := strconv.Atoi(part); err != nil {
+			// Could be a port range like "8000-8010", validate differently
+			if !strings.Contains(part, "-") {
+				return fmt.Errorf("invalid port number '%s' in mapping '%s'", part, portMapping)
+			}
+		}
+	}
+	return nil
+}
+
+// Validate global configuration
+func validateGlobalConfig(config *ComposeConfig) error {
+	// Validate proxy auth
+	if config.ProxyAuth.Enabled && config.ProxyAuth.APIKey == "" {
+		return fmt.Errorf("proxy_auth is enabled but api_key is not specified")
+	}
+
+	// Validate dashboard config
+	if config.Dashboard.Enabled {
+		if config.Dashboard.Port <= 0 || config.Dashboard.Port > 65535 {
+			return fmt.Errorf("dashboard port must be between 1 and 65535")
+		}
+		if config.Dashboard.ProxyURL == "" {
+			return fmt.Errorf("dashboard is enabled but proxy_url is not specified")
+		}
+	}
+
+	// Validate connections
+	for name, conn := range config.Connections {
+		if err := validateConnection(name, conn); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Validate connection configuration
+func validateConnection(name string, conn ConnectionConfig) error {
+	validTransports := []string{"stdio", "http", "https", "tcp", "websocket", "http+sse"}
+	valid := false
+	for _, t := range validTransports {
+		if conn.Transport == t {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("connection '%s' has invalid transport: '%s'", name, conn.Transport)
+	}
+
+	if conn.Port < 0 || conn.Port > 65535 {
+		return fmt.Errorf("connection '%s' has invalid port: %d", name, conn.Port)
 	}
 
 	return nil
@@ -490,4 +700,18 @@ func ConvertToEnvList(env map[string]string) []string {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
 	return result
+}
+
+// SaveConfig saves the configuration to a file
+func SaveConfig(filePath string, config *ComposeConfig) error {
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file '%s': %w", filePath, err)
+	}
+
+	return nil
 }

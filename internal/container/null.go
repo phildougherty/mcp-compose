@@ -15,6 +15,10 @@ func NewNullRuntime() Runtime {
 	return &NullRuntime{}
 }
 
+func (n *NullRuntime) RemoveNetwork(name string) error {
+	return fmt.Errorf("no runtime available for network operations")
+}
+
 func (n *NullRuntime) GetRuntimeName() string {
 	return "none"
 }

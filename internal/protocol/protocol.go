@@ -3,11 +3,10 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 )
 
-// MCPVersion represents the Model Context Protocol version
+// MCPVersion represents the current Model Context Protocol version
 const MCPVersion = "2024-11-05"
 
 // MessageType defines the type of MCP message
@@ -30,6 +29,8 @@ type MCPMessage struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *MCPError       `json:"error,omitempty"`
+	// Progress support
+	ProgressToken string `json:"progressToken,omitempty"`
 }
 
 // MCPRequest represents an MCP request
@@ -38,6 +39,8 @@ type MCPRequest struct {
 	ID      interface{}     `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Progress support
+	ProgressToken string `json:"progressToken,omitempty"`
 }
 
 // MCPResponse represents an MCP response
@@ -46,6 +49,8 @@ type MCPResponse struct {
 	ID      interface{}     `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *MCPError       `json:"error,omitempty"`
+	// Progress support
+	ProgressToken string `json:"progressToken,omitempty"`
 }
 
 // MCPNotification represents an MCP notification
@@ -53,13 +58,6 @@ type MCPNotification struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-// MCPError represents an MCP error
-type MCPError struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 // Capability represents an MCP capability
@@ -76,6 +74,8 @@ const (
 	SamplingCapability Capability = "sampling"
 	// LoggingCapability provides logging
 	LoggingCapability Capability = "logging"
+	// RootsCapability provides root management
+	RootsCapability Capability = "roots"
 )
 
 // InitializeParams represents the parameters for an initialize request
@@ -83,6 +83,8 @@ type InitializeParams struct {
 	ProtocolVersion string           `json:"protocolVersion"`
 	Capabilities    CapabilitiesOpts `json:"capabilities"`
 	ClientInfo      ClientInfo       `json:"clientInfo"`
+	// Add roots support
+	Roots []Root `json:"roots,omitempty"`
 }
 
 // InitializeResult represents the result of an initialize request
@@ -91,6 +93,14 @@ type InitializeResult struct {
 	ServerInfo      ServerInfo       `json:"serverInfo"`
 	Capabilities    CapabilitiesOpts `json:"capabilities"`
 	Instructions    string           `json:"instructions,omitempty"`
+	// Server can announce its roots
+	Roots []Root `json:"roots,omitempty"`
+}
+
+// Root represents an MCP root
+type Root struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
 }
 
 // ClientInfo represents information about the client
@@ -105,16 +115,17 @@ type ServerInfo struct {
 	Version string `json:"version"`
 }
 
-// CapabilitiesOpts represents MCP capability options
+// CapabilitiesOpts represents MCP capability options with full specification compliance
 type CapabilitiesOpts struct {
 	Resources *ResourcesOpts `json:"resources,omitempty"`
 	Tools     *ToolsOpts     `json:"tools,omitempty"`
 	Prompts   *PromptsOpts   `json:"prompts,omitempty"`
 	Sampling  *SamplingOpts  `json:"sampling,omitempty"`
 	Logging   *LoggingOpts   `json:"logging,omitempty"`
+	Roots     *RootsOpts     `json:"roots,omitempty"`
 }
 
-// ResourcesOpts represents resources capability options
+// ResourcesOpts represents resources capability options with subscription support
 type ResourcesOpts struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 	Subscribe   bool `json:"subscribe,omitempty"`
@@ -140,6 +151,11 @@ type LoggingOpts struct {
 	// Logging has no specific options in current spec
 }
 
+// RootsOpts represents roots capability options
+type RootsOpts struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
 // Transport defines the interface for MCP transports
 type Transport interface {
 	// Send sends an MCP message
@@ -148,20 +164,33 @@ type Transport interface {
 	Receive() (MCPMessage, error)
 	// Close closes the transport
 	Close() error
+	// SupportsProgress returns true if transport supports progress notifications
+	SupportsProgress() bool
+	// SendProgress sends a progress notification
+	SendProgress(notification *ProgressNotification) error
 }
 
 // StdioTransport implements the stdio transport
 type StdioTransport struct {
-	reader *json.Decoder
-	writer *json.Encoder
+	reader           *json.Decoder
+	writer           *json.Encoder
+	progressManager  *ProgressManager
+	progressListener ProgressListener
 }
 
 // NewStdioTransport creates a new stdio transport
 func NewStdioTransport(r io.Reader, w io.Writer) *StdioTransport {
-	return &StdioTransport{
-		reader: json.NewDecoder(r),
-		writer: json.NewEncoder(w),
+	transport := &StdioTransport{
+		reader:          json.NewDecoder(r),
+		writer:          json.NewEncoder(w),
+		progressManager: NewProgressManager(),
 	}
+	// Set up built-in progress listener
+	transport.progressListener = func(token string, progress ProgressParams) {
+		notification := CreateProgressNotification(progress)
+		transport.SendProgress(notification)
+	}
+	return transport
 }
 
 // Send sends an MCP message via stdio
@@ -183,8 +212,23 @@ func (t *StdioTransport) Close() error {
 	return nil // Nothing to close for stdio
 }
 
-// NewRequest creates a new MCP request
-func NewRequest(id interface{}, method string, params interface{}) (*MCPRequest, error) {
+// SupportsProgress returns true since stdio supports progress notifications
+func (t *StdioTransport) SupportsProgress() bool {
+	return true
+}
+
+// SendProgress sends a progress notification
+func (t *StdioTransport) SendProgress(notification *ProgressNotification) error {
+	return t.writer.Encode(notification)
+}
+
+// GetProgressManager returns the progress manager
+func (t *StdioTransport) GetProgressManager() *ProgressManager {
+	return t.progressManager
+}
+
+// NewRequest creates a new MCP request with optional progress token
+func NewRequest(id interface{}, method string, params interface{}, progressToken ...string) (*MCPRequest, error) {
 	var paramsBytes json.RawMessage
 	if params != nil {
 		var err error
@@ -193,16 +237,23 @@ func NewRequest(id interface{}, method string, params interface{}) (*MCPRequest,
 			return nil, err
 		}
 	}
-	return &MCPRequest{
+
+	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      id,
 		Method:  method,
 		Params:  paramsBytes,
-	}, nil
+	}
+
+	if len(progressToken) > 0 && progressToken[0] != "" {
+		req.ProgressToken = progressToken[0]
+	}
+
+	return req, nil
 }
 
-// NewResponse creates a new MCP response
-func NewResponse(id interface{}, result interface{}, err *MCPError) (*MCPResponse, error) {
+// NewResponse creates a new MCP response with optional progress token
+func NewResponse(id interface{}, result interface{}, err *MCPError, progressToken ...string) (*MCPResponse, error) {
 	var resultBytes json.RawMessage
 	if result != nil && err == nil {
 		var marshalErr error
@@ -211,12 +262,19 @@ func NewResponse(id interface{}, result interface{}, err *MCPError) (*MCPRespons
 			return nil, marshalErr
 		}
 	}
-	return &MCPResponse{
+
+	resp := &MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Result:  resultBytes,
 		Error:   err,
-	}, nil
+	}
+
+	if len(progressToken) > 0 && progressToken[0] != "" {
+		resp.ProgressToken = progressToken[0]
+	}
+
+	return resp, nil
 }
 
 // NewNotification creates a new MCP notification
@@ -229,27 +287,11 @@ func NewNotification(method string, params interface{}) (*MCPNotification, error
 			return nil, err
 		}
 	}
+
 	return &MCPNotification{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  paramsBytes,
-	}, nil
-}
-
-// NewError creates a new MCP error
-func NewError(code int, message string, data interface{}) (*MCPError, error) {
-	var dataBytes json.RawMessage
-	if data != nil {
-		var err error
-		dataBytes, err = json.Marshal(data)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &MCPError{
-		Code:    code,
-		Message: message,
-		Data:    dataBytes,
 	}, nil
 }
 
@@ -259,23 +301,27 @@ func ValidateCapabilities(serverCapabilities CapabilitiesOpts, requiredCapabilit
 		switch cap {
 		case "resources":
 			if serverCapabilities.Resources == nil {
-				return fmt.Errorf("server does not support resources capability")
+				return NewCapabilityError("resources", "server does not support resources capability")
 			}
 		case "tools":
 			if serverCapabilities.Tools == nil {
-				return fmt.Errorf("server does not support tools capability")
+				return NewCapabilityError("tools", "server does not support tools capability")
 			}
 		case "prompts":
 			if serverCapabilities.Prompts == nil {
-				return fmt.Errorf("server does not support prompts capability")
+				return NewCapabilityError("prompts", "server does not support prompts capability")
 			}
 		case "sampling":
 			if serverCapabilities.Sampling == nil {
-				return fmt.Errorf("server does not support sampling capability")
+				return NewCapabilityError("sampling", "server does not support sampling capability")
 			}
 		case "logging":
 			if serverCapabilities.Logging == nil {
-				return fmt.Errorf("server does not support logging capability")
+				return NewCapabilityError("logging", "server does not support logging capability")
+			}
+		case "roots":
+			if serverCapabilities.Roots == nil {
+				return NewCapabilityError("roots", "server does not support roots capability")
 			}
 		}
 	}
@@ -284,8 +330,6 @@ func ValidateCapabilities(serverCapabilities CapabilitiesOpts, requiredCapabilit
 
 // CapabilityOptsFromConfig converts capability configuration to MCP capability options
 func CapabilityOptsFromConfig(capOpt interface{}) CapabilitiesOpts {
-	// This method would normally parse your config format into capability options
-	// For a simple implementation, just return a default set of capabilities
 	return CapabilitiesOpts{
 		Resources: &ResourcesOpts{
 			ListChanged: true,
@@ -299,5 +343,115 @@ func CapabilityOptsFromConfig(capOpt interface{}) CapabilitiesOpts {
 		},
 		Sampling: &SamplingOpts{},
 		Logging:  &LoggingOpts{},
+		Roots: &RootsOpts{
+			ListChanged: true,
+		},
 	}
+}
+
+// ValidateMessage performs comprehensive MCP message validation
+func ValidateMessage(msg MCPMessage) error {
+	if msg.JSONRPC != "2.0" {
+		return NewInvalidRequest("jsonrpc field must be '2.0'")
+	}
+
+	// If it has an ID, it's a request or response
+	if msg.ID != nil {
+		if msg.Method != "" {
+			// It's a request
+			if msg.Result != nil || msg.Error != nil {
+				return NewInvalidRequest("request cannot have result or error fields")
+			}
+		} else {
+			// It's a response
+			if msg.Method != "" || msg.Params != nil {
+				return NewInvalidRequest("response cannot have method or params fields")
+			}
+			if msg.Result != nil && msg.Error != nil {
+				return NewInvalidRequest("response cannot have both result and error")
+			}
+			if msg.Result == nil && msg.Error == nil {
+				return NewInvalidRequest("response must have either result or error")
+			}
+		}
+	} else {
+		// It's a notification
+		if msg.Method == "" {
+			return NewInvalidRequest("notification must have method field")
+		}
+		if msg.Result != nil || msg.Error != nil {
+			return NewInvalidRequest("notification cannot have result or error fields")
+		}
+	}
+
+	return nil
+}
+
+// IsProgressSupported checks if a method supports progress reporting
+func IsProgressSupported(method string) bool {
+	progressSupportedMethods := map[string]bool{
+		"tools/call":      true,
+		"resources/read":  true,
+		"resources/list":  true,
+		"prompts/get":     true,
+		"sampling/create": true,
+		// Add other long-running methods as needed
+	}
+	return progressSupportedMethods[method]
+}
+
+// Standard MCP methods
+const (
+	MethodInitialize           = "initialize"
+	MethodInitialized          = "notifications/initialized"
+	MethodPing                 = "ping"
+	MethodResourcesList        = "resources/list"
+	MethodResourcesRead        = "resources/read"
+	MethodResourcesSubscribe   = "resources/subscribe"
+	MethodResourcesUnsubscribe = "resources/unsubscribe"
+	MethodToolsList            = "tools/list"
+	MethodToolsCall            = "tools/call"
+	MethodPromptsList          = "prompts/list"
+	MethodPromptsGet           = "prompts/get"
+	MethodSamplingCreate       = "sampling/createMessage"
+	MethodLoggingSetLevel      = "logging/setLevel"
+	MethodRootsList            = "roots/list"
+	MethodCompletionComplete   = "completion/complete"
+	// Notifications
+	NotificationCancelled            = "notifications/cancelled"
+	NotificationProgress             = "notifications/progress"
+	NotificationResourcesUpdated     = "notifications/resources/updated"
+	NotificationResourcesListChanged = "notifications/resources/list_changed"
+	NotificationToolsListChanged     = "notifications/tools/list_changed"
+	NotificationPromptsListChanged   = "notifications/prompts/list_changed"
+	NotificationRootsListChanged     = "notifications/roots/list_changed"
+)
+
+// IsStandardMethod checks if a method is part of the MCP specification
+func IsStandardMethod(method string) bool {
+	standardMethods := map[string]bool{
+		MethodInitialize:                 true,
+		MethodInitialized:                true,
+		MethodPing:                       true,
+		MethodResourcesList:              true,
+		MethodResourcesRead:              true,
+		MethodResourcesSubscribe:         true,
+		MethodResourcesUnsubscribe:       true,
+		MethodToolsList:                  true,
+		MethodToolsCall:                  true,
+		MethodPromptsList:                true,
+		MethodPromptsGet:                 true,
+		MethodSamplingCreate:             true,
+		MethodLoggingSetLevel:            true,
+		MethodRootsList:                  true,
+		MethodCompletionComplete:         true,
+		NotificationCancelled:            true,
+		NotificationProgress:             true,
+		NotificationResourcesUpdated:     true,
+		NotificationResourcesListChanged: true,
+		NotificationToolsListChanged:     true,
+		NotificationPromptsListChanged:   true,
+		NotificationRootsListChanged:     true,
+	}
+	return standardMethods[method]
 }

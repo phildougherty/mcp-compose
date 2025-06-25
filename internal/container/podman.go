@@ -19,6 +19,19 @@ func NewPodmanRuntime(path string) (Runtime, error) {
 	return &PodmanRuntime{execPath: path}, nil
 }
 
+func (p *PodmanRuntime) RemoveNetwork(name string) error {
+	cmd := exec.Command("podman", "network", "rm", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if network doesn't exist (not an error for cleanup)
+		if strings.Contains(string(output), "not found") {
+			return nil
+		}
+		return fmt.Errorf("failed to remove network %s: %w. Output: %s", name, err, string(output))
+	}
+	return nil
+}
+
 func (p *PodmanRuntime) GetRuntimeName() string {
 	return "podman"
 }

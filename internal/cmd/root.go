@@ -29,6 +29,7 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewCreateConfigCommand())
 	rootCmd.AddCommand(NewProxyCommand())
 	rootCmd.AddCommand(NewReloadCommand())
+	rootCmd.AddCommand(NewDashboardCommand())
 
 	return rootCmd
 }
