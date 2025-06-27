@@ -791,6 +791,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"method":   r.Method,
 			"endpoint": r.URL.Path,
 		})
+
 	h.logger.Info("Request: %s %s from %s (User-Agent: %s)", r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"))
 
 	// CORS Headers
@@ -812,6 +813,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.APIKey != "" {
 		apiKeyToCheck = h.APIKey
 	}
+
 	if apiKeyToCheck != "" {
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(authHeader, "Bearer ")
@@ -906,19 +908,39 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle direct tool calls
+	// CRITICAL FIX: Handle direct tool calls BEFORE server routing
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPost {
 		toolName := parts[0]
+
+		// First check if it's a known tool
 		if h.isKnownTool(toolName) {
+			h.logger.Info("Handling direct tool call for: %s", toolName)
 			h.handleDirectToolCall(w, r, toolName)
 			h.logger.Debug("Processed direct tool call %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 			return
 		}
+
+		// If not a known tool, check if it's a server name
+		if _, exists := h.Manager.GetServerInstance(toolName); exists {
+			h.logger.Info("Routing to server: %s", toolName)
+			// This is a server, handle as server request
+			goto handleServer
+		}
+
+		// Neither a tool nor a server
+		h.logger.Warning("Unknown tool or server: %s", toolName)
+		h.corsError(w, "Tool or server not found", http.StatusNotFound)
+		return
 	}
 
 	if path == "/" {
 		h.handleIndex(w, r)
-	} else if len(parts) > 0 && parts[0] != "api" {
+		return
+	}
+
+handleServer:
+	// Handle server routing
+	if len(parts) > 0 && parts[0] != "api" {
 		serverName := parts[0]
 		if instance, exists := h.Manager.GetServerInstance(serverName); exists {
 			if r.Method == http.MethodPost {
@@ -1848,20 +1870,23 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	// Read request body
+
+	// Read request body ONCE and store it
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Failed to read request body for %s: %v", serverName, err)
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
 		return
 	}
-	// Parse JSON payload
+
+	// Parse JSON payload from the stored body
 	var requestPayload map[string]interface{}
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
 		h.logger.Error("Invalid JSON in request for %s: %v. Body: %s", serverName, err, string(body))
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
 		return
 	}
+
 	reqIDVal := requestPayload["id"]
 	reqMethodVal, _ := requestPayload["method"].(string)
 
@@ -1890,6 +1915,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 			}
 			params = paramsBytes
 		}
+
 		// Handle standard method
 		if strings.HasPrefix(reqMethodVal, "notifications/") {
 			// Handle notification
@@ -1932,17 +1958,20 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
 		return
 	}
+
 	// Determine transport protocol
 	protocolType := serverConfig.Protocol
 	if protocolType == "" {
 		protocolType = "stdio" // default
 	}
+
 	h.logger.Info("Forwarding request to server '%s' using '%s' transport: Method=%s, ID=%v",
 		serverName, protocolType, reqMethodVal, reqIDVal)
-	// Route based on transport protocol
+
+	// Route based on transport protocol - pass the original body bytes
 	switch protocolType {
 	case "http":
-		h.handleHTTPServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+		h.handleHTTPServerRequestWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
 	case "sse":
 		h.handleSSEServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
 	case "stdio":
@@ -1955,6 +1984,67 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocolType, serverName)
 		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocolType))
 	}
+}
+
+func (h *ProxyHandler) handleHTTPServerRequestWithBody(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, body []byte, reqIDVal interface{}, reqMethodVal string) {
+	conn, err := h.getServerConnection(serverName)
+	if err != nil {
+		h.logger.Error("Failed to get/create HTTP connection for %s: %v", serverName, err)
+		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s'", serverName))
+		return
+	}
+
+	mcpCallTimeout := 60 * time.Second
+	if reqMethodVal == "initialize" {
+		mcpCallTimeout = 90 * time.Second
+	}
+
+	// Forward client's Mcp-Session-Id to the backend if present
+	clientSessionID := r.Header.Get("Mcp-Session-Id")
+	conn.mu.Lock()
+	if clientSessionID != "" && conn.SessionID == "" {
+		h.logger.Info("Using client-provided Mcp-Session-Id '%s' for backend request to %s", clientSessionID, serverName)
+		conn.SessionID = clientSessionID
+	} else if clientSessionID != "" && clientSessionID != conn.SessionID {
+		h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, conn.SessionID, serverName)
+	}
+	conn.mu.Unlock()
+
+	// Use the pre-read body bytes directly
+	responsePayload, err := h.forwardHTTPRequest(conn, body, mcpCallTimeout)
+	if err != nil {
+		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
+			map[string]interface{}{"error": err.Error()})
+		h.logger.Error("MCP request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
+		errData := map[string]interface{}{"details": err.Error()}
+		if conn != nil {
+			conn.mu.Lock()
+			errData["targetUrl"] = conn.BaseURL
+			conn.mu.Unlock()
+		}
+		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Server '%s' is unreachable or did not respond in time", serverName), errData)
+		} else {
+			h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during MCP call to '%s'", serverName), errData)
+		}
+		return
+	}
+
+	// Relay Mcp-Session-Id from backend server's response
+	conn.mu.Lock()
+	if conn.SessionID != "" {
+		w.Header().Set("Mcp-Session-Id", conn.SessionID)
+	}
+	conn.mu.Unlock()
+
+	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
+		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
+	} else {
+		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
+			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
+	}
+	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
 
 // authenticateRequest handles authentication for server requests
@@ -2585,11 +2675,23 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 		conn.pendingRequests[requestID] = respCh
 		conn.reqMutex.Unlock()
 
+		// Use sync.Once to ensure channel is only closed once
+		var closeOnce sync.Once
 		defer func() {
-			conn.reqMutex.Lock()
-			delete(conn.pendingRequests, requestID)
-			conn.reqMutex.Unlock()
-			close(respCh)
+			closeOnce.Do(func() {
+				conn.reqMutex.Lock()
+				delete(conn.pendingRequests, requestID)
+				conn.reqMutex.Unlock()
+
+				// Safely close channel
+				select {
+				case <-respCh:
+					// Channel already received data, safe to close
+				default:
+					// Channel is empty, safe to close
+				}
+				close(respCh)
+			})
 		}()
 
 		// Now send the request
@@ -2621,15 +2723,18 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			method, _ := request["method"].(string)
 			h.logger.Info("Got 202 Accepted for %s, waiting for SSE response...", method)
 
-			// Wait for async response
+			// Wait for async response with proper timeout handling
 			select {
-			case response := <-respCh:
+			case response, ok := <-respCh:
+				if !ok {
+					return nil, fmt.Errorf("response channel closed while waiting for %s", method)
+				}
 				h.logger.Info("Received async SSE response for %s %s", method, conn.ServerName)
 				conn.mu.Lock()
 				conn.Healthy = true
 				conn.mu.Unlock()
 				return response, nil
-			case <-time.After(15 * time.Second):
+			case <-time.After(60 * time.Second): // Increased timeout
 				return nil, fmt.Errorf("timeout waiting for SSE response to %s", method)
 			case <-h.ctx.Done():
 				return nil, h.ctx.Err()
@@ -2653,6 +2758,7 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -3346,66 +3452,62 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 	}
 }
 
-func (h *ProxyHandler) handleHTTPServerRequest(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
-	conn, err := h.getServerConnection(serverName)
+// forwardHTTPRequest sends a pre-marshaled JSON request to a backend server.
+func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData []byte, timeout time.Duration) (map[string]interface{}, error) {
+	targetURL := conn.BaseURL
+	h.logger.Debug("Forwarding request to %s (%s): %s", conn.ServerName, targetURL, string(requestData))
+
+	reqCtx, cancel := context.WithTimeout(h.ctx, timeout)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", targetURL, bytes.NewBuffer(requestData))
 	if err != nil {
-		h.logger.Error("Failed to get/create HTTP connection for %s: %v", serverName, err)
-		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s'", serverName))
-		return
+		return nil, fmt.Errorf("create HTTP request for %s: %w", conn.ServerName, err)
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
 
-	mcpCallTimeout := 60 * time.Second
-	if reqMethodVal == "initialize" {
-		mcpCallTimeout = 90 * time.Second
-	}
-
-	// Forward client's Mcp-Session-Id to the backend if present
-	clientSessionID := r.Header.Get("Mcp-Session-Id")
-	conn.mu.Lock()
-	if clientSessionID != "" && conn.SessionID == "" {
-		h.logger.Info("Using client-provided Mcp-Session-Id '%s' for backend request to %s", clientSessionID, serverName)
-		conn.SessionID = clientSessionID
-	} else if clientSessionID != "" && clientSessionID != conn.SessionID {
-		h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, conn.SessionID, serverName)
-	}
-	conn.mu.Unlock()
-
-	responsePayload, err := h.sendHTTPJsonRequest(conn, requestPayload, mcpCallTimeout)
-	if err != nil {
-		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
-			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
-			map[string]interface{}{"error": err.Error()})
-		h.logger.Error("MCP request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
-		errData := map[string]interface{}{"details": err.Error()}
-		if conn != nil {
-			conn.mu.Lock()
-			errData["targetUrl"] = conn.BaseURL
-			conn.mu.Unlock()
-		}
-
-		if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
-			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Server '%s' is unreachable or did not respond in time", serverName), errData)
-		} else {
-			h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during MCP call to '%s'", serverName), errData)
-		}
-		return
-	}
-
-	// Relay Mcp-Session-Id from backend server's response
 	conn.mu.Lock()
 	if conn.SessionID != "" {
-		w.Header().Set("Mcp-Session-Id", conn.SessionID)
+		httpReq.Header.Set("Mcp-Session-Id", conn.SessionID)
 	}
 	conn.mu.Unlock()
 
-	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
-		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)
-	} else {
-		// Add success broadcast here
-		dashboard.BroadcastActivity("INFO", "request", serverName, getClientIP(r),
-			fmt.Sprintf("Response: %s completed successfully", reqMethodVal), nil)
+	resp, err := h.httpClient.Do(httpReq)
+	if err != nil {
+		conn.mu.Lock()
+		conn.Healthy = false
+		conn.mu.Unlock()
+		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
-	h.logger.Info("Successfully forwarded HTTP request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
+	defer resp.Body.Close()
+
+	conn.mu.Lock()
+	conn.LastUsed = time.Now()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		conn.Healthy = true
+	}
+	conn.mu.Unlock()
+
+	// Read and parse response
+	responseData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response from %s: %w", targetURL, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		conn.mu.Lock()
+		conn.Healthy = false
+		conn.mu.Unlock()
+		return nil, fmt.Errorf("HTTP request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(responseData))
+	}
+
+	h.logger.Debug("Raw response from %s: %s", conn.ServerName, string(responseData))
+	var responseMap map[string]interface{}
+	if err := json.Unmarshal(responseData, &responseMap); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response from %s: %w. Data: %s", targetURL, err, string(responseData))
+	}
+	return responseMap, nil
 }
 
 func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.Request, serverName string) {
@@ -4015,11 +4117,36 @@ func (h *ProxyHandler) isKnownTool(toolName string) bool {
 	h.refreshToolCache()
 
 	h.toolCacheMu.RLock()
-	_, exists := h.toolCache[toolName]
+	serverName, exists := h.toolCache[toolName]
 	h.toolCacheMu.RUnlock()
 
-	h.logger.Debug("Tool cache lookup for '%s': %v", toolName, exists)
-	return exists
+	if exists {
+		h.logger.Debug("Tool cache lookup for '%s': found in server %s", toolName, serverName)
+		return true
+	}
+
+	h.logger.Debug("Tool cache lookup for '%s': not found in cache of %d tools", toolName, len(h.toolCache))
+
+	// Force refresh cache once if not found
+	h.toolCacheMu.Lock()
+	if time.Now().After(h.cacheExpiry) {
+		h.toolCacheMu.Unlock()
+		h.refreshToolCache()
+
+		h.toolCacheMu.RLock()
+		_, exists = h.toolCache[toolName]
+		h.toolCacheMu.RUnlock()
+
+		if exists {
+			h.logger.Debug("Tool '%s' found after cache refresh", toolName)
+			return true
+		}
+	} else {
+		h.toolCacheMu.Unlock()
+	}
+
+	h.logger.Debug("Tool '%s' not found even after cache check", toolName)
+	return false
 }
 
 func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Request, toolName string) {
