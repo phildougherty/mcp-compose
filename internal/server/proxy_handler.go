@@ -1009,38 +1009,135 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 		if h.supportsNotifications(r) {
 			clientID := h.getClientID(r)
 			sessionID := r.Header.Get("Mcp-Session-Id")
-
 			notifyFunc := func(notification *protocol.ChangeNotification) error {
 				return h.sendChangeNotificationToClient(clientID, notification)
 			}
-
 			h.changeNotificationManager.SubscribeToToolChanges(clientID, sessionID, notifyFunc)
 			h.logger.Debug("Client %s subscribed to tool changes for server %s", clientID, serverName)
 		}
-
-		// Continue with normal tools/list handling
-		h.handleServerForward(w, r, serverName, instance)
+		// FIXED: Pass the body bytes and ensure proper routing
+		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
 		return
 	case "prompts/list":
 		// Check if client wants change notifications
 		if h.supportsNotifications(r) {
 			clientID := h.getClientID(r)
 			sessionID := r.Header.Get("Mcp-Session-Id")
-
 			notifyFunc := func(notification *protocol.ChangeNotification) error {
 				return h.sendChangeNotificationToClient(clientID, notification)
 			}
-
 			h.changeNotificationManager.SubscribeToPromptChanges(clientID, sessionID, notifyFunc)
 			h.logger.Debug("Client %s subscribed to prompt changes for server %s", clientID, serverName)
 		}
-
-		// Continue with normal prompts/list handling
-		h.handleServerForward(w, r, serverName, instance)
+		// FIXED: Pass the body bytes and ensure proper routing
+		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
 		return
 	default:
-		// Handle normally through existing method
-		h.handleServerForward(w, r, serverName, instance)
+		// FIXED: Pass the body bytes for all other methods
+		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
+	}
+}
+
+// NEW METHOD: Consolidate server forwarding with properly handled body
+func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance, body []byte, reqIDVal interface{}, reqMethodVal string) {
+	// Authentication check - validate before processing the request
+	if !h.authenticateRequest(w, r, serverName, instance) {
+		return // Authentication failed, response already sent
+	}
+
+	// Parse the already-read body back to requestPayload for non-HTTP protocols
+	var requestPayload map[string]interface{}
+	if err := json.Unmarshal(body, &requestPayload); err != nil {
+		h.logger.Error("Failed to re-parse request payload for %s: %v", serverName, err)
+		h.sendMCPError(w, reqIDVal, -32700, "Invalid JSON in request")
+		return
+	}
+
+	// Log authentication context for debugging
+	if authType, ok := auth.GetAuthTypeFromContext(r.Context()); ok {
+		h.logger.Debug("Request authenticated via %s for server %s, method %s", authType, serverName, reqMethodVal)
+	}
+
+	// ONLY handle proxy-specific standard methods, NOT server methods
+	if isProxyStandardMethod(reqMethodVal) {
+		h.logger.Info("Handling proxy standard MCP method '%s'", reqMethodVal)
+		var params json.RawMessage
+		if requestPayload["params"] != nil {
+			paramsBytes, marshalErr := json.Marshal(requestPayload["params"])
+			if marshalErr != nil {
+				h.sendMCPError(w, reqIDVal, protocol.InvalidParams, "Failed to marshal parameters")
+				return
+			}
+			params = paramsBytes
+		}
+
+		// Handle standard method
+		if strings.HasPrefix(reqMethodVal, "notifications/") {
+			// Handle notification
+			err := h.standardHandler.HandleStandardNotification(reqMethodVal, params)
+			if err != nil {
+				if mcpErr, ok := err.(*protocol.MCPError); ok {
+					h.sendMCPError(w, reqIDVal, mcpErr.Code, mcpErr.Message, mcpErr.Data)
+				} else {
+					h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
+				}
+				return
+			}
+			// Notifications don't have responses
+			w.WriteHeader(http.StatusOK)
+			return
+		} else {
+			// Handle request method
+			response, err := h.standardHandler.HandleStandardMethod(reqMethodVal, params, reqIDVal)
+			if err != nil {
+				if mcpErr, ok := err.(*protocol.MCPError); ok {
+					h.sendMCPError(w, reqIDVal, mcpErr.Code, mcpErr.Message, mcpErr.Data)
+				} else {
+					h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
+				}
+				return
+			}
+			// Send successful response
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				h.logger.Error("Failed to encode standard method response: %v", err)
+			}
+			return
+		}
+	}
+
+	// FORWARD ALL OTHER METHODS TO THE ACTUAL MCP SERVERS
+	// Get server config
+	serverConfig, exists := h.Manager.config.Servers[serverName]
+	if !exists {
+		h.logger.Error("Server config not found for %s", serverName)
+		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
+		return
+	}
+
+	// Determine transport protocol
+	protocolType := serverConfig.Protocol
+	if protocolType == "" {
+		protocolType = "stdio" // default
+	}
+
+	h.logger.Info("Forwarding request to server '%s' using '%s' transport: Method=%s, ID=%v",
+		serverName, protocolType, reqMethodVal, reqIDVal)
+
+	// Route based on transport protocol - pass the body bytes
+	switch protocolType {
+	case "http":
+		h.handleHTTPServerRequestWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
+	case "sse":
+		h.handleSSEServerRequest(w, r, serverName, instance, requestPayload, reqIDVal, reqMethodVal)
+	case "stdio":
+		if serverConfig.StdioHosterPort > 0 {
+			h.handleSocatSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
+		} else {
+			h.handleSTDIOServerRequest(w, r, serverName, requestPayload, reqIDVal, reqMethodVal)
+		}
+	default:
+		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocolType, serverName)
+		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocolType))
 	}
 }
 
@@ -2050,7 +2147,7 @@ func (h *ProxyHandler) handleHTTPServerRequestWithBody(w http.ResponseWriter, r 
 // authenticateRequest handles authentication for server requests
 func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) bool {
 	// Skip authentication for OPTIONS requests
-	if r.Method == "OPTIONS" {
+	if (*r).Method == "OPTIONS" {
 		return true
 	}
 
@@ -2600,6 +2697,7 @@ func (h *ProxyHandler) processSSEMessage(conn *MCPSSEConnection, messageData str
 		h.logger.Info("SSE response has ID %v (type: %T) for %s", responseID, responseID, conn.ServerName)
 
 		conn.reqMutex.Lock()
+		defer conn.reqMutex.Unlock()
 
 		// CRITICAL FIX: Try multiple ID formats due to JSON unmarshaling differences
 		var matchingChannel chan map[string]interface{}
@@ -2623,19 +2721,20 @@ func (h *ProxyHandler) processSSEMessage(conn *MCPSSEConnection, messageData str
 
 		if matchingChannel != nil {
 			h.logger.Info("Found pending request channel for ID %v to %s", foundKey, conn.ServerName)
+
+			// Send response and remove from pending requests immediately
 			select {
 			case matchingChannel <- response:
 				h.logger.Info("Successfully delivered SSE response for request ID %v to %s", foundKey, conn.ServerName)
-				delete(conn.pendingRequests, foundKey) // Clean up
+				delete(conn.pendingRequests, foundKey) // Clean up immediately
 			default:
 				h.logger.Warning("Response channel full for request ID %v to %s", foundKey, conn.ServerName)
+				delete(conn.pendingRequests, foundKey) // Still clean up
 			}
 		} else {
 			h.logger.Warning("No pending request found for response ID %v (type %T) from %s. Pending requests: %v",
 				responseID, responseID, conn.ServerName, getMapKeys(conn.pendingRequests))
 		}
-
-		conn.reqMutex.Unlock()
 	} else {
 		h.logger.Info("SSE message without ID from %s (notification?): %s", conn.ServerName, messageData)
 	}
@@ -2670,29 +2769,38 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 	requestID := request["id"]
 	if requestID != nil {
 		respCh := make(chan map[string]interface{}, 1)
-
 		conn.reqMutex.Lock()
 		conn.pendingRequests[requestID] = respCh
 		conn.reqMutex.Unlock()
 
-		// Use sync.Once to ensure channel is only closed once
-		var closeOnce sync.Once
-		defer func() {
-			closeOnce.Do(func() {
-				conn.reqMutex.Lock()
-				delete(conn.pendingRequests, requestID)
-				conn.reqMutex.Unlock()
+		// Track if we've cleaned up to prevent double cleanup
+		var cleanupDone bool
+		var cleanupMutex sync.Mutex
 
-				// Safely close channel
-				select {
-				case <-respCh:
-					// Channel already received data, safe to close
-				default:
-					// Channel is empty, safe to close
-				}
+		cleanup := func() {
+			cleanupMutex.Lock()
+			defer cleanupMutex.Unlock()
+
+			if cleanupDone {
+				return // Already cleaned up
+			}
+			cleanupDone = true
+
+			conn.reqMutex.Lock()
+			delete(conn.pendingRequests, requestID)
+			conn.reqMutex.Unlock()
+
+			// Safely close channel without panic
+			select {
+			case <-respCh:
+				// Channel already has data or is closed
+			default:
+				// Channel is empty, safe to close
 				close(respCh)
-			})
-		}()
+			}
+		}
+
+		defer cleanup()
 
 		// Now send the request
 		ctx, cancel := context.WithTimeout(h.ctx, 60*time.Second)
@@ -2722,7 +2830,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 		if resp.StatusCode == http.StatusAccepted {
 			method, _ := request["method"].(string)
 			h.logger.Info("Got 202 Accepted for %s, waiting for SSE response...", method)
-
 			// Wait for async response with proper timeout handling
 			select {
 			case response, ok := <-respCh:
@@ -2734,7 +2841,7 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 				conn.Healthy = true
 				conn.mu.Unlock()
 				return response, nil
-			case <-time.After(60 * time.Second): // Increased timeout
+			case <-time.After(60 * time.Second):
 				return nil, fmt.Errorf("timeout waiting for SSE response to %s", method)
 			case <-h.ctx.Done():
 				return nil, h.ctx.Err()
@@ -2746,7 +2853,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			conn.mu.Lock()
 			conn.Healthy = true
 			conn.mu.Unlock()
-
 			var response map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 				return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -2758,7 +2864,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
-
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}

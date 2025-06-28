@@ -25,7 +25,6 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewLogsCommand())
 	rootCmd.AddCommand(NewValidateCommand())
 	rootCmd.AddCommand(NewCompletionCommand())
-	rootCmd.AddCommand(NewInspectorCommand())
 	rootCmd.AddCommand(NewCreateConfigCommand())
 	rootCmd.AddCommand(NewProxyCommand())
 	rootCmd.AddCommand(NewReloadCommand())
