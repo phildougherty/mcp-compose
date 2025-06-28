@@ -2,6 +2,7 @@
 package container
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -203,4 +204,276 @@ func (p *PodmanRuntime) ExecContainer(containerName string, command []string, in
 	}
 
 	return cmd, stdin, stdout, nil
+}
+
+func (p *PodmanRuntime) RestartContainer(name string) error {
+	cmd := exec.Command(p.execPath, "restart", name)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) PauseContainer(name string) error {
+	cmd := exec.Command(p.execPath, "pause", name)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) UnpauseContainer(name string) error {
+	cmd := exec.Command(p.execPath, "unpause", name)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) GetContainerInfo(name string) (*ContainerInfo, error) {
+	cmd := exec.Command(p.execPath, "inspect", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container '%s': %w", name, err)
+	}
+
+	var containers []ContainerInfo
+	if err := json.Unmarshal(output, &containers); err != nil {
+		return nil, fmt.Errorf("failed to parse container info: %w", err)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("container '%s' not found", name)
+	}
+
+	return &containers[0], nil
+}
+
+func (p *PodmanRuntime) ListContainers(filters map[string]string) ([]ContainerInfo, error) {
+	args := []string{"ps", "-a", "--format", "json"}
+
+	for key, value := range filters {
+		args = append(args, "--filter", fmt.Sprintf("%s=%s", key, value))
+	}
+
+	cmd := exec.Command(p.execPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	var containers []ContainerInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var container ContainerInfo
+		if err := json.Unmarshal([]byte(line), &container); err != nil {
+			continue
+		}
+		containers = append(containers, container)
+	}
+
+	return containers, nil
+}
+
+func (p *PodmanRuntime) PullImage(image string, auth *ImageAuth) error {
+	args := []string{"pull"}
+	if auth != nil {
+		args = append(args, "--username", auth.Username, "--password", auth.Password)
+	}
+	args = append(args, image)
+
+	cmd := exec.Command(p.execPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) BuildImage(opts *BuildOptions) error {
+	args := []string{"build"}
+
+	if opts.Dockerfile != "" {
+		args = append(args, "-f", opts.Dockerfile)
+	}
+
+	for _, tag := range opts.Tags {
+		args = append(args, "-t", tag)
+	}
+
+	for key, value := range opts.Args {
+		args = append(args, "--build-arg", fmt.Sprintf("%s=%s", key, value))
+	}
+
+	if opts.Target != "" {
+		args = append(args, "--target", opts.Target)
+	}
+
+	if opts.NoCache {
+		args = append(args, "--no-cache")
+	}
+
+	if opts.Platform != "" {
+		args = append(args, "--platform", opts.Platform)
+	}
+
+	args = append(args, opts.Context)
+
+	cmd := exec.Command(p.execPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) RemoveImage(image string, force bool) error {
+	args := []string{"rmi"}
+	if force {
+		args = append(args, "-f")
+	}
+	args = append(args, image)
+
+	cmd := exec.Command(p.execPath, args...)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) ListImages() ([]ImageInfo, error) {
+	cmd := exec.Command(p.execPath, "images", "--format", "json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list images: %w", err)
+	}
+
+	var images []ImageInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var image ImageInfo
+		if err := json.Unmarshal([]byte(line), &image); err != nil {
+			continue
+		}
+		images = append(images, image)
+	}
+
+	return images, nil
+}
+
+func (p *PodmanRuntime) CreateVolume(name string, opts *VolumeOptions) error {
+	args := []string{"volume", "create"}
+
+	if opts != nil {
+		if opts.Driver != "" {
+			args = append(args, "--driver", opts.Driver)
+		}
+
+		for key, value := range opts.Labels {
+			args = append(args, "--label", fmt.Sprintf("%s=%s", key, value))
+		}
+	}
+
+	args = append(args, name)
+
+	cmd := exec.Command(p.execPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create volume '%s': %w", name, err)
+	}
+
+	return nil
+}
+
+func (p *PodmanRuntime) RemoveVolume(name string, force bool) error {
+	args := []string{"volume", "rm"}
+	if force {
+		args = append(args, "-f")
+	}
+	args = append(args, name)
+
+	cmd := exec.Command(p.execPath, args...)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) ListVolumes() ([]VolumeInfo, error) {
+	cmd := exec.Command(p.execPath, "volume", "ls", "--format", "json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list volumes: %w", err)
+	}
+
+	var volumes []VolumeInfo
+	if err := json.Unmarshal(output, &volumes); err != nil {
+		return nil, fmt.Errorf("failed to parse volumes: %w", err)
+	}
+
+	return volumes, nil
+}
+
+func (p *PodmanRuntime) ListNetworks() ([]NetworkInfo, error) {
+	cmd := exec.Command(p.execPath, "network", "ls", "--format", "json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list networks: %w", err)
+	}
+
+	var networks []NetworkInfo
+	if err := json.Unmarshal(output, &networks); err != nil {
+		return nil, fmt.Errorf("failed to parse networks: %w", err)
+	}
+
+	return networks, nil
+}
+
+func (p *PodmanRuntime) GetNetworkInfo(name string) (*NetworkInfo, error) {
+	cmd := exec.Command(p.execPath, "network", "inspect", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect network '%s': %w", name, err)
+	}
+
+	var networks []NetworkInfo
+	if err := json.Unmarshal(output, &networks); err != nil {
+		return nil, fmt.Errorf("failed to parse network info: %w", err)
+	}
+
+	if len(networks) == 0 {
+		return nil, fmt.Errorf("network '%s' not found", name)
+	}
+
+	return &networks[0], nil
+}
+
+func (p *PodmanRuntime) ConnectToNetwork(containerName, networkName string) error {
+	cmd := exec.Command(p.execPath, "network", "connect", networkName, containerName)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) DisconnectFromNetwork(containerName, networkName string) error {
+	cmd := exec.Command(p.execPath, "network", "disconnect", networkName, containerName)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) GetContainerStats(name string) (*ContainerStats, error) {
+	cmd := exec.Command(p.execPath, "stats", "--no-stream", "--format", "json", name)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stats: %w", err)
+	}
+
+	var stats ContainerStats
+	if err := json.Unmarshal(output, &stats); err != nil {
+		return nil, fmt.Errorf("failed to parse stats: %w", err)
+	}
+
+	return &stats, nil
+}
+
+func (p *PodmanRuntime) WaitForContainer(name string, condition string) error {
+	cmd := exec.Command(p.execPath, "wait", name)
+	return cmd.Run()
+}
+
+func (p *PodmanRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
+	// Basic validation for Podman
+	return nil
+}
+
+func (p *PodmanRuntime) UpdateContainerResources(name string, resources *ResourceLimits) error {
+	// Podman doesn't support runtime resource updates like Docker
+	return fmt.Errorf("podman doesn't support runtime resource updates")
 }
