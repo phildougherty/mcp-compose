@@ -26,14 +26,15 @@ var templates embed.FS
 var static embed.FS
 
 type DashboardServer struct {
-	config     *config.ComposeConfig
-	runtime    container.Runtime
-	logger     *logging.Logger
-	upgrader   websocket.Upgrader
-	proxyURL   string
-	apiKey     string
-	templates  *template.Template
-	httpClient *http.Client
+	config           *config.ComposeConfig
+	runtime          container.Runtime
+	logger           *logging.Logger
+	upgrader         websocket.Upgrader
+	proxyURL         string
+	apiKey           string
+	templates        *template.Template
+	httpClient       *http.Client
+	inspectorService *InspectorService
 }
 
 type PageData struct {
@@ -50,6 +51,7 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		proxyURL = envProxyURL
 		fmt.Printf("Using proxy URL from environment: %s\n", proxyURL)
 	}
+
 	if envAPIKey := os.Getenv("MCP_API_KEY"); envAPIKey != "" {
 		apiKey = envAPIKey
 	}
@@ -84,13 +86,13 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		panic(fmt.Errorf("failed to parse templates: %w", err))
 	}
 
-	return &DashboardServer{
-		config:    cfg,
-		runtime:   runtime,
-		logger:    logging.NewLogger(cfg.Logging.Level),
-		proxyURL:  proxyURL,
-		apiKey:    apiKey,
-		templates: tmpl,
+	server := &DashboardServer{
+		config:           cfg,
+		runtime:          runtime,
+		logger:           logging.NewLogger(cfg.Logging.Level),
+		proxyURL:         proxyURL,
+		apiKey:           apiKey,
+		templates:        tmpl,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -101,6 +103,26 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+	}
+
+	// Initialize inspector service
+	server.inspectorService = NewInspectorService(server.logger, proxyURL, apiKey)
+
+	// Start cleanup goroutine
+	go server.startInspectorCleanup()
+
+	return server
+}
+
+func (d *DashboardServer) startInspectorCleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		count := d.inspectorService.CleanupExpiredSessions(30 * time.Minute)
+		if count > 0 {
+			d.logger.Info("Cleaned up %d expired inspector sessions", count)
+		}
 	}
 }
 
@@ -113,25 +135,41 @@ func (d *DashboardServer) Start(port int, host string) error {
 		return fmt.Errorf("failed to create static file system: %w", err)
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
+	// Main dashboard
 	mux.HandleFunc("/", d.handleIndex)
-	mux.HandleFunc("/api/servers", d.handleServers)
-	mux.HandleFunc("/api/status", d.handleStatus)
-	mux.HandleFunc("/api/connections", d.handleConnections)
+
+	// Existing API endpoints with proper method handling
+	mux.HandleFunc("/api/servers", d.handleAPIRequest(d.handleServers))
+	mux.HandleFunc("/api/status", d.handleAPIRequest(d.handleStatus))
+	mux.HandleFunc("/api/connections", d.handleAPIRequest(d.handleConnections))
 	mux.HandleFunc("/api/containers/", d.handleContainers)
 	mux.HandleFunc("/api/logs/", d.handleLogs)
+
+	// WebSocket endpoints
 	mux.HandleFunc("/ws/logs", d.handleLogWebSocket)
 	mux.HandleFunc("/ws/metrics", d.handleMetricsWebSocket)
 	mux.HandleFunc("/ws/activity", d.handleActivityWebSocket)
 	mux.HandleFunc("/api/activity", d.handleActivityReceive)
+
+	// Server control endpoints
 	mux.HandleFunc("/api/servers/start", d.handleServerStart)
 	mux.HandleFunc("/api/servers/stop", d.handleServerStop)
 	mux.HandleFunc("/api/servers/restart", d.handleServerRestart)
 	mux.HandleFunc("/api/proxy/reload", d.handleProxyReload)
+
+	// Server documentation endpoints
 	mux.HandleFunc("/api/server-docs/", d.handleServerDocs)
 	mux.HandleFunc("/api/server-openapi/", d.handleServerOpenAPI)
 	mux.HandleFunc("/api/server-direct/", d.handleServerDirect)
 	mux.HandleFunc("/api/server-logs/", d.handleServerLogs)
 
+	// Inspector endpoints
+	mux.HandleFunc("/api/inspector/connect", d.handleInspectorConnect)
+	mux.HandleFunc("/api/inspector/request", d.handleInspectorRequest)
+	mux.HandleFunc("/api/inspector/disconnect", d.handleInspectorDisconnect)
+
+	// Start server...
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
 
@@ -144,6 +182,19 @@ func (d *DashboardServer) Start(port int, host string) error {
 	}
 
 	return server.ListenAndServe()
+}
+
+// Helper to handle API methods properly
+func (d *DashboardServer) handleAPIRequest(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Support HEAD for all API endpoints
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		handler(w, r)
+	}
 }
 
 func (d *DashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +216,6 @@ func (d *DashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 // proxyRequest forwards requests to the MCP proxy
 func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 	url := d.proxyURL + endpoint
-
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
