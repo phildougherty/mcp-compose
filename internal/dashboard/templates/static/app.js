@@ -1,16 +1,23 @@
-const { createApp } = Vue;
-
-// Create the Vue app
-const app = createApp({
-  components: {
-    'dashboard-app': DashboardApp
-  }
-});
-
-// Register components globally so they can be used within other components
-app.component('log-viewer', LogViewer);
-app.component('activity-viewer', ActivityViewer);
-app.component('mcp-inspector', MCPInspector);
-
-// Mount the app
-app.mount('#app');
+// app.js
+// Check if Vue app already exists
+if (typeof window.mcpApp === 'undefined') {
+  const { createApp } = Vue;
+  
+  // Create the Vue app
+  window.mcpApp = createApp({
+      components: {
+          'dashboard-app': DashboardApp
+      }
+  });
+  
+  // Register all components globally
+  window.mcpApp.component('log-viewer', LogViewer);
+  window.mcpApp.component('activity-viewer', ActivityViewer);
+  window.mcpApp.component('mcp-inspector', MCPInspector);
+  window.mcpApp.component('oauth-config', OAuthConfig);
+  window.mcpApp.component('audit-log', AuditLog);
+  window.mcpApp.component('server-oauth-config', ServerOAuthConfig);
+  
+  // Mount the app
+  window.mcpApp.mount('#app');
+}

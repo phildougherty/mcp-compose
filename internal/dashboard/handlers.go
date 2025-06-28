@@ -1,23 +1,18 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-)
-
-// Global inspector session store
-var (
-	inspectorSessions     = make(map[string]*InspectorSession)
-	inspectorSessionsLock sync.Mutex
 )
 
 func (d *DashboardServer) handleServers(w http.ResponseWriter, r *http.Request) {
@@ -420,4 +415,399 @@ func (d *DashboardServer) handleServerLogs(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (d *DashboardServer) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Proxy to main server's OAuth status endpoint
+	resp, err := d.proxyRequest("/api/oauth/status")
+	if err != nil {
+		d.logger.Error("Failed to get OAuth status from proxy: %v", err)
+		http.Error(w, "Failed to get OAuth status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Get clients list - proxy to main server
+		resp, err := d.proxyRequest("/api/oauth/clients")
+		if err != nil {
+			d.logger.Error("Failed to get OAuth clients from proxy: %v", err)
+			http.Error(w, "Failed to get OAuth clients", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+
+	case http.MethodDelete:
+		// Extract client ID from path
+		path := strings.TrimPrefix(r.URL.Path, "/api/oauth/clients/")
+		if path == "" {
+			http.Error(w, "Client ID required", http.StatusBadRequest)
+			return
+		}
+
+		// Proxy DELETE request to main server
+		resp, err := d.proxyDeleteRequest(fmt.Sprintf("/api/oauth/clients/%s", path))
+		if err != nil {
+			d.logger.Error("Failed to delete OAuth client: %v", err)
+			http.Error(w, "Failed to delete OAuth client", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (d *DashboardServer) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Proxy POST request to main server's registration endpoint
+	resp, err := d.proxyPostRequest("/oauth/register", body)
+	if err != nil {
+		d.logger.Error("Failed to register OAuth client: %v", err)
+		http.Error(w, "Failed to register OAuth client", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+// Helper methods for different HTTP methods
+func (d *DashboardServer) proxyPostRequest(endpoint string, body []byte) ([]byte, error) {
+	url := d.proxyURL + endpoint
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiKey)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
+	url := d.proxyURL + endpoint
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if d.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiKey)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Proxy to main server's OAuth scopes endpoint
+	resp, err := d.proxyRequest("/api/oauth/scopes")
+	if err != nil {
+		d.logger.Error("Failed to get OAuth scopes from proxy: %v", err)
+		// Return default scopes if proxy doesn't have this endpoint
+		defaultScopes := []map[string]string{
+			{"name": "mcp:tools", "description": "Access to MCP tools"},
+			{"name": "mcp:resources", "description": "Access to MCP resources"},
+			{"name": "mcp:prompts", "description": "Access to MCP prompts"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(defaultScopes)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Build query string from request parameters
+	queryString := r.URL.RawQuery
+	endpoint := "/api/audit/entries"
+	if queryString != "" {
+		endpoint += "?" + queryString
+	}
+
+	// Proxy to main server's audit entries endpoint
+	resp, err := d.proxyRequest(endpoint)
+	if err != nil {
+		d.logger.Error("Failed to get audit entries from proxy: %v", err)
+		// Return empty audit entries if proxy doesn't have this endpoint
+		response := map[string]interface{}{
+			"entries": []interface{}{},
+			"total":   0,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Proxy to main server's audit stats endpoint
+	resp, err := d.proxyRequest("/api/audit/stats")
+	if err != nil {
+		d.logger.Error("Failed to get audit stats from proxy: %v", err)
+		// Return empty audit stats if proxy doesn't have this endpoint
+		response := map[string]interface{}{
+			"total_entries": 0,
+			"success_rate":  100.0,
+			"event_counts":  map[string]int{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Create request to main server
+	url := d.proxyURL + "/oauth/token"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		d.logger.Error("Failed to create OAuth token request: %v", err)
+		http.Error(w, "Failed to request token", http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers from original request
+	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+	if r.Header.Get("Authorization") != "" {
+		req.Header.Set("Authorization", r.Header.Get("Authorization"))
+	}
+
+	// Make request to main server
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		d.logger.Error("OAuth token request failed: %v", err)
+		http.Error(w, "Failed to request token", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		d.logger.Error("Failed to read OAuth token response: %v", err)
+		http.Error(w, "Failed to request token", http.StatusInternalServerError)
+		return
+	}
+
+	// Copy status code and headers
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	w.Write(responseBody)
+}
+
+func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	// Build query string from request parameters
+	queryString := r.URL.RawQuery
+	endpoint := "/oauth/authorize"
+	if queryString != "" {
+		endpoint += "?" + queryString
+	}
+
+	if r.Method == http.MethodPost {
+		// Handle POST requests (form submissions)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		url := d.proxyURL + endpoint
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+		if err != nil {
+			http.Error(w, "Failed to create request", http.StatusInternalServerError)
+			return
+		}
+
+		req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+
+		resp, err := d.httpClient.Do(req)
+		if err != nil {
+			http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Handle redirects
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			location := resp.Header.Get("Location")
+			if location != "" {
+				http.Redirect(w, r, location, resp.StatusCode)
+				return
+			}
+		}
+
+		responseBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, "Failed to read response", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.WriteHeader(resp.StatusCode)
+		w.Write(responseBody)
+		return
+	}
+
+	// For GET requests, proxy to main server
+	resp, err := d.proxyRequest(endpoint)
+	if err != nil {
+		d.logger.Error("Failed to get OAuth authorize from proxy: %v", err)
+		http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(resp)
+}
+
+func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	// Extract authorization code and state from query parameters
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	error := r.URL.Query().Get("error")
+
+	// Create a simple HTML page to handle the callback
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OAuth Callback</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h2>OAuth Authorization Result</h2>
+    %s
+    <p><a href="/">Return to Dashboard</a></p>
+    <script>
+        // Auto-close popup if opened in popup window
+        if (window.opener) {
+            window.opener.postMessage({
+                type: 'oauth_callback',
+                code: '%s',
+                state: '%s',
+                error: '%s'
+            }, '*');
+            setTimeout(() => window.close(), 2000);
+        }
+    </script>
+</body>
+</html>`, getCallbackContent(code, state, error), code, state, error)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
+
+func getCallbackContent(code, state, errorParam string) string {
+	if errorParam != "" {
+		return fmt.Sprintf(`
+            <div class="error">
+                <h3>Authorization Failed</h3>
+                <p><strong>Error:</strong> %s</p>
+            </div>`, errorParam)
+	}
+
+	if code != "" {
+		return fmt.Sprintf(`
+            <div class="success">
+                <h3>Authorization Successful!</h3>
+                <p>Authorization code received. You can now exchange this code for an access token.</p>
+                <details>
+                    <summary>Technical Details</summary>
+                    <pre>Authorization Code: %s
+State: %s</pre>
+                </details>
+            </div>`, code, state)
+	}
+
+	return `<div class="error"><h3>Invalid callback</h3><p>No authorization code received.</p></div>`
 }

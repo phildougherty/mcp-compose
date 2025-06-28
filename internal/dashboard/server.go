@@ -87,12 +87,12 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 	}
 
 	server := &DashboardServer{
-		config:           cfg,
-		runtime:          runtime,
-		logger:           logging.NewLogger(cfg.Logging.Level),
-		proxyURL:         proxyURL,
-		apiKey:           apiKey,
-		templates:        tmpl,
+		config:    cfg,
+		runtime:   runtime,
+		logger:    logging.NewLogger(cfg.Logging.Level),
+		proxyURL:  proxyURL,
+		apiKey:    apiKey,
+		templates: tmpl,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -168,6 +168,18 @@ func (d *DashboardServer) Start(port int, host string) error {
 	mux.HandleFunc("/api/inspector/connect", d.handleInspectorConnect)
 	mux.HandleFunc("/api/inspector/request", d.handleInspectorRequest)
 	mux.HandleFunc("/api/inspector/disconnect", d.handleInspectorDisconnect)
+
+	// OAuth and Audit endpoints (proxy to main server)
+	mux.HandleFunc("/api/oauth/status", d.handleOAuthStatus)
+	mux.HandleFunc("/api/oauth/clients", d.handleOAuthClients)
+	mux.HandleFunc("/api/oauth/clients/", d.handleOAuthClients) // For DELETE with client ID
+	mux.HandleFunc("/api/oauth/scopes", d.handleOAuthScopes)
+	mux.HandleFunc("/oauth/register", d.handleOAuthRegister)
+	mux.HandleFunc("/api/audit/entries", d.handleAuditEntries)
+	mux.HandleFunc("/api/audit/stats", d.handleAuditStats)
+	mux.HandleFunc("/oauth/token", d.handleOAuthToken)
+	mux.HandleFunc("/oauth/authorize", d.handleOAuthAuthorize)
+	mux.HandleFunc("/oauth/callback", d.handleOAuthCallback)
 
 	// Start server...
 	addr := fmt.Sprintf("%s:%d", host, port)

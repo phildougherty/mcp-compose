@@ -14,14 +14,20 @@ import (
 
 // ProxyAuthConfig defines authentication settings for the proxy itself
 type ProxyAuthConfig struct {
-	Enabled bool   `yaml:"enabled,omitempty"`
-	APIKey  string `yaml:"api_key,omitempty"` // If you want to store the API key in the config file
+	Enabled       bool   `yaml:"enabled,omitempty"`
+	APIKey        string `yaml:"api_key,omitempty"`        // If you want to store the API key in the config file
+	OAuthFallback bool   `yaml:"oauth_fallback,omitempty"` // Allow OAuth as fallback
 }
 
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
 	Version      string                       `yaml:"version"`
 	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
+	OAuth        *OAuthConfig                 `yaml:"oauth,omitempty"`
+	Audit        *AuditConfig                 `yaml:"audit,omitempty"`
+	RBAC         *RBACConfig                  `yaml:"rbac,omitempty"`
+	Users        map[string]*User             `yaml:"users,omitempty"`
+	OAuthClients map[string]*OAuthClient      `yaml:"oauth_clients,omitempty"`
 	Servers      map[string]ServerConfig      `yaml:"servers"`
 	Connections  map[string]ConnectionConfig  `yaml:"connections,omitempty"`
 	Logging      LoggingConfig                `yaml:"logging,omitempty"`
@@ -30,7 +36,92 @@ type ComposeConfig struct {
 	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
 	CurrentEnv   string                       `yaml:"-"`
 	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
-	OAuth        *OAuthConfig                 `yaml:"oauth,omitempty"`
+}
+
+// OAuth 2.1 Configuration
+type OAuthConfig struct {
+	Enabled         bool                `yaml:"enabled"`
+	Issuer          string              `yaml:"issuer"`
+	Endpoints       OAuthEndpoints      `yaml:"endpoints"`
+	Tokens          TokenConfig         `yaml:"tokens"`
+	Security        OAuthSecurityConfig `yaml:"security"`
+	GrantTypes      []string            `yaml:"grant_types"`
+	ResponseTypes   []string            `yaml:"response_types"`
+	ScopesSupported []string            `yaml:"scopes_supported"`
+}
+
+type OAuthEndpoints struct {
+	Authorization string `yaml:"authorization"`
+	Token         string `yaml:"token"`
+	UserInfo      string `yaml:"userinfo"`
+	Revoke        string `yaml:"revoke"`
+	Discovery     string `yaml:"discovery"`
+}
+
+type TokenConfig struct {
+	AccessTokenTTL  string `yaml:"access_token_ttl"`
+	RefreshTokenTTL string `yaml:"refresh_token_ttl"`
+	CodeTTL         string `yaml:"authorization_code_ttl"`
+	Algorithm       string `yaml:"algorithm"`
+}
+
+type OAuthSecurityConfig struct {
+	RequirePKCE bool `yaml:"require_pkce"`
+}
+
+// Audit Configuration
+type AuditConfig struct {
+	Enabled   bool            `yaml:"enabled"`
+	LogLevel  string          `yaml:"log_level"`
+	Storage   string          `yaml:"storage"`
+	Retention RetentionConfig `yaml:"retention"`
+	Events    []string        `yaml:"events"`
+}
+
+type RetentionConfig struct {
+	MaxEntries int    `yaml:"max_entries"`
+	MaxAge     string `yaml:"max_age"`
+}
+
+// RBAC Configuration
+type RBACConfig struct {
+	Enabled bool            `yaml:"enabled"`
+	Scopes  []Scope         `yaml:"scopes"`
+	Roles   map[string]Role `yaml:"roles"`
+}
+
+type Scope struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+type Role struct {
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Scopes      []string `yaml:"scopes"`
+}
+
+// User Management
+type User struct {
+	Username     string    `yaml:"username"`
+	Email        string    `yaml:"email"`
+	PasswordHash string    `yaml:"password_hash"`
+	Role         string    `yaml:"role"`
+	Enabled      bool      `yaml:"enabled"`
+	CreatedAt    time.Time `yaml:"created_at"`
+}
+
+// OAuth Clients
+type OAuthClient struct {
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret *string  `yaml:"client_secret"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description"`
+	RedirectURIs []string `yaml:"redirect_uris"`
+	Scopes       []string `yaml:"scopes"`
+	GrantTypes   []string `yaml:"grant_types"`
+	PublicClient bool     `yaml:"public_client"`
+	AutoApprove  bool     `yaml:"auto_approve"`
 }
 
 type ServerConfig struct {
@@ -61,6 +152,7 @@ type ServerConfig struct {
 	NetworkMode     string              `yaml:"network_mode,omitempty"`
 	Networks        []string            `yaml:"networks,omitempty"`
 	Authentication  *ServerAuthConfig   `yaml:"authentication,omitempty"`
+	OAuth           *ServerOAuthConfig  `yaml:"oauth,omitempty"`
 	SSEPath         string              `yaml:"sse_path,omitempty"`      // Path for SSE endpoint
 	SSEPort         int                 `yaml:"sse_port,omitempty"`      // Port for SSE (if different from http_port)
 	SSEHeartbeat    int                 `yaml:"sse_heartbeat,omitempty"` // SSE heartbeat interval in seconds
@@ -72,6 +164,14 @@ type ServerAuthConfig struct {
 	OptionalAuth  bool     `yaml:"optional_auth,omitempty"`
 	Scopes        []string `yaml:"scopes,omitempty"`
 	AllowAPIKey   *bool    `yaml:"allow_api_key,omitempty"`
+}
+
+type ServerOAuthConfig struct {
+	Enabled             bool     `yaml:"enabled"`
+	RequiredScope       string   `yaml:"required_scope"`
+	AllowAPIKeyFallback bool     `yaml:"allow_api_key_fallback"`
+	OptionalAuth        bool     `yaml:"optional_auth"`
+	AllowedClients      []string `yaml:"allowed_clients"`
 }
 
 type BuildConfig struct {
@@ -177,19 +277,6 @@ type AuthConfig struct {
 	Type        string `yaml:"type"` // api_key, oauth, none
 	Header      string `yaml:"header,omitempty"`
 	TokenSource string `yaml:"token_source,omitempty"`
-}
-
-// OAuthConfig represents OAuth configuration
-type OAuthConfig struct {
-	Enabled              bool     `yaml:"enabled"`
-	AuthorizationServer  string   `yaml:"authorization_server,omitempty"`
-	Issuer               string   `yaml:"issuer,omitempty"`
-	ClientRegistration   bool     `yaml:"client_registration,omitempty"`
-	ScopesSupported      []string `yaml:"scopes_supported,omitempty"`
-	DefaultScopes        []string `yaml:"default_scopes,omitempty"`
-	TokenLifetime        string   `yaml:"token_lifetime,omitempty"`
-	RefreshTokenLifetime string   `yaml:"refresh_token_lifetime,omitempty"`
-	AuthCodeLifetime     string   `yaml:"auth_code_lifetime,omitempty"`
 }
 
 // AccessControlConfig defines access control rules
@@ -345,14 +432,29 @@ type ServerOverrideConfig struct {
 
 // DashboardConfig defines configuration for the MCP-Compose Dashboard
 type DashboardConfig struct {
-	Enabled      bool   `yaml:"enabled,omitempty"`
-	Port         int    `yaml:"port,omitempty"`
-	Host         string `yaml:"host,omitempty"`
-	ProxyURL     string `yaml:"proxy_url,omitempty"`
-	Theme        string `yaml:"theme,omitempty"`
-	LogStreaming bool   `yaml:"log_streaming,omitempty"`
-	ConfigEditor bool   `yaml:"config_editor,omitempty"`
-	Metrics      bool   `yaml:"metrics,omitempty"`
+	Enabled      bool                 `yaml:"enabled,omitempty"`
+	Port         int                  `yaml:"port,omitempty"`
+	Host         string               `yaml:"host,omitempty"`
+	ProxyURL     string               `yaml:"proxy_url,omitempty"`
+	Theme        string               `yaml:"theme,omitempty"`
+	LogStreaming bool                 `yaml:"log_streaming,omitempty"`
+	ConfigEditor bool                 `yaml:"config_editor,omitempty"`
+	Metrics      bool                 `yaml:"metrics,omitempty"`
+	Security     *DashboardSecurity   `yaml:"security,omitempty"`
+	AdminLogin   *DashboardAdminLogin `yaml:"admin_login,omitempty"`
+}
+
+type DashboardSecurity struct {
+	Enabled          bool `yaml:"enabled"`
+	OAuthConfig      bool `yaml:"oauth_config"`
+	ClientManagement bool `yaml:"client_management"`
+	UserManagement   bool `yaml:"user_management"`
+	AuditLogs        bool `yaml:"audit_logs"`
+}
+
+type DashboardAdminLogin struct {
+	Enabled        bool   `yaml:"enabled"`
+	SessionTimeout string `yaml:"session_timeout"`
 }
 
 // LoadConfig loads and parses the compose file with environment support
@@ -389,6 +491,7 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("invalid configuration in '%s': %w", filePath, err)
 	}
+
 	return &config, nil
 }
 
@@ -406,6 +509,7 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 					server.Env[k] = v
 				}
 			}
+
 			// Apply resource settings
 			if len(overrides.Resources.Paths) > 0 {
 				server.Resources.Paths = overrides.Resources.Paths
@@ -416,6 +520,7 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 			if overrides.Resources.CacheTTL > 0 { // Should be CacheTTL not CacheTLL
 				server.Resources.CacheTTL = overrides.Resources.CacheTTL
 			}
+
 			// Update the server in the config
 			config.Servers[serverName] = server
 		}
@@ -610,6 +715,7 @@ func validatePortMapping(portMapping string) error {
 		if part == "" {
 			return fmt.Errorf("empty port in mapping '%s'", portMapping)
 		}
+
 		// Check if it's a valid number
 		if _, err := strconv.Atoi(part); err != nil {
 			// Could be a port range like "8000-8010", validate differently
@@ -642,6 +748,34 @@ func validateGlobalConfig(config *ComposeConfig) error {
 	for name, conn := range config.Connections {
 		if err := validateConnection(name, conn); err != nil {
 			return err
+		}
+	}
+
+	// Validate OAuth config if present
+	if config.OAuth != nil && config.OAuth.Enabled {
+		if err := validateOAuthConfig(config.OAuth); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Validate OAuth configuration
+func validateOAuthConfig(oauth *OAuthConfig) error {
+	if oauth.Issuer == "" {
+		return fmt.Errorf("oauth.issuer is required when OAuth is enabled")
+	}
+
+	// Validate token TTLs
+	if oauth.Tokens.AccessTokenTTL != "" {
+		if _, err := time.ParseDuration(oauth.Tokens.AccessTokenTTL); err != nil {
+			return fmt.Errorf("invalid oauth.tokens.access_token_ttl: %w", err)
+		}
+	}
+	if oauth.Tokens.RefreshTokenTTL != "" {
+		if _, err := time.ParseDuration(oauth.Tokens.RefreshTokenTTL); err != nil {
+			return fmt.Errorf("invalid oauth.tokens.refresh_token_ttl: %w", err)
 		}
 	}
 

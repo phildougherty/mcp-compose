@@ -110,6 +110,12 @@ type AuthorizationCode struct {
 	State           string                 `json:"state,omitempty"`
 	Nonce           string                 `json:"nonce,omitempty"`
 	Claims          map[string]interface{} `json:"claims,omitempty"`
+	Used            bool                   `json:"used"`
+}
+
+// IsExpired checks if the authorization code is expired
+func (c *AuthorizationCode) IsExpired() bool {
+	return time.Now().After(c.ExpiresAt)
 }
 
 // AccessToken represents an access token
@@ -122,6 +128,12 @@ type AccessToken struct {
 	ExpiresAt time.Time              `json:"expires_at"`
 	CreatedAt time.Time              `json:"created_at"`
 	Claims    map[string]interface{} `json:"claims,omitempty"`
+	Revoked   bool                   `json:"revoked"`
+}
+
+// IsExpired checks if the access token is expired
+func (t *AccessToken) IsExpired() bool {
+	return time.Now().After(t.ExpiresAt)
 }
 
 // RefreshToken represents a refresh token
@@ -132,6 +144,12 @@ type RefreshToken struct {
 	Scope     string    `json:"scope"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+	Revoked   bool      `json:"revoked"`
+}
+
+// IsExpired checks if the refresh token is expired
+func (t *RefreshToken) IsExpired() bool {
+	return time.Now().After(t.ExpiresAt)
 }
 
 // DeviceCode represents a device authorization code
@@ -464,7 +482,6 @@ func (s *AuthorizationServer) CleanupExpiredTokens() {
 func (s *AuthorizationServer) GetTokenCount() (int, int, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 	return len(s.accessTokens), len(s.refreshTokens), len(s.authCodes)
 }
 
@@ -536,4 +553,16 @@ func (s *AuthorizationServer) HandleDiscovery(w http.ResponseWriter, r *http.Req
 		s.logger.Error("Failed to encode authorization server metadata: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+// GetAllClients returns all registered clients
+func (s *AuthorizationServer) GetAllClients() []*OAuthClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	clients := make([]*OAuthClient, 0, len(s.clients))
+	for _, client := range s.clients {
+		clients = append(clients, client)
+	}
+	return clients
 }

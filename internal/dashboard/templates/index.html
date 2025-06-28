@@ -1,68 +1,75 @@
 <!DOCTYPE html>
-<html lang="en" class="{{.Theme}}">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>{{.Title}}</title>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    animation: {
-                        'fade-in': 'fadeIn 0.5s ease-out',
-                        'slide-up': 'slideUp 0.3s ease-out',
-                        'bounce-gentle': 'bounceGentle 2s infinite',
-                    },
-                    keyframes: {
-                        fadeIn: {
-                            '0%': { opacity: '0', transform: 'translateY(10px)' },
-                            '100%': { opacity: '1', transform: 'translateY(0)' }
-                        },
-                        slideUp: {
-                            '0%': { transform: 'translateY(100%)', opacity: '0' },
-                            '100%': { transform: 'translateY(0)', opacity: '1' }
-                        },
-                        bounceGentle: {
-                            '0%, 20%, 50%, 80%, 100%': { transform: 'translateY(0)' },
-                            '40%': { transform: 'translateY(-10px)' },
-                            '60%': { transform: 'translateY(-5px)' }
-                        }
-                    }
-                }
+        // Enhanced theme application to prevent FOUC on all devices, especially mobile
+        (function() {
+            try {
+                // Force dark mode on mobile devices to prevent white flash
+                document.documentElement.className = 'dark';
+                document.documentElement.style.backgroundColor = 'rgb(17, 24, 39)';
+                document.documentElement.style.color = 'rgb(243, 244, 246)';
+                
+                // Store dark theme preference
+                localStorage.setItem('theme', 'dark');
+            } catch (e) {
+                console.error("Failed to set theme, defaulting to dark.", e);
+                document.documentElement.className = 'dark';
+                document.documentElement.style.backgroundColor = 'rgb(17, 24, 39)';
+                document.documentElement.style.color = 'rgb(243, 244, 246)';
             }
-        }
+        })();
+        // Tailwind config must be defined before the script is loaded.
+        tailwind = { config: { darkMode: 'class' } };
     </script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* iOS Safari fixes */
+        body {
+            -webkit-text-size-adjust: 100%;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Prevent zooming on iOS */
+        input, select, textarea {
+            font-size: 16px !important;
+        }
+    </style>
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 transition-colors min-h-screen">
-    <!-- Toast Notifications Container -->
-    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
-    
+<body class="bg-gray-900 text-gray-100 transition-colors min-h-screen overflow-x-hidden">
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2 w-full max-w-xs sm:max-w-sm pointer-events-none"></div>
     <div id="app" v-cloak>
         <dashboard-app
             :config="{
                 proxyUrl: '{{.ProxyURL}}',
                 apiKey: '{{.APIKey}}',
-                theme: '{{.Theme}}',
+                theme: 'dark',
                 port: {{.Port}},
                 enabledTabs: {
                     logs: true,
-                    config: true
+                    config: true,
+                    security: true
                 }
             }"
         ></dashboard-app>
     </div>
-    
-    <!-- Load Vue components -->
-    <script src="/static/components/dashboard.js"></script>
+    <!-- Load utilities first -->
+    <script src="/static/utils.js"></script>
+    <!-- Load all Vue components in dependency order -->
     <script src="/static/components/logs.js"></script>
     <script src="/static/components/activity.js"></script>
     <script src="/static/components/inspector.js"></script>
-    <script src="/static/utils.js"></script>
-    <!-- Initialize app -->
+    <script src="/static/components/oauth.js"></script>
+    <script src="/static/components/audit.js"></script>
+    <script src="/static/components/server-oauth.js"></script>
+    <script src="/static/components/dashboard.js"></script>
+    <!-- Initialize app last -->
     <script src="/static/app.js"></script>
 </body>
 </html>

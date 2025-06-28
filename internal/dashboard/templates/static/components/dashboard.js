@@ -22,7 +22,8 @@ const DashboardApp = {
             isMobileView: false,
             
             // Server tools discovered by inspector
-            serverTools: {}
+            serverTools: {},
+            securitySection: 'oauth',
         }
     },
     
@@ -31,7 +32,8 @@ const DashboardApp = {
             return [
                 { id: 'overview', name: 'Overview', icon: 'M4 6a2 2 0 012-2h8a2 2 0 012 2v7a2 2 0 01-2 2H8l-4 4V6z', enabled: true },
                 { id: 'logs', name: 'Logs', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', enabled: this.config.enabledTabs.logs },
-                { id: 'activity', name: 'Activity', icon: 'M13 10V3L4 14h7v7l9-11h-7z', enabled: true }
+                { id: 'activity', name: 'Activity', icon: 'M13 10V3L4 14h7v7l9-11h-7z', enabled: true },
+                { id: 'security', name: 'Security', icon: 'M12 15v2a6 6 0 01-6 6H4a2 2 0 01-2-2v-1a6 6 0 016-6h2zm-6 6a2 2 0 100-4 2 2 0 000 4zm8-13a2 2 0 100-4 2 2 0 000 4z', enabled: true },
             ].filter(tab => tab.enabled);
         },
         
@@ -387,9 +389,61 @@ const DashboardApp = {
             this.isMobileView = window.innerWidth < 768;
         },
         
-        showToast(message, type = 'info') {
-            window.showToast && window.showToast(message, type);
-        }
+        showToast(toast) {
+            // Create toast element
+            const toastEl = document.createElement('div');
+            toastEl.className = `
+                fixed top-4 right-4 z-50 max-w-sm w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg pointer-events-auto 
+                ring-1 ring-black ring-opacity-5 transform transition-all duration-300 ease-in-out translate-x-0 opacity-100
+                ${toast.type === 'success' ? 'border-l-4 border-green-500' : 
+                  toast.type === 'error' ? 'border-l-4 border-red-500' : 
+                  toast.type === 'warning' ? 'border-l-4 border-yellow-500' : 
+                  'border-l-4 border-blue-500'}
+            `;
+            
+            toastEl.innerHTML = `
+                <div class="p-4">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            ${toast.type === 'success' ? 
+                                '<svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>' :
+                              toast.type === 'error' ? 
+                                '<svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>' :
+                              toast.type === 'warning' ? 
+                                '<svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>' :
+                                '<svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>'
+                            }
+                        </div>
+                        <div class="ml-3 w-0 flex-1">
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">
+                                ${toast.message}
+                            </p>
+                        </div>
+                        <div class="ml-4 flex-shrink-0 flex">
+                            <button class="bg-white dark:bg-gray-800 rounded-md inline-flex text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 focus:outline-none" onclick="this.parentElement.parentElement.parentElement.parentElement.remove()">
+                                <span class="sr-only">Close</span>
+                                <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Add to toast container or body
+            const container = document.getElementById('toast-container') || document.body;
+            container.appendChild(toastEl);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (toastEl.parentNode) {
+                    toastEl.style.transform = 'translateX(100%)';
+                    toastEl.style.opacity = '0';
+                    setTimeout(() => toastEl.remove(), 300);
+                }
+            }, 5000);
+        },
     },
     
     mounted() {
@@ -413,9 +467,9 @@ const DashboardApp = {
     },
     
     template: `
-        <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
-            <!-- Enhanced Header -->
-            <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
+    <div class="min-h-screen bg-gray-900 dark:bg-gray-900">
+        <!-- Enhanced Header -->
+            <header class="bg-gray-800 dark:bg-gray-800 shadow-sm border-b border-gray-700 dark:border-gray-700 sticky top-0 z-50">
                 <div class="px-3 sm:px-4 lg:px-6">
                     <div class="flex justify-between items-center h-14">
                         <!-- Logo and Title -->
@@ -442,7 +496,7 @@ const DashboardApp = {
                                             'relative inline-flex items-center px-2 sm:px-3 py-2 rounded-l-lg border text-xs sm:text-sm font-medium focus:z-10 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-all touch-target',
                                             autoRefresh
                                                 ? 'border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-200'
-                                                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'
+                                                : 'border-gray-600 dark:border-gray-600 bg-gray-700 dark:bg-gray-700 text-gray-200 dark:text-gray-200'
                                         ]"
                                     >
                                         <svg class="w-4 h-4 sm:mr-2" :class="{ 'animate-spin': loading }" fill="currentColor" viewBox="0 0 20 20">
@@ -467,7 +521,7 @@ const DashboardApp = {
                                 </div>
                                 
                                 <!-- Refresh Dropdown -->
-                                <div v-if="showRefreshDropdown" class="origin-top-right absolute right-0 mt-2 w-64 rounded-lg shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 border border-gray-200 dark:border-gray-600 z-50">
+                                <div v-if="showRefreshDropdown" class="origin-top-right absolute right-0 mt-2 w-64 rounded-lg shadow-lg bg-gray-800 dark:bg-gray-800 ring-1 ring-black ring-opacity-5 border border-gray-600 dark:border-gray-600 z-50">
                                     <div class="p-4 space-y-4">
                                         <div class="flex items-center justify-between">
                                             <label class="text-sm font-medium text-gray-700 dark:text-gray-200">Auto Refresh</label>
@@ -526,21 +580,22 @@ const DashboardApp = {
             </header>
             
             <!-- Mobile-First Navigation Tabs -->
-            <nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-14 z-40">
+            <nav class="bg-gray-800 border-b border-gray-700 sticky top-14 z-40">
                 <div class="px-3 sm:px-4 lg:px-6">
-                    <div class="mobile-nav py-2">
+                    <div class="flex overflow-x-auto py-2 space-x-1" style="-webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none;">
                         <button
                             v-for="tab in tabs"
                             :key="tab.id"
                             @click="activeTab = tab.id"
                             :class="[
-                                'mobile-nav-item touch-target flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors',
+                                'flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex-shrink-0',
                                 activeTab === tab.id
-                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
-                                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
                             ]"
+                            style="touch-action: manipulation;"
                         >
-                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon"></path>
                             </svg>
                             {{ tab.name }}
@@ -550,7 +605,7 @@ const DashboardApp = {
             </nav>
             
             <!-- Main Content -->
-            <main class="px-3 sm:px-4 lg:px-6 py-4">
+            <main class="px-3 sm:px-4 lg:px-6 py-4 max-w-full overflow-x-hidden">
                 <!-- Error Display -->
                 <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/50 border-l-4 border-red-400 p-4 rounded-r-lg animate-fade-in">
                     <div class="flex items-start">
@@ -990,6 +1045,50 @@ const DashboardApp = {
                     v-if="activeTab === 'activity'"
                     :config="config"
                 ></activity-viewer>
+                <!-- Security Tab -->
+                <div v-if="activeTab === 'security'" class="space-y-6 animate-fade-in">
+                    <div class="mb-6">
+                        <h2 class="text-2xl font-bold text-white mb-2">🔐 Security & OAuth Configuration</h2>
+                        <p class="text-gray-400">Manage OAuth 2.1 authentication, users, clients, and audit logs</p>
+                    </div>
+                    <div class="mb-6">
+                        <nav class="flex space-x-1 bg-gray-800 p-1 rounded-lg border border-gray-700">
+                            <button
+                                @click="securitySection = 'oauth'"
+                                :class="[
+                                    'px-4 py-2 text-sm font-medium rounded-md transition-colors touch-target',
+                                    securitySection === 'oauth' 
+                                        ? 'bg-gray-700 text-white shadow-sm border border-gray-600' 
+                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                ]">
+                                OAuth Config
+                            </button>
+                            <button
+                                @click="securitySection = 'audit'"
+                                :class="[
+                                    'px-4 py-2 text-sm font-medium rounded-md transition-colors touch-target',
+                                    securitySection === 'audit' 
+                                        ? 'bg-gray-700 text-white shadow-sm border border-gray-600' 
+                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                ]">
+                                Audit Logs
+                            </button>
+                            <button
+                                @click="securitySection = 'server-oauth'"
+                                :class="[
+                                    'px-4 py-2 text-sm font-medium rounded-md transition-colors touch-target',
+                                    securitySection === 'server-oauth' 
+                                        ? 'bg-gray-700 text-white shadow-sm border border-gray-600' 
+                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                ]">
+                                Server Settings
+                            </button>
+                        </nav>
+                    </div>
+                    <oauth-config v-if="securitySection === 'oauth'" @show-toast="showToast"></oauth-config>
+                    <audit-log v-if="securitySection === 'audit'" @show-toast="showToast"></audit-log>
+                    <server-oauth-config v-if="securitySection === 'server-oauth'" @show-toast="showToast"></server-oauth-config>
+                </div>
             </main>
         </div>
     `

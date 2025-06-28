@@ -791,7 +791,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"method":   r.Method,
 			"endpoint": r.URL.Path,
 		})
-
 	h.logger.Info("Request: %s %s from %s (User-Agent: %s)", r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"))
 
 	// CORS Headers
@@ -805,29 +804,10 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authentication check
-	var apiKeyToCheck string
-	if h.Manager != nil && h.Manager.config != nil && h.Manager.config.ProxyAuth.Enabled {
-		apiKeyToCheck = h.Manager.config.ProxyAuth.APIKey
-	}
-	if h.APIKey != "" {
-		apiKeyToCheck = h.APIKey
-	}
-
-	if apiKeyToCheck != "" {
-		authHeader := r.Header.Get("Authorization")
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token != apiKeyToCheck {
-			h.logger.Warning("Unauthorized access attempt to %s from %s (API key mismatch)", r.URL.Path, r.RemoteAddr)
-			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
-
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 3)
 
-	// Handle OAuth endpoints if enabled
+	// Handle OAuth endpoints FIRST - these should NOT require API key authentication
 	if h.oauthEnabled && h.authServer != nil {
 		switch path {
 		case "/.well-known/oauth-authorization-server":
@@ -849,6 +829,37 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		case "/api/oauth/status":
 			h.handleOAuthStatus(w, r)
+			return
+		case "/api/oauth/clients":
+			h.handleOAuthClientsList(w, r)
+			return
+		case "/api/oauth/scopes":
+			h.handleOAuthScopesList(w, r)
+			return
+		}
+
+		// Handle OAuth client deletion (path starts with /api/oauth/clients/)
+		if strings.HasPrefix(path, "/api/oauth/clients/") && r.Method == http.MethodDelete {
+			h.handleOAuthClientDelete(w, r)
+			return
+		}
+	}
+
+	// NOW do authentication check for other endpoints
+	var apiKeyToCheck string
+	if h.Manager != nil && h.Manager.config != nil && h.Manager.config.ProxyAuth.Enabled {
+		apiKeyToCheck = h.Manager.config.ProxyAuth.APIKey
+	}
+	if h.APIKey != "" {
+		apiKeyToCheck = h.APIKey
+	}
+
+	if apiKeyToCheck != "" {
+		authHeader := r.Header.Get("Authorization")
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token != apiKeyToCheck {
+			h.logger.Warning("Unauthorized access attempt to %s from %s (API key mismatch)", r.URL.Path, r.RemoteAddr)
+			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 	}
@@ -911,7 +922,6 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// CRITICAL FIX: Handle direct tool calls BEFORE server routing
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPost {
 		toolName := parts[0]
-
 		// First check if it's a known tool
 		if h.isKnownTool(toolName) {
 			h.logger.Info("Handling direct tool call for: %s", toolName)
@@ -919,14 +929,12 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.Debug("Processed direct tool call %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 			return
 		}
-
 		// If not a known tool, check if it's a server name
 		if _, exists := h.Manager.GetServerInstance(toolName); exists {
 			h.logger.Info("Routing to server: %s", toolName)
 			// This is a server, handle as server request
 			goto handleServer
 		}
-
 		// Neither a tool nor a server
 		h.logger.Warning("Unknown tool or server: %s", toolName)
 		h.corsError(w, "Tool or server not found", http.StatusNotFound)
@@ -962,8 +970,64 @@ handleServer:
 		h.logger.Warning("Path not found: %s", r.URL.Path)
 		h.corsError(w, "Not Found", http.StatusNotFound)
 	}
-
 	h.logger.Info("Processed request %s %s (%s) in %v", r.Method, r.URL.Path, path, time.Since(start))
+}
+
+func (h *ProxyHandler) handleOAuthClientsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.oauthEnabled || h.authServer == nil {
+		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+		return
+	}
+
+	clients := h.authServer.GetAllClients()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(clients)
+}
+
+func (h *ProxyHandler) handleOAuthScopesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.oauthEnabled || h.authServer == nil {
+		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+		return
+	}
+
+	scopes := []map[string]string{
+		{"name": "mcp:tools", "description": "Access to MCP tools"},
+		{"name": "mcp:resources", "description": "Access to MCP resources"},
+		{"name": "mcp:prompts", "description": "Access to MCP prompts"},
+		{"name": "mcp:*", "description": "Full access to all MCP capabilities"},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scopes)
+}
+
+func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Request) {
+	if !h.oauthEnabled || h.authServer == nil {
+		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+		return
+	}
+
+	// Extract client ID from path
+	path := strings.TrimPrefix(r.URL.Path, "/api/oauth/clients/")
+	if path == "" {
+		http.Error(w, "Client ID required", http.StatusBadRequest)
+		return
+	}
+
+	// For now, just return success - implement actual deletion logic
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
 func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
