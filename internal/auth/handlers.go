@@ -10,71 +10,200 @@ import (
 	"time"
 )
 
-// HandleAuthorize handles authorization requests
+// Add this method to handlers.go
 func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse request parameters
-	req, err := s.parseAuthorizationRequest(r)
+	// Parse authorization request
+	authReq, err := s.parseAuthorizationRequest(r)
 	if err != nil {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_request", err.Error(), req.State)
+		s.redirectWithError(w, r, "", "invalid_request", err.Error(), "")
 		return
 	}
 
 	// Validate client
-	client, exists := s.GetClient(req.ClientID)
+	client, exists := s.GetClient(authReq.ClientID)
 	if !exists {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_client", "Unknown client", req.State)
+		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_client", "Unknown client", authReq.State)
 		return
 	}
 
 	// Validate redirect URI
-	if !s.validateRedirectURI(client, req.RedirectURI) {
+	if !s.validateRedirectURI(client, authReq.RedirectURI) {
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 		return
 	}
 
 	// Validate response type
-	if !contains(client.ResponseTypes, req.ResponseType) {
-		s.redirectWithError(w, r, req.RedirectURI, "unsupported_response_type", "Response type not allowed for this client", req.State)
+	if !contains(client.ResponseTypes, authReq.ResponseType) {
+		s.redirectWithError(w, r, authReq.RedirectURI, "unsupported_response_type", "Response type not supported for this client", authReq.State)
 		return
 	}
 
 	// Validate scope
-	if req.Scope != "" && !s.validateScope(req.Scope) {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_scope", "Invalid scope", req.State)
+	if authReq.Scope != "" && !s.validateScope(authReq.Scope) {
+		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_scope", "Invalid scope", authReq.State)
 		return
 	}
 
-	// For simplicity, auto-approve for now
-	// In production, show consent screen here
-	userID := "system_user" // This would come from authentication
+	// For testing/demo purposes, we'll auto-approve all requests
+	// In production, you would show a consent screen here
+	if r.Method == http.MethodGet {
+		// Show simple auto-approval page for testing
+		s.showAutoApprovalPage(w, r, authReq, client)
+		return
+	}
+
+	// Handle POST - process the authorization
+	s.processAuthorization(w, r, authReq, client)
+}
+
+func (s *AuthorizationServer) showAutoApprovalPage(w http.ResponseWriter, _ *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
+	// For demo/testing purposes, show a simple auto-approval page
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authorization Request</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .auth-box { border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: #f9f9f9; }
+        .client-info { background: #e7f3ff; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .scope-list { background: #fff; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 3px; }
+        .buttons { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; }
+        .approve { background: #28a745; color: white; }
+        .deny { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="auth-box">
+        <h2>Authorization Request</h2>
+        <div class="client-info">
+            <strong>Application:</strong> %s<br>
+            <strong>Client ID:</strong> %s
+        </div>
+        <div class="scope-list">
+            <strong>Requested Permissions:</strong><br>
+            %s
+        </div>
+        <p>Do you want to authorize this application?</p>
+        <form method="POST">
+            <input type="hidden" name="client_id" value="%s">
+            <input type="hidden" name="redirect_uri" value="%s">
+            <input type="hidden" name="response_type" value="%s">
+            <input type="hidden" name="scope" value="%s">
+            <input type="hidden" name="state" value="%s">
+            <input type="hidden" name="code_challenge" value="%s">
+            <input type="hidden" name="code_challenge_method" value="%s">
+            <div class="buttons">
+                <button type="submit" name="action" value="approve" class="approve">Approve</button>
+                <button type="submit" name="action" value="deny" class="deny">Deny</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>`,
+		getClientDisplayName(client),
+		client.ID,
+		formatScopes(authReq.Scope),
+		authReq.ClientID,
+		authReq.RedirectURI,
+		authReq.ResponseType,
+		authReq.Scope,
+		authReq.State,
+		authReq.CodeChallenge,
+		authReq.CodeChallengeMethod,
+	)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
+
+func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to parse form", authReq.State)
+		return
+	}
+
+	action := r.Form.Get("action")
+	if action != "approve" {
+		s.redirectWithError(w, r, authReq.RedirectURI, "access_denied", "User denied authorization", authReq.State)
+		return
+	}
 
 	// Generate authorization code
-	code, err := s.generateAuthorizationCode(client.ID, userID, req.RedirectURI, req.Scope, req.CodeChallenge, req.CodeChallengeMethod)
+	// For demo purposes, use a static user ID. In production, get from authenticated session
+	userID := "demo-user"
+
+	s.mu.Lock()
+	authCode, err := s.generateAuthorizationCode(
+		authReq.ClientID,
+		userID,
+		authReq.RedirectURI,
+		authReq.Scope,
+		authReq.CodeChallenge,
+		authReq.CodeChallengeMethod,
+	)
+	s.mu.Unlock()
+
 	if err != nil {
-		s.redirectWithError(w, r, req.RedirectURI, "server_error", "Failed to generate authorization code", req.State)
+		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to generate authorization code", authReq.State)
 		return
 	}
 
-	// Redirect with code
-	redirectURL, err := url.Parse(req.RedirectURI)
+	// Redirect back to client with authorization code
+	redirectURL, err := url.Parse(authReq.RedirectURI)
 	if err != nil {
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 		return
 	}
 
 	query := redirectURL.Query()
-	query.Set("code", code.Code)
-	if req.State != "" {
-		query.Set("state", req.State)
+	query.Set("code", authCode.Code)
+	if authReq.State != "" {
+		query.Set("state", authReq.State)
 	}
 	redirectURL.RawQuery = query.Encode()
 
+	s.logger.Info("Authorization approved for client %s, redirecting with code", client.ID)
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// Helper functions
+func getClientDisplayName(client *OAuthClient) string {
+	if client.ClientName != "" {
+		return client.ClientName
+	}
+	return client.ID
+}
+
+func formatScopes(scope string) string {
+	if scope == "" {
+		return "No specific permissions requested"
+	}
+
+	scopes := strings.Fields(scope)
+	formatted := make([]string, len(scopes))
+	for i, s := range scopes {
+		switch s {
+		case "mcp:*":
+			formatted[i] = "• Full access to all MCP resources"
+		case "mcp:tools":
+			formatted[i] = "• Access to MCP tools"
+		case "mcp:resources":
+			formatted[i] = "• Access to MCP resources"
+		case "mcp:prompts":
+			formatted[i] = "• Access to MCP prompts"
+		default:
+			formatted[i] = "• " + s
+		}
+	}
+	return strings.Join(formatted, "<br>")
 }
 
 // HandleToken handles token requests
