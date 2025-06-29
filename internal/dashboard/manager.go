@@ -66,26 +66,25 @@ func (m *Manager) buildDashboardImage() error {
 
 	// Create Dockerfile that uses the same binary in containerized mode
 	dockerfileContent := `FROM golang:1.21-alpine AS builder
-
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-
 # Build the main mcp-compose binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o mcp-compose cmd/mcp-compose/main.go
 
 FROM alpine:latest
-
 # Install Docker CLI for container management
-RUN apk --no-cache add ca-certificates docker-cli
-
+RUN apk --no-cache add ca-certificates docker-cli curl
+# Create non-root user
+RUN adduser -D -u 1000 dashboard
 WORKDIR /app
 COPY --from=builder /build/mcp-compose .
-
+# Change ownership to dashboard user
+RUN chown dashboard:dashboard /app/mcp-compose && chmod +x /app/mcp-compose
 EXPOSE 3001
 
-# Create a startup script that ensures container listens on port 3001
+# Create a startup script
 RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo "Dashboard container starting..."' >> /app/start.sh && \
     echo 'echo "Environment variables:"' >> /app/start.sh && \
@@ -94,7 +93,11 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo "  MCP_DASHBOARD_HOST: $MCP_DASHBOARD_HOST"' >> /app/start.sh && \
     echo 'echo "Starting dashboard server on 0.0.0.0:3001..."' >> /app/start.sh && \
     echo 'exec ./mcp-compose dashboard --native --file /app/mcp-compose.yaml --port 3001 --host 0.0.0.0' >> /app/start.sh && \
-    chmod +x /app/start.sh
+    chmod +x /app/start.sh && \
+    chown dashboard:dashboard /app/start.sh
+
+# Switch to non-root user
+USER dashboard
 
 CMD ["/app/start.sh"]
 `
@@ -157,8 +160,7 @@ func (m *Manager) startDashboardContainer() error {
 	// Container always listens on port 3001 internally
 	containerPort := 3001
 
-	// Prepare environment variables for container - Note: we don't set MCP_DASHBOARD_PORT
-	// because the startup script hardcodes port 3001
+	// Prepare environment variables for container
 	env := map[string]string{
 		"MCP_DASHBOARD_HOST":          "0.0.0.0",                            // Must bind to all interfaces in container
 		"MCP_PROXY_URL":               "http://mcp-compose-http-proxy:9876", // Container network URL
@@ -182,6 +184,33 @@ func (m *Manager) startDashboardContainer() error {
 		Ports:    []string{fmt.Sprintf("%d:%d", hostPort, containerPort)}, // hostPort:3001
 		Networks: []string{"mcp-net"},
 		Volumes:  volumes,
+
+		// ADD SECURITY CONFIGURATION FOR DASHBOARD:
+		User: "1000:1000", // Run as non-root user
+		Security: container.SecurityConfig{
+			AllowDockerSocket:  true,  // Dashboard needs Docker socket access for monitoring
+			TrustedImage:       true,  // Mark as trusted system container
+			AllowPrivilegedOps: false, // No privileged operations needed
+		},
+
+		// Resource limits
+		CPUs:   "0.5",
+		Memory: "512m",
+
+		// Security hardening
+		CapDrop:     []string{"ALL"},
+		CapAdd:      []string{"SETUID", "SETGID"}, // Minimal capabilities for container operations
+		SecurityOpt: []string{"no-new-privileges:true"},
+		ReadOnly:    false, // Dashboard may need to write temp files
+
+		// System container labels
+		Labels: map[string]string{
+			"mcp-compose.system": "true",
+			"mcp-compose.role":   "dashboard",
+		},
+
+		// Restart policy
+		RestartPolicy: "unless-stopped",
 	}
 
 	containerID, err := m.runtime.StartContainer(opts)

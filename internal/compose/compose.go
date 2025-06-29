@@ -442,7 +442,58 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 
 // isContainerServer determines if a server should run as a container
 func isContainerServer(serverCfg config.ServerConfig) bool {
-	return serverCfg.Image != "" || serverCfg.Runtime != ""
+	// If it has an image, it's definitely a container
+	if serverCfg.Image != "" {
+		return true
+	}
+
+	// If it has a build context, it's definitely a container
+	if serverCfg.Build.Context != "" {
+		return true
+	}
+
+	// If it has container-specific configuration, it's a container
+	if len(serverCfg.Volumes) > 0 {
+		return true
+	}
+
+	if len(serverCfg.Networks) > 0 {
+		return true
+	}
+
+	if serverCfg.NetworkMode != "" {
+		return true
+	}
+
+	// If it has HTTP/SSE protocol settings, likely a container
+	if serverCfg.HttpPort > 0 || serverCfg.StdioHosterPort > 0 {
+		return true
+	}
+
+	// If it has container security settings, it's a container
+	if serverCfg.User != "" || serverCfg.Privileged || len(serverCfg.CapAdd) > 0 || len(serverCfg.CapDrop) > 0 {
+		return true
+	}
+
+	// If it has resource limits (deploy section), it's a container
+	if serverCfg.Deploy.Resources.Limits.CPUs != "" ||
+		serverCfg.Deploy.Resources.Limits.Memory != "" ||
+		serverCfg.Deploy.Resources.Limits.PIDs > 0 {
+		return true
+	}
+
+	// If command starts with container-style paths, it's a container
+	if strings.HasPrefix(serverCfg.Command, "/app/") {
+		return true
+	}
+
+	// If it has Docker/container specific environment or settings
+	if serverCfg.RestartPolicy != "" || len(serverCfg.SecurityOpt) > 0 {
+		return true
+	}
+
+	// If none of the above, it's a process-based server
+	return false
 }
 
 // startServerProcess handles process-based server startup
@@ -470,73 +521,6 @@ func startServerProcess(serverName string, serverCfg config.ServerConfig) error 
 		return fmt.Errorf("failed to start process for server '%s': %w", serverName, err)
 	}
 
-	return nil
-}
-
-func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
-	containerName := fmt.Sprintf("mcp-compose-%s", serverName)
-	envVars := config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName})
-
-	isSocatHostedStdio := serverCfg.StdioHosterPort > 0
-	isHttp := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
-
-	dockerCommandForContainer := serverCfg.Command
-	dockerArgsForContainer := serverCfg.Args
-
-	if isSocatHostedStdio {
-		fmt.Printf("Starting container '%s' for server '%s' (Socat STDIO Hoster mode on internal port %d).\n",
-			containerName, serverName, serverCfg.StdioHosterPort)
-		envVars["MCP_SOCAT_INTERNAL_PORT"] = strconv.Itoa(serverCfg.StdioHosterPort)
-	} else if isHttp {
-		fmt.Printf("Starting container '%s' for server '%s' (HTTP mode on internal port %d).\n",
-			containerName, serverName, serverCfg.HttpPort)
-		if serverCfg.HttpPort > 0 {
-			envVars["MCP_HTTP_PORT"] = strconv.Itoa(serverCfg.HttpPort)
-		}
-		envVars["MCP_TRANSPORT"] = "http"
-	} else {
-		fmt.Printf("Starting container '%s' for server '%s' (Direct STDIO mode).\n",
-			containerName, serverName)
-	}
-
-	// Add other env vars from config
-	for k, v := range serverCfg.Env {
-		if _, exists := envVars[k]; !exists {
-			envVars[k] = v
-		}
-	}
-
-	// Handle networks more intelligently
-	networks := determineServerNetworks(serverCfg)
-
-	// Log network configuration
-	if serverCfg.NetworkMode != "" {
-		fmt.Printf("Container '%s' will use network mode: %s\n", containerName, serverCfg.NetworkMode)
-	} else if len(networks) == 1 {
-		fmt.Printf("Container '%s' will join network: %s\n", containerName, networks[0])
-	} else if len(networks) > 1 {
-		fmt.Printf("Container '%s' will join networks: %s\n", containerName, strings.Join(networks, ", "))
-	}
-
-	opts := &container.ContainerOptions{
-		Name:        containerName,
-		Image:       serverCfg.Image,
-		Build:       serverCfg.Build,
-		Command:     dockerCommandForContainer,
-		Args:        dockerArgsForContainer,
-		Env:         envVars,
-		Pull:        serverCfg.Pull,
-		Volumes:     serverCfg.Volumes,
-		Ports:       serverCfg.Ports,
-		Networks:    networks,
-		WorkDir:     serverCfg.WorkDir,
-		NetworkMode: serverCfg.NetworkMode,
-	}
-
-	_, err := cRuntime.StartContainer(opts)
-	if err != nil {
-		return fmt.Errorf("failed to start container for server '%s': %w", serverName, err)
-	}
 	return nil
 }
 
@@ -638,6 +622,7 @@ func List(configFile string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
+
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
 		fmt.Printf("Warning: failed to detect container runtime: %v. Container statuses will be 'Unknown'.\n", err)
@@ -653,14 +638,16 @@ func List(configFile string) error {
 
 	for serverName, srvConfig := range cfg.Servers {
 		identifier := fmt.Sprintf("mcp-compose-%s", serverName)
-		var statusStr string // Declare without initial assignment
-		isContainer := srvConfig.Image != "" || srvConfig.Runtime != ""
+		var statusStr string
+
+		// USE THE SAME DETECTION LOGIC AS STARTUP
+		isContainer := isContainerServer(srvConfig)
 
 		if isContainer {
 			if cRuntime != nil && cRuntime.GetRuntimeName() != "none" {
 				rawStatus, statusErr := cRuntime.GetContainerStatus(identifier)
 				if statusErr != nil {
-					statusStr = stoppedColor("Error/Missing")
+					statusStr = stoppedColor("Stopped")
 				} else {
 					switch strings.ToLower(rawStatus) {
 					case "running":
@@ -675,6 +662,7 @@ func List(configFile string) error {
 				statusStr = stoppedColor("No Runtime")
 			}
 		} else {
+			// This is actually a process-based server
 			identifier = fmt.Sprintf("process-%s", serverName)
 			statusStr = processColor("Process")
 		}
@@ -701,6 +689,7 @@ func List(configFile string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			serverName, statusStr, transport, identifier, ports, capabilities)
 	}
+
 	w.Flush()
 	return nil
 }
@@ -931,4 +920,148 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 		}
 	}
 	return fallbackOrder
+}
+
+func convertSecurityConfig(serverName string, serverCfg config.ServerConfig) container.ContainerOptions {
+	opts := container.ContainerOptions{
+		Name:        fmt.Sprintf("mcp-compose-%s", serverName),
+		Image:       serverCfg.Image,
+		Build:       serverCfg.Build,
+		Command:     serverCfg.Command,
+		Args:        serverCfg.Args,
+		Env:         config.MergeEnv(serverCfg.Env, map[string]string{"MCP_SERVER_NAME": serverName}),
+		Pull:        serverCfg.Pull,
+		Volumes:     serverCfg.Volumes,
+		Ports:       serverCfg.Ports,
+		Networks:    determineServerNetworks(serverCfg),
+		WorkDir:     serverCfg.WorkDir,
+		NetworkMode: serverCfg.NetworkMode,
+
+		// Security configuration
+		Privileged:  serverCfg.Privileged,
+		User:        serverCfg.User,
+		Groups:      serverCfg.Groups,
+		ReadOnly:    serverCfg.ReadOnly,
+		Tmpfs:       serverCfg.Tmpfs,
+		CapAdd:      serverCfg.CapAdd,
+		CapDrop:     serverCfg.CapDrop,
+		SecurityOpt: serverCfg.SecurityOpt,
+
+		// Resource limits
+		PidsLimit: serverCfg.Deploy.Resources.Limits.PIDs,
+
+		// Lifecycle
+		RestartPolicy: serverCfg.RestartPolicy,
+		StopSignal:    serverCfg.StopSignal,
+		StopTimeout:   serverCfg.StopTimeout,
+
+		// Runtime options (removed Runtime field)
+		Platform:   serverCfg.Platform,
+		Hostname:   serverCfg.Hostname,
+		DomainName: serverCfg.DomainName,
+		DNS:        serverCfg.DNS,
+		DNSSearch:  serverCfg.DNSSearch,
+		ExtraHosts: serverCfg.ExtraHosts,
+
+		// Logging
+		LogDriver:  serverCfg.LogDriver,
+		LogOptions: serverCfg.LogOptions,
+
+		// Labels and metadata
+		Labels:      serverCfg.Labels,
+		Annotations: serverCfg.Annotations,
+
+		// Security config for validation
+		Security: container.SecurityConfig{
+			AllowDockerSocket:  serverCfg.Security.AllowDockerSocket,
+			AllowHostMounts:    serverCfg.Security.AllowHostMounts,
+			AllowPrivilegedOps: serverCfg.Security.AllowPrivilegedOps,
+			TrustedImage:       serverCfg.Security.TrustedImage,
+		},
+	}
+
+	// Resource limits
+	if serverCfg.Deploy.Resources.Limits.CPUs != "" {
+		opts.CPUs = serverCfg.Deploy.Resources.Limits.CPUs
+	}
+	if serverCfg.Deploy.Resources.Limits.Memory != "" {
+		opts.Memory = serverCfg.Deploy.Resources.Limits.Memory
+	}
+	if serverCfg.Deploy.Resources.Limits.MemorySwap != "" {
+		opts.MemorySwap = serverCfg.Deploy.Resources.Limits.MemorySwap
+	}
+
+	// Restart policy
+	if serverCfg.Deploy.RestartPolicy != "" {
+		opts.RestartPolicy = serverCfg.Deploy.RestartPolicy
+	}
+
+	// Convert health check if present
+	if serverCfg.HealthCheck != nil {
+		opts.HealthCheck = &container.HealthCheck{
+			Test:        serverCfg.HealthCheck.Test,
+			Interval:    serverCfg.HealthCheck.Interval,
+			Timeout:     serverCfg.HealthCheck.Timeout,
+			Retries:     serverCfg.HealthCheck.Retries,
+			StartPeriod: serverCfg.HealthCheck.StartPeriod,
+		}
+	}
+
+	// Security options based on configuration
+	if serverCfg.Security.NoNewPrivileges {
+		opts.SecurityOpt = append(opts.SecurityOpt, "no-new-privileges:true")
+	}
+
+	if serverCfg.Security.AppArmor != "" {
+		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("apparmor:%s", serverCfg.Security.AppArmor))
+	}
+
+	if serverCfg.Security.Seccomp != "" {
+		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("seccomp:%s", serverCfg.Security.Seccomp))
+	}
+
+	return opts
+}
+
+// UPDATE the startServerContainer function to use the new converter:
+func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
+	opts := convertSecurityConfig(serverName, serverCfg)
+
+	// Transport-specific configuration
+	isSocatHostedStdio := serverCfg.StdioHosterPort > 0
+	isHttp := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
+
+	if isSocatHostedStdio {
+		fmt.Printf("Starting container '%s' for server '%s' (Socat STDIO Hoster mode on internal port %d).\n",
+			opts.Name, serverName, serverCfg.StdioHosterPort)
+		opts.Env["MCP_SOCAT_INTERNAL_PORT"] = strconv.Itoa(serverCfg.StdioHosterPort)
+	} else if isHttp {
+		fmt.Printf("Starting container '%s' for server '%s' (HTTP mode on internal port %d).\n",
+			opts.Name, serverName, serverCfg.HttpPort)
+		if serverCfg.HttpPort > 0 {
+			opts.Env["MCP_HTTP_PORT"] = strconv.Itoa(serverCfg.HttpPort)
+		}
+		opts.Env["MCP_TRANSPORT"] = "http"
+	} else {
+		fmt.Printf("Starting container '%s' for server '%s' (Direct STDIO mode).\n",
+			opts.Name, serverName)
+	}
+
+	// Log security configuration
+	if len(opts.CapAdd) > 0 {
+		fmt.Printf("Container '%s' adding capabilities: %s\n", opts.Name, strings.Join(opts.CapAdd, ", "))
+	}
+	if len(opts.CapDrop) > 0 {
+		fmt.Printf("Container '%s' dropping capabilities: %s\n", opts.Name, strings.Join(opts.CapDrop, ", "))
+	}
+	if opts.Privileged {
+		fmt.Printf("Container '%s' running in privileged mode\n", opts.Name)
+	}
+
+	_, err := cRuntime.StartContainer(&opts)
+	if err != nil {
+		return fmt.Errorf("failed to start container for server '%s': %w", serverName, err)
+	}
+
+	return nil
 }
