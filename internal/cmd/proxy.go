@@ -82,7 +82,6 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 	}
 
 	_ = cRuntime.StopContainer("mcp-compose-http-proxy")
-
 	networkExists, _ := cRuntime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := cRuntime.CreateNetwork("mcp-net"); err != nil {
@@ -100,7 +99,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 		"MCP_PROXY_PORT":    fmt.Sprintf("%d", port),
 		"MCP_PROJECT_NAME":  projectName,
 		"MCP_CONFIG_FILE":   "/app/mcp-compose.yaml",
-		"MCP_PROTOCOL_MODE": "enhanced", // Enable enhanced protocol features
+		"MCP_PROTOCOL_MODE": "enhanced",
 	}
 
 	if apiKey != "" {
@@ -116,6 +115,29 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 		Volumes: []string{
 			fmt.Sprintf("%s:/app/mcp-compose.yaml:ro", absConfigFile),
 			"/var/run/docker.sock:/var/run/docker.sock:ro",
+		},
+
+		// ADD SECURITY CONFIGURATION FOR PROXY CONTAINER:
+		User: "root", // Proxy needs root access for Docker socket
+		Security: container.SecurityConfig{
+			AllowDockerSocket:  true,  // ALLOW Docker socket access for proxy
+			AllowPrivilegedOps: false, // But don't allow other privileged operations
+			TrustedImage:       true,  // Mark as trusted system container
+		},
+
+		// Add resource limits
+		CPUs:   "1.0",
+		Memory: "512m",
+
+		// Security hardening
+		CapDrop:     []string{"ALL"},
+		CapAdd:      []string{"SETUID", "SETGID"}, // Minimal capabilities for container management
+		SecurityOpt: []string{"no-new-privileges:true"},
+
+		// Labels to identify as system container
+		Labels: map[string]string{
+			"mcp-compose.system": "true",
+			"mcp-compose.role":   "proxy",
 		},
 	}
 
@@ -146,7 +168,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 		fmt.Printf("Client configuration generated in %s/\n", outputDir)
 	}
 
-	fmt.Println("To stop the proxy: docker stop mcp-compose-http-proxy")
+	fmt.Println("To stop the proxy: mcp-compose stop proxy")
 	return nil
 }
 

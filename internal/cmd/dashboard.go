@@ -97,13 +97,15 @@ func runContainerizedDashboard(cfg *config.ComposeConfig, runtime container.Runt
 	if !isProxyContainerRunning(runtime) {
 		return fmt.Errorf(`
 Dashboard requires the proxy container to be running.
-Please start the proxy with: 
+Please start the proxy with:
     mcp-compose proxy --port 9876 --api-key %s --container
 Then try starting the dashboard again`, cfg.ProxyAuth.APIKey)
 	}
 
 	dashManager := dashboard.NewManager(cfg, runtime)
-	dashManager.SetConfigFile(configFile) // Set the config file path
+	dashManager.SetConfigFile(configFile)
+
+	// Just use the regular Start method - security will be handled internally
 	return dashManager.Start()
 }
 

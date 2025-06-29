@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -265,9 +266,14 @@ func (d *DockerRuntime) PullImage(image string, auth *ImageAuth) error {
 func (d *DockerRuntime) BuildImage(opts *BuildOptions) error {
 	args := []string{"build"}
 
-	if opts.Dockerfile != "" {
-		args = append(args, "-f", opts.Dockerfile)
+	// Only add -f flag if dockerfile is NOT the default name or is in a different location
+	if opts.Dockerfile != "" && opts.Dockerfile != "Dockerfile" {
+		// For non-default dockerfile names, we need the full path
+		dockerfilePath := filepath.Join(opts.Context, opts.Dockerfile)
+		args = append(args, "-f", dockerfilePath)
 	}
+	// If opts.Dockerfile is empty or "Dockerfile", don't use -f flag at all
+	// Docker will automatically look for "Dockerfile" in the build context
 
 	for _, tag := range opts.Tags {
 		args = append(args, "-t", tag)
@@ -293,12 +299,24 @@ func (d *DockerRuntime) BuildImage(opts *BuildOptions) error {
 		args = append(args, "--platform", opts.Platform)
 	}
 
+	// Add context path last
 	args = append(args, opts.Context)
 
+	fmt.Printf("Building image: docker %s\n", strings.Join(args, " "))
+
 	cmd := exec.Command(d.execPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+
+	output, err := cmd.CombinedOutput()
+
+	if len(output) > 0 {
+		fmt.Printf("Build output:\n%s\n", string(output))
+	}
+
+	if err != nil {
+		return fmt.Errorf("docker build failed: %w\nBuild output: %s", err, string(output))
+	}
+
+	return nil
 }
 
 func (d *DockerRuntime) GetContainerStats(name string) (*ContainerStats, error) {
@@ -317,32 +335,122 @@ func (d *DockerRuntime) GetContainerStats(name string) (*ContainerStats, error) 
 }
 
 func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
-	// Basic security validation
-	if opts.Privileged {
-		fmt.Printf("Warning: Container '%s' will run in privileged mode\n", opts.Name)
+	// Check if this is a system container (proxy, dashboard)
+	isSystemContainer := false
+	if systemLabel, exists := opts.Labels["mcp-compose.system"]; exists && systemLabel == "true" {
+		isSystemContainer = true
 	}
 
-	// Check for dangerous volume mounts
+	// System containers get relaxed validation
+	if isSystemContainer {
+		fmt.Printf("Info: System container '%s' granted elevated permissions\n", opts.Name)
+		return nil
+	}
+
+	// Check if this container has security exceptions configured
+	securityConfig := opts.Security
+
+	// Privileged mode check
+	if opts.Privileged {
+		if !securityConfig.AllowPrivilegedOps {
+			return fmt.Errorf("container '%s' requests privileged mode but security.allow_privileged_ops is not enabled", opts.Name)
+		}
+		fmt.Printf("Info: Container '%s' running in privileged mode (explicitly allowed)\n", opts.Name)
+	}
+
+	// Volume mount validation
 	for _, volume := range opts.Volumes {
-		parts := strings.Split(volume, ":")
-		if len(parts) >= 2 {
-			source := parts[0]
-			if source == "/" || source == "/etc" || source == "/var/run/docker.sock" {
-				return fmt.Errorf("potentially dangerous volume mount: %s", volume)
-			}
+		if err := d.validateVolumeMount(volume, opts.Name, &securityConfig); err != nil {
+			return err
+		}
+	}
+
+	// Capability validation
+	for _, cap := range opts.CapAdd {
+		if err := d.validateCapability(cap, opts.Name); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// ADD enhanced StartContainer method (REPLACE existing one):
-func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
-	// Validate security context first
-	if err := d.ValidateSecurityContext(opts); err != nil {
-		return "", fmt.Errorf("security validation failed: %w", err)
+func (d *DockerRuntime) validateVolumeMount(volume, containerName string, security *SecurityConfig) error {
+	parts := strings.Split(volume, ":")
+	if len(parts) < 2 {
+		// This is a named volume (e.g., "mcp-cron-data:/data") - always allow
+		return nil
 	}
 
+	source := parts[0]
+
+	// Check if this is a named volume (doesn't start with / or .)
+	if !strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
+		// This is a named Docker volume - always allow
+		fmt.Printf("Info: Container '%s' mounting Docker volume '%s'\n", containerName, source)
+		return nil
+	}
+
+	// Check Docker socket access
+	if source == "/var/run/docker.sock" {
+		if !security.AllowDockerSocket {
+			return fmt.Errorf("container '%s' requests Docker socket access but security.allow_docker_socket is not enabled", containerName)
+		}
+
+		// Ensure it's read-only unless explicitly allowed for privileged ops
+		if !strings.HasSuffix(volume, ":ro") && !security.AllowPrivilegedOps {
+			return fmt.Errorf("container '%s' requests write access to Docker socket but security.allow_privileged_ops is not enabled", containerName)
+		}
+
+		fmt.Printf("Info: Container '%s' granted Docker socket access (explicitly allowed)\n", containerName)
+		return nil
+	}
+
+	// Check dangerous system mounts
+	dangerousPaths := []string{"/", "/etc", "/proc", "/sys", "/boot", "/dev"}
+	for _, dangerous := range dangerousPaths {
+		if source == dangerous {
+			if !security.AllowPrivilegedOps {
+				return fmt.Errorf("container '%s' requests dangerous mount '%s' but security.allow_privileged_ops is not enabled", containerName, source)
+			}
+			fmt.Printf("Warning: Container '%s' mounting dangerous path '%s' (explicitly allowed)\n", containerName, source)
+			return nil
+		}
+	}
+
+	// Check allowed host mounts
+	if len(security.AllowHostMounts) > 0 {
+		for _, allowed := range security.AllowHostMounts {
+			if strings.HasPrefix(source, allowed) {
+				fmt.Printf("Info: Container '%s' mounting allowed host path '%s'\n", containerName, source)
+				return nil
+			}
+		}
+		// If allow list is specified but path not in it
+		return fmt.Errorf("container '%s' requests mount '%s' which is not in security.allow_host_mounts list", containerName, source)
+	}
+
+	return nil
+}
+
+func (d *DockerRuntime) validateCapability(capability, containerName string) error {
+	// List of potentially dangerous capabilities
+	dangerousCaps := []string{
+		"SYS_ADMIN", "SYS_PTRACE", "SYS_MODULE", "DAC_OVERRIDE",
+		"SYS_RAWIO", "SYS_TIME", "NET_ADMIN", "SYS_NICE",
+	}
+
+	for _, dangerous := range dangerousCaps {
+		if strings.ToUpper(capability) == dangerous {
+			fmt.Printf("Warning: Container '%s' adding potentially dangerous capability '%s'\n", containerName, capability)
+			break
+		}
+	}
+
+	return nil
+}
+
+func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	// Check if container with this name already exists and remove it
 	inspectCmd := exec.Command(d.execPath, "inspect", "--type=container", opts.Name)
 	if err := inspectCmd.Run(); err == nil {
@@ -358,22 +466,65 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 
 	imageToRun := opts.Image
 
-	// Handle building if build context is provided
+	// Handle building (NO SECURITY VALIDATION FOR BUILD PROCESS)
 	if opts.Build.Context != "" {
 		if imageToRun == "" {
 			imageToRun = fmt.Sprintf("mcp-compose-built-%s:latest", strings.ToLower(opts.Name))
 		}
 
-		buildOpts := &BuildOptions{
-			Context:    opts.Build.Context,
-			Dockerfile: opts.Build.Dockerfile,
-			Tags:       []string{imageToRun},
-			Args:       opts.Build.Args,
+		// Add detailed debugging
+		fmt.Printf("=== BUILD DEBUG INFO ===\n")
+		fmt.Printf("  Server: %s\n", opts.Name)
+		fmt.Printf("  Build Context: %s\n", opts.Build.Context)
+		fmt.Printf("  Dockerfile: %s\n", opts.Build.Dockerfile)
+		fmt.Printf("  Target Image: %s\n", imageToRun)
+		fmt.Printf("  Current Working Directory: %s\n", func() string {
+			if cwd, err := os.Getwd(); err == nil {
+				return cwd
+			}
+			return "unknown"
+		}())
+
+		// Check if context exists
+		if info, err := os.Stat(opts.Build.Context); err != nil {
+			fmt.Printf("  Context directory error: %v\n", err)
+			return "", fmt.Errorf("build context directory '%s' does not exist: %w", opts.Build.Context, err)
+		} else {
+			fmt.Printf("  Context directory exists: %v\n", info.IsDir())
 		}
 
+		// Check dockerfile
+		dockerfilePath := "Dockerfile"
+		if opts.Build.Dockerfile != "" {
+			dockerfilePath = opts.Build.Dockerfile
+		}
+		fullPath := filepath.Join(opts.Build.Context, dockerfilePath)
+		if _, err := os.Stat(fullPath); err != nil {
+			fmt.Printf("  Dockerfile error: %v (looking for: %s)\n", err, fullPath)
+			return "", fmt.Errorf("dockerfile '%s' does not exist in context '%s': %w", dockerfilePath, opts.Build.Context, err)
+		} else {
+			fmt.Printf("  Dockerfile exists: %s\n", fullPath)
+		}
+		fmt.Printf("=== END BUILD DEBUG ===\n")
+
+		buildOpts := &BuildOptions{
+			Context:    opts.Build.Context,
+			Dockerfile: dockerfilePath,
+			Tags:       []string{imageToRun},
+			Args:       opts.Build.Args,
+			Target:     opts.Build.Target,
+			NoCache:    opts.Build.NoCache,
+			Pull:       opts.Build.Pull,
+			Platform:   opts.Build.Platform,
+		}
+
+		// Build process runs as host user - no container security applied
+		fmt.Printf("Starting build process for '%s'...\n", imageToRun)
 		if err := d.BuildImage(buildOpts); err != nil {
 			return "", fmt.Errorf("failed to build image: %w", err)
 		}
+
+		fmt.Printf("Successfully built image '%s'\n", imageToRun)
 	}
 
 	if imageToRun == "" {
@@ -382,9 +533,16 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 
 	// Pull image if requested AND no build was performed
 	if opts.Pull && opts.Build.Context == "" {
+		fmt.Printf("Pulling image '%s'...\n", imageToRun)
 		if err := d.PullImage(imageToRun, nil); err != nil {
 			return "", fmt.Errorf("failed to pull image '%s': %w", imageToRun, err)
 		}
+	}
+
+	// NOW apply security validation to the CONTAINER RUNTIME only
+	fmt.Printf("Applying security validation for container runtime '%s'...\n", opts.Name)
+	if err := d.ValidateSecurityContext(opts); err != nil {
+		return "", fmt.Errorf("container runtime security validation failed: %w", err)
 	}
 
 	// Ensure networks exist
@@ -492,7 +650,9 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	// Health check
 	if opts.HealthCheck != nil {
 		if len(opts.HealthCheck.Test) > 0 {
-			runArgs = append(runArgs, "--health-cmd", strings.Join(opts.HealthCheck.Test[1:], " "))
+			if len(opts.HealthCheck.Test) > 1 {
+				runArgs = append(runArgs, "--health-cmd", strings.Join(opts.HealthCheck.Test[1:], " "))
+			}
 		}
 		if opts.HealthCheck.Interval != "" {
 			runArgs = append(runArgs, "--health-interval", opts.HealthCheck.Interval)
@@ -519,11 +679,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	// Platform
 	if opts.Platform != "" {
 		runArgs = append(runArgs, "--platform", opts.Platform)
-	}
-
-	// Runtime
-	if opts.Runtime != "" {
-		runArgs = append(runArgs, "--runtime", opts.Runtime)
 	}
 
 	// Stop signal and timeout
@@ -559,6 +714,20 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	output, err := startCmd.CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DockerRuntime: Failed to start container '%s' with image '%s': %v. Output: %s\n", opts.Name, imageToRun, err, string(output))
+
+		// Try to get logs if container was created but failed to start
+		inspectCmdForID := exec.Command(d.execPath, "inspect", "--format", "{{.Id}}", opts.Name)
+		idOutput, idErr := inspectCmdForID.Output()
+		if idErr == nil {
+			tempContainerID := strings.TrimSpace(string(idOutput))
+			if tempContainerID != "" {
+				logsCmd := exec.Command(d.execPath, "logs", "--tail", "50", tempContainerID)
+				logsOutput, _ := logsCmd.CombinedOutput()
+				fmt.Fprintf(os.Stderr, "DockerRuntime: Last 50 log lines for container %s (ID: %s):\n%s\n", opts.Name, tempContainerID, string(logsOutput))
+				_ = exec.Command(d.execPath, "rm", "-f", opts.Name).Run()
+			}
+		}
+
 		return "", fmt.Errorf("failed to start container '%s' with image '%s': %w. Output: %s", opts.Name, imageToRun, err, string(output))
 	}
 

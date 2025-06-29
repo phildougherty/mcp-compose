@@ -36,6 +36,8 @@ type ComposeConfig struct {
 	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
 	CurrentEnv   string                       `yaml:"-"`
 	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
+	Networks     map[string]NetworkConfig     `yaml:"networks,omitempty"`
+	Volumes      map[string]VolumeConfig      `yaml:"volumes,omitempty"`
 }
 
 // OAuth 2.1 Configuration
@@ -156,6 +158,31 @@ type ServerConfig struct {
 	SSEPath         string              `yaml:"sse_path,omitempty"`      // Path for SSE endpoint
 	SSEPort         int                 `yaml:"sse_port,omitempty"`      // Port for SSE (if different from http_port)
 	SSEHeartbeat    int                 `yaml:"sse_heartbeat,omitempty"` // SSE heartbeat interval in seconds
+
+	// NEW: Docker-style container security and resource options
+	Privileged    bool              `yaml:"privileged,omitempty"`
+	User          string            `yaml:"user,omitempty"`
+	Groups        []string          `yaml:"groups,omitempty"`
+	ReadOnly      bool              `yaml:"read_only,omitempty"`
+	Tmpfs         []string          `yaml:"tmpfs,omitempty"`
+	CapAdd        []string          `yaml:"cap_add,omitempty"`
+	CapDrop       []string          `yaml:"cap_drop,omitempty"`
+	SecurityOpt   []string          `yaml:"security_opt,omitempty"`
+	Deploy        DeployConfig      `yaml:"deploy,omitempty"`
+	RestartPolicy string            `yaml:"restart,omitempty"`
+	StopSignal    string            `yaml:"stop_signal,omitempty"`
+	StopTimeout   *int              `yaml:"stop_grace_period,omitempty"`
+	HealthCheck   *HealthCheck      `yaml:"healthcheck,omitempty"`
+	Hostname      string            `yaml:"hostname,omitempty"`
+	DomainName    string            `yaml:"domainname,omitempty"`
+	DNS           []string          `yaml:"dns,omitempty"`
+	DNSSearch     []string          `yaml:"dns_search,omitempty"`
+	ExtraHosts    []string          `yaml:"extra_hosts,omitempty"`
+	LogDriver     string            `yaml:"log_driver,omitempty"`
+	LogOptions    map[string]string `yaml:"log_options,omitempty"`
+	Labels        map[string]string `yaml:"labels,omitempty"`
+	Annotations   map[string]string `yaml:"annotations,omitempty"`
+	Platform      string            `yaml:"platform,omitempty"`
 }
 
 type ServerAuthConfig struct {
@@ -178,6 +205,70 @@ type BuildConfig struct {
 	Context    string            `yaml:"context,omitempty"`
 	Dockerfile string            `yaml:"dockerfile,omitempty"`
 	Args       map[string]string `yaml:"args,omitempty"` // For --build-arg
+	Target     string            `yaml:"target,omitempty"`
+	NoCache    bool              `yaml:"no_cache,omitempty"`
+	Pull       bool              `yaml:"pull,omitempty"`
+	Platform   string            `yaml:"platform,omitempty"`
+}
+
+// NEW: Deploy configuration for resource management
+type DeployConfig struct {
+	Resources     ResourcesDeployConfig `yaml:"resources,omitempty"`
+	RestartPolicy string                `yaml:"restart_policy,omitempty"`
+	Replicas      int                   `yaml:"replicas,omitempty"`
+	UpdateConfig  UpdateConfig          `yaml:"update_config,omitempty"`
+}
+
+type ResourcesDeployConfig struct {
+	Limits       ResourceLimitsConfig `yaml:"limits,omitempty"`
+	Reservations ResourceLimitsConfig `yaml:"reservations,omitempty"`
+}
+
+type ResourceLimitsConfig struct {
+	CPUs        string `yaml:"cpus,omitempty"`
+	Memory      string `yaml:"memory,omitempty"`
+	MemorySwap  string `yaml:"memory_swap,omitempty"`
+	PIDs        int    `yaml:"pids,omitempty"`
+	BlkioWeight int    `yaml:"blkio_weight,omitempty"`
+}
+
+type UpdateConfig struct {
+	Parallelism     int    `yaml:"parallelism,omitempty"`
+	Delay           string `yaml:"delay,omitempty"`
+	FailureAction   string `yaml:"failure_action,omitempty"`
+	Monitor         string `yaml:"monitor,omitempty"`
+	MaxFailureRatio string `yaml:"max_failure_ratio,omitempty"`
+}
+
+// NEW: Network configuration
+type NetworkConfig struct {
+	Driver      string            `yaml:"driver,omitempty"`
+	DriverOpts  map[string]string `yaml:"driver_opts,omitempty"`
+	Attachable  bool              `yaml:"attachable,omitempty"`
+	Enable_ipv6 bool              `yaml:"enable_ipv6,omitempty"`
+	IPAM        IPAMConfig        `yaml:"ipam,omitempty"`
+	Internal    bool              `yaml:"internal,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
+	External    bool              `yaml:"external,omitempty"`
+}
+
+type IPAMConfig struct {
+	Driver  string            `yaml:"driver,omitempty"`
+	Config  []IPAMConfigEntry `yaml:"config,omitempty"`
+	Options map[string]string `yaml:"options,omitempty"`
+}
+
+type IPAMConfigEntry struct {
+	Subnet  string `yaml:"subnet,omitempty"`
+	Gateway string `yaml:"gateway,omitempty"`
+}
+
+// NEW: Volume configuration
+type VolumeConfig struct {
+	Driver     string            `yaml:"driver,omitempty"`
+	DriverOpts map[string]string `yaml:"driver_opts,omitempty"`
+	External   bool              `yaml:"external,omitempty"`
+	Labels     map[string]string `yaml:"labels,omitempty"`
 }
 
 // ConnectionConfig represents connection settings for MCP communication
@@ -266,10 +357,20 @@ type ModelConfig struct {
 	TopK        int     `yaml:"top_k,omitempty"`
 }
 
-// SecurityConfig defines security settings for a server
+// SecurityConfig defines security settings for a server (UPDATED)
 type SecurityConfig struct {
 	Auth          AuthConfig          `yaml:"auth,omitempty"`
 	AccessControl AccessControlConfig `yaml:"access_control,omitempty"`
+
+	// NEW: Docker-style security capabilities
+	AllowDockerSocket  bool              `yaml:"allow_docker_socket,omitempty"`
+	AllowHostMounts    []string          `yaml:"allow_host_mounts,omitempty"`
+	AllowPrivilegedOps bool              `yaml:"allow_privileged_ops,omitempty"`
+	TrustedImage       bool              `yaml:"trusted_image,omitempty"`
+	NoNewPrivileges    bool              `yaml:"no_new_privileges,omitempty"`
+	AppArmor           string            `yaml:"apparmor,omitempty"`
+	Seccomp            string            `yaml:"seccomp,omitempty"`
+	SELinux            map[string]string `yaml:"selinux,omitempty"`
 }
 
 // AuthConfig defines authentication configuration
@@ -311,13 +412,15 @@ type HumanControlConfig struct {
 	TimeoutSeconds      int      `yaml:"timeout_seconds,omitempty"`
 }
 
-// HealthCheck defines health check configuration
+// HealthCheck defines health check configuration (UPDATED)
 type HealthCheck struct {
-	Endpoint string `yaml:"endpoint,omitempty"`
-	Interval string `yaml:"interval,omitempty"`
-	Timeout  string `yaml:"timeout,omitempty"`
-	Retries  int    `yaml:"retries,omitempty"`
-	Action   string `yaml:"action,omitempty"` // Action to take when health check fails (e.g., "restart")
+	Test        []string `yaml:"test,omitempty"`
+	Interval    string   `yaml:"interval,omitempty"`
+	Timeout     string   `yaml:"timeout,omitempty"`
+	Retries     int      `yaml:"retries,omitempty"`
+	StartPeriod string   `yaml:"start_period,omitempty"`
+	Endpoint    string   `yaml:"endpoint,omitempty"` // Legacy support
+	Action      string   `yaml:"action,omitempty"`   // Action when health check fails
 }
 
 // CapabilityOptConfig defines capability-specific options
@@ -464,34 +567,28 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file '%s': %w", filePath, err)
 	}
-
 	// Expand environment variables
 	expandedData := os.ExpandEnv(string(data)) // Use os.ExpandEnv for ${VAR} and $VAR
-
 	// Parse YAML
 	var config ComposeConfig
 	err = yaml.Unmarshal([]byte(expandedData), &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file '%s': %w", filePath, err)
 	}
-
 	// Get current environment from MCP_ENV environment variable
 	envName := os.Getenv("MCP_ENV")
 	if envName == "" {
 		envName = "development" // Default environment
 	}
 	config.CurrentEnv = envName
-
 	// Apply environment-specific overrides if they exist
 	if envConfig, exists := config.Environments[envName]; exists {
 		applyEnvironmentOverrides(&config, envConfig)
 	}
-
 	// Validate config
 	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("invalid configuration in '%s': %w", filePath, err)
 	}
-
 	return &config, nil
 }
 
@@ -509,7 +606,6 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 					server.Env[k] = v
 				}
 			}
-
 			// Apply resource settings
 			if len(overrides.Resources.Paths) > 0 {
 				server.Resources.Paths = overrides.Resources.Paths
@@ -520,7 +616,6 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 			if overrides.Resources.CacheTTL > 0 { // Should be CacheTTL not CacheTLL
 				server.Resources.CacheTTL = overrides.Resources.CacheTTL
 			}
-
 			// Update the server in the config
 			config.Servers[serverName] = server
 		}
@@ -532,49 +627,59 @@ func ValidateConfig(config *ComposeConfig) error {
 	if config.Version != "1" {
 		return fmt.Errorf("unsupported version: '%s', expected '1'", config.Version)
 	}
-
 	for name, server := range config.Servers {
 		if err := validateServerConfig(name, server); err != nil {
 			return err
 		}
-
 		// Validate dependencies
 		for _, dep := range server.DependsOn {
 			if _, exists := config.Servers[dep]; !exists {
 				return fmt.Errorf("server '%s' depends on undefined server '%s'", name, dep)
 			}
 		}
-
 		// Validate human control configuration
 		if server.Lifecycle.HumanControl != nil {
 			if err := validateHumanControlConfig(name, server.Lifecycle.HumanControl); err != nil {
 				return err
 			}
 		}
-
 		// Validate resource paths
 		if err := validateResourcePaths(name, server.Resources); err != nil {
 			return err
 		}
-
 		// Validate tools configuration
 		if err := validateToolsConfig(name, server.Tools); err != nil {
 			return err
 		}
+		// NEW: Validate security configuration
+		if err := validateSecurityConfig(name, server.Security); err != nil {
+			return err
+		}
+		// NEW: Validate resource limits
+		if err := validateResourceLimits(name, server.Deploy.Resources); err != nil {
+			return err
+		}
 	}
-
 	// Validate global configuration
 	if err := validateGlobalConfig(config); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// Now used by the main validateConfig function
 func validateServerConfig(name string, server ServerConfig) error {
-	if server.Command == "" && server.Image == "" {
-		return fmt.Errorf("server '%s' must specify either command or image", name)
+	// A server must specify either command, image, OR build context
+	if server.Command == "" && server.Image == "" && server.Build.Context == "" {
+		return fmt.Errorf("server '%s' must specify either command, image, or build context", name)
+	}
+
+	// If build context is provided, we don't need image or command (command can be in Dockerfile)
+	if server.Build.Context != "" {
+		// Build context is sufficient - command and image are optional
+		// Command will be used to override Dockerfile CMD if provided
+		// Image will be used as the tag name if provided
+	} else if server.Image == "" && server.Command == "" {
+		return fmt.Errorf("server '%s' must specify either command or image when not using build", name)
 	}
 
 	// Validate protocol
@@ -628,7 +733,6 @@ func hasPortInArgsOrMapping(server ServerConfig) bool {
 			return true
 		}
 	}
-
 	// Check if port mapping exists
 	if len(server.Ports) > 0 {
 		for _, p := range server.Ports {
@@ -638,7 +742,6 @@ func hasPortInArgsOrMapping(server ServerConfig) bool {
 			}
 		}
 	}
-
 	return false
 }
 
@@ -665,38 +768,32 @@ func validateResourcePaths(serverName string, resources ResourcesConfig) error {
 		if path.Target == "" {
 			return fmt.Errorf("server '%s' resource path %d missing target", serverName, i)
 		}
-
 		// Check if source path exists (warning, not error)
 		if _, err := os.Stat(path.Source); os.IsNotExist(err) {
 			// This could be a warning instead of an error
 			continue
 		}
 	}
-
 	// Validate sync interval if specified
 	if resources.SyncInterval != "" {
 		if _, err := time.ParseDuration(resources.SyncInterval); err != nil {
 			return fmt.Errorf("server '%s' has invalid resource sync_interval '%s': %w", serverName, resources.SyncInterval, err)
 		}
 	}
-
 	return nil
 }
 
 // Validate tools configuration
 func validateToolsConfig(serverName string, tools []ToolConfig) error {
 	toolNames := make(map[string]bool)
-
 	for i, tool := range tools {
 		if tool.Name == "" {
 			return fmt.Errorf("server '%s' tool %d missing name", serverName, i)
 		}
-
 		if toolNames[tool.Name] {
 			return fmt.Errorf("server '%s' has duplicate tool name: '%s'", serverName, tool.Name)
 		}
 		toolNames[tool.Name] = true
-
 		// Validate timeout if specified
 		if tool.Timeout != "" {
 			if _, err := time.ParseDuration(tool.Timeout); err != nil {
@@ -704,8 +801,99 @@ func validateToolsConfig(serverName string, tools []ToolConfig) error {
 			}
 		}
 	}
+	return nil
+}
+
+// NEW: Validate security configuration
+func validateSecurityConfig(serverName string, security SecurityConfig) error {
+	// Validate AppArmor profile
+	if security.AppArmor != "" {
+		validProfiles := []string{"unconfined", "default"}
+		valid := false
+		for _, profile := range validProfiles {
+			if security.AppArmor == profile {
+				valid = true
+				break
+			}
+		}
+		if !valid && !strings.HasPrefix(security.AppArmor, "/") {
+			return fmt.Errorf("server '%s' has invalid apparmor profile: '%s'", serverName, security.AppArmor)
+		}
+	}
+
+	// Validate seccomp profile
+	if security.Seccomp != "" {
+		validProfiles := []string{"unconfined", "default"}
+		valid := false
+		for _, profile := range validProfiles {
+			if security.Seccomp == profile {
+				valid = true
+				break
+			}
+		}
+		if !valid && !strings.HasPrefix(security.Seccomp, "/") {
+			return fmt.Errorf("server '%s' has invalid seccomp profile: '%s'", serverName, security.Seccomp)
+		}
+	}
 
 	return nil
+}
+
+// NEW: Validate resource limits
+func validateResourceLimits(serverName string, resources ResourcesDeployConfig) error {
+	// Validate CPU limits
+	if resources.Limits.CPUs != "" {
+		if _, err := strconv.ParseFloat(resources.Limits.CPUs, 64); err != nil {
+			return fmt.Errorf("server '%s' has invalid CPU limit: '%s'", serverName, resources.Limits.CPUs)
+		}
+	}
+
+	// Validate memory limits
+	if resources.Limits.Memory != "" {
+		if !isValidMemoryFormat(resources.Limits.Memory) {
+			return fmt.Errorf("server '%s' has invalid memory limit format: '%s'", serverName, resources.Limits.Memory)
+		}
+	}
+
+	if resources.Limits.MemorySwap != "" {
+		if !isValidMemoryFormat(resources.Limits.MemorySwap) {
+			return fmt.Errorf("server '%s' has invalid memory swap format: '%s'", serverName, resources.Limits.MemorySwap)
+		}
+	}
+
+	// Validate PIDs limit
+	if resources.Limits.PIDs < 0 {
+		return fmt.Errorf("server '%s' has invalid PIDs limit: %d (must be >= 0)", serverName, resources.Limits.PIDs)
+	}
+
+	return nil
+}
+
+// Helper function to validate memory format (e.g., "512m", "1g", "2048k")
+func isValidMemoryFormat(memory string) bool {
+	if memory == "" {
+		return true
+	}
+
+	validSuffixes := []string{"b", "k", "m", "g"}
+	memory = strings.ToLower(memory)
+
+	for _, suffix := range validSuffixes {
+		if strings.HasSuffix(memory, suffix) {
+			numPart := memory[:len(memory)-1]
+			if _, err := strconv.ParseInt(numPart, 10, 64); err != nil {
+				return false
+			}
+			return true
+		}
+	}
+
+	// Check if it's just a number (bytes)
+	if _, err := strconv.ParseInt(memory, 10, 64); err != nil {
+		return false
+	}
+
+	return true
 }
 
 // Validate port mapping format
@@ -715,7 +903,6 @@ func validatePortMapping(portMapping string) error {
 		if part == "" {
 			return fmt.Errorf("empty port in mapping '%s'", portMapping)
 		}
-
 		// Check if it's a valid number
 		if _, err := strconv.Atoi(part); err != nil {
 			// Could be a port range like "8000-8010", validate differently
@@ -733,7 +920,6 @@ func validateGlobalConfig(config *ComposeConfig) error {
 	if config.ProxyAuth.Enabled && config.ProxyAuth.APIKey == "" {
 		return fmt.Errorf("proxy_auth is enabled but api_key is not specified")
 	}
-
 	// Validate dashboard config
 	if config.Dashboard.Enabled {
 		if config.Dashboard.Port <= 0 || config.Dashboard.Port > 65535 {
@@ -743,21 +929,18 @@ func validateGlobalConfig(config *ComposeConfig) error {
 			return fmt.Errorf("dashboard is enabled but proxy_url is not specified")
 		}
 	}
-
 	// Validate connections
 	for name, conn := range config.Connections {
 		if err := validateConnection(name, conn); err != nil {
 			return err
 		}
 	}
-
 	// Validate OAuth config if present
 	if config.OAuth != nil && config.OAuth.Enabled {
 		if err := validateOAuthConfig(config.OAuth); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -766,7 +949,6 @@ func validateOAuthConfig(oauth *OAuthConfig) error {
 	if oauth.Issuer == "" {
 		return fmt.Errorf("oauth.issuer is required when OAuth is enabled")
 	}
-
 	// Validate token TTLs
 	if oauth.Tokens.AccessTokenTTL != "" {
 		if _, err := time.ParseDuration(oauth.Tokens.AccessTokenTTL); err != nil {
@@ -778,7 +960,6 @@ func validateOAuthConfig(oauth *OAuthConfig) error {
 			return fmt.Errorf("invalid oauth.tokens.refresh_token_ttl: %w", err)
 		}
 	}
-
 	return nil
 }
 
@@ -795,11 +976,9 @@ func validateConnection(name string, conn ConnectionConfig) error {
 	if !valid {
 		return fmt.Errorf("connection '%s' has invalid transport: '%s'", name, conn.Transport)
 	}
-
 	if conn.Port < 0 || conn.Port > 65535 {
 		return fmt.Errorf("connection '%s' has invalid port: %d", name, conn.Port)
 	}
-
 	return nil
 }
 
@@ -821,13 +1000,7 @@ func IsCapabilityEnabled(server ServerConfig, capability string) bool {
 			return true
 		}
 	}
-	// Check specific capability options (this part might be more complex depending on your full config structure)
-	// switch capability {
-	// case "resources":
-	// 	return server.CapabilityOpt.Resources.Enabled
-	// // ... other capabilities
-	// }
-	return false // Default if not explicitly listed or in detailed options
+	return false
 }
 
 // MergeEnv merges the provided env vars with the server's env vars
@@ -857,10 +1030,8 @@ func SaveConfig(filePath string, config *ComposeConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file '%s': %w", filePath, err)
 	}
-
 	return nil
 }
