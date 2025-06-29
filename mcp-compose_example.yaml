@@ -1,87 +1,384 @@
-# MCP Compose Configuration Example
-# This file demonstrates basic configuration with official MCP servers
-# Copy this file to mcp-compose.yaml and modify the values for your setup
+# MCP-Compose Configuration Template with Security & Resource Management
+# Version with all available options and their requirements
 
-version: '1'
+version: '1'  # REQUIRED
 
-# Optional: Enable proxy authentication
+# ============================================================================
+# PROXY AUTHENTICATION - OPTIONAL (but recommended for production)
+# ============================================================================
 proxy_auth:
-  enabled: true
-  api_key: "your-secure-api-key-here"  # Change this to a secure API key
+  enabled: true                    # OPTIONAL (default: false)
+  api_key: "your-secret-key"       # OPTIONAL (but required if enabled: true)
+  oauth_fallback: true             # OPTIONAL (default: false)
 
+# ============================================================================
+# OAUTH 2.1 CONFIGURATION - OPTIONAL (advanced authentication)
+# ============================================================================
+oauth:
+  enabled: true                    # OPTIONAL (default: false)
+  issuer: "http://your-proxy-url"  # REQUIRED if oauth.enabled: true
+  endpoints:                       # OPTIONAL (defaults provided)
+    authorization: "/oauth/authorize"
+    token: "/oauth/token"
+    userinfo: "/oauth/userinfo"
+    revoke: "/oauth/revoke"
+    discovery: "/.well-known/oauth-authorization-server"
+  tokens:                          # OPTIONAL (defaults provided)
+    access_token_ttl: "1h"
+    refresh_token_ttl: "168h"
+    authorization_code_ttl: "10m"
+    algorithm: "HS256"
+  security:                        # OPTIONAL (defaults provided)
+    require_pkce: true
+  grant_types:                     # OPTIONAL (defaults provided)
+    - "authorization_code"
+    - "client_credentials"
+    - "refresh_token"
+  response_types:                  # OPTIONAL (defaults provided)
+    - "code"
+  scopes_supported:                # OPTIONAL (defaults provided)
+    - "mcp:*"
+    - "mcp:tools"
+    - "mcp:resources"
+    - "mcp:prompts"
+
+# ============================================================================
+# AUDIT LOGGING - OPTIONAL (security monitoring)
+# ============================================================================
+audit:
+  enabled: true                    # OPTIONAL (default: false)
+  log_level: "info"               # OPTIONAL (default: "info")
+  storage: "memory"               # OPTIONAL (default: "memory")
+  retention:                      # OPTIONAL (defaults provided)
+    max_entries: 1000
+    max_age: "7d"
+  events:                         # OPTIONAL (defaults provided)
+    - "oauth.token.issued"
+    - "oauth.token.revoked"
+    - "oauth.user.login"
+    - "server.access.granted"
+    - "server.access.denied"
+
+# ============================================================================
+# RBAC CONFIGURATION - OPTIONAL (role-based access control)
+# ============================================================================
+rbac:
+  enabled: true                    # OPTIONAL (default: false)
+  scopes:                         # OPTIONAL (defaults provided)
+    - name: "mcp:*"
+      description: "Full access to all MCP resources"
+    - name: "mcp:tools"
+      description: "Access to MCP tools"
+    - name: "mcp:resources"
+      description: "Access to MCP resources"
+    - name: "mcp:prompts"
+      description: "Access to MCP prompts"
+  roles:                          # OPTIONAL (defaults provided)
+    admin:
+      name: "admin"
+      description: "Full administrative access"
+      scopes: ["mcp:*"]
+    user:
+      name: "user"
+      description: "Standard user access"
+      scopes: ["mcp:tools", "mcp:resources"]
+    readonly:
+      name: "readonly"
+      description: "Read-only access"
+      scopes: ["mcp:resources"]
+
+# ============================================================================
+# OAUTH CLIENTS - OPTIONAL (pre-registered OAuth clients)
+# ============================================================================
+oauth_clients:
+  client_name:                     # OPTIONAL (client identifier)
+    client_id: "unique-client-id"  # REQUIRED for each client
+    client_secret: "secret"        # OPTIONAL (required for confidential clients)
+    name: "Client Display Name"    # REQUIRED for each client
+    description: "Client description" # OPTIONAL
+    redirect_uris:                 # REQUIRED for each client
+      - "http://localhost:3000/callback"
+    scopes: ["mcp:tools"]          # REQUIRED for each client
+    grant_types: ["authorization_code"] # REQUIRED for each client
+    public_client: true            # OPTIONAL (default: false)
+    auto_approve: false            # OPTIONAL (default: false)
+
+# ============================================================================
+# DASHBOARD CONFIGURATION - OPTIONAL (web interface)
+# ============================================================================
+dashboard:
+  enabled: true                    # OPTIONAL (default: false)
+  port: 3111                      # OPTIONAL (default: 3001)
+  host: "0.0.0.0"                 # OPTIONAL (default: "localhost")
+  proxy_url: "http://proxy:9876"  # REQUIRED if dashboard.enabled: true
+  theme: "dark"                   # OPTIONAL (default: "light")
+  log_streaming: true             # OPTIONAL (default: false)
+  config_editor: true             # OPTIONAL (default: false)
+  metrics: true                   # OPTIONAL (default: false)
+  security:                       # OPTIONAL (dashboard security features)
+    enabled: true                 # OPTIONAL (default: false)
+    oauth_config: true            # OPTIONAL (default: false)
+    client_management: true       # OPTIONAL (default: false)
+    user_management: true         # OPTIONAL (default: false)
+    audit_logs: true              # OPTIONAL (default: false)
+  admin_login:                    # OPTIONAL (admin access)
+    enabled: true                 # OPTIONAL (default: false)
+    session_timeout: "24h"        # OPTIONAL (default: "1h")
+
+# ============================================================================
+# SERVERS CONFIGURATION - REQUIRED (at least one server)
+# ============================================================================
 servers:
-  # Official Filesystem MCP Server - provides file system access
-  filesystem:
-    build: 
-      context: ./docker_utils/socat_stdio_hoster
-      dockerfile: Dockerfile.base_socat_hoster
-      args: 
-        BASE_IMAGE: node:22-slim
-    runtime: docker
-    command: "npx" 
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/files"] 
-    env: 
-      MCP_SOCAT_INTERNAL_PORT: "12345"
-    stdio_hoster_port: 12345        
-    capabilities: [resources, tools]
-    volumes: 
-      - "/path/to/your/files:/files:rw"  # Change to your desired directory
-    networks: [mcp-net]
+  # Example comprehensive server configuration
+  example-server:
+    # ========================================================================
+    # BASIC CONFIGURATION - One of image/build/command is REQUIRED
+    # ========================================================================
+    image: "nginx:alpine"          # OPTIONAL (use pre-built image)
+    # OR
+    build:                         # OPTIONAL (build from source)
+      context: "./path/to/build"   # REQUIRED if build specified
+      dockerfile: "Dockerfile"     # OPTIONAL (default: "Dockerfile")
+      args:                        # OPTIONAL (build arguments)
+        BUILD_ENV: "production"
+      target: "production"         # OPTIONAL (multi-stage build target)
+      no_cache: false              # OPTIONAL (default: false)
+      pull: true                   # OPTIONAL (default: false)
+      platform: "linux/amd64"     # OPTIONAL (target platform)
+    # OR
+    command: "/usr/bin/app"        # OPTIONAL (executable path)
+    args: ["--flag", "value"]      # OPTIONAL (command arguments)
 
-  # Official GitHub MCP Server - requires GitHub token
-  github:
-    build: 
-      context: ./docker_utils/socat_stdio_hoster
-      dockerfile: Dockerfile.base_socat_hoster
-      args: 
-        BASE_IMAGE: node:22-slim
-    runtime: docker
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env: 
-      MCP_SOCAT_INTERNAL_PORT: "12346"
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"  # Set this environment variable
-    stdio_hoster_port: 12346
-    capabilities: [tools, resources]
-    networks: [mcp-net]
+    # ========================================================================
+    # MCP PROTOCOL CONFIGURATION - OPTIONAL (defaults to stdio)
+    # ========================================================================
+    protocol: "http"               # OPTIONAL ("stdio", "http", "sse", "tcp")
+    http_port: 8080                # OPTIONAL (required for http/sse protocols)
+    http_path: "/api"              # OPTIONAL (HTTP endpoint path)
+    sse_path: "/sse"               # OPTIONAL (SSE endpoint path)
+    sse_port: 8081                 # OPTIONAL (separate SSE port)
+    sse_heartbeat: 30              # OPTIONAL (SSE heartbeat interval in seconds)
+    stdio_hoster_port: 12345       # OPTIONAL (for stdio-over-socket)
 
-  # Official Memory MCP Server - provides persistent memory capabilities
-  memory:
-    build: 
-      context: ./docker_utils/socat_stdio_hoster
-      dockerfile: Dockerfile.base_socat_hoster
-      args: 
-        BASE_IMAGE: node:22-slim
-    runtime: docker
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-memory"]
-    env: 
-      MCP_SOCAT_INTERNAL_PORT: "12347"
-    stdio_hoster_port: 12347
-    capabilities: [tools, resources]
-    networks: [mcp-net]
+    # ========================================================================
+    # SECURITY CONFIGURATION - OPTIONAL (Docker-style security)
+    # ========================================================================
+    user: "1000:1000"             # OPTIONAL (user:group to run as)
+    groups: ["audio", "video"]     # OPTIONAL (additional groups)
+    privileged: false              # OPTIONAL (default: false) - DANGEROUS
+    read_only: true                # OPTIONAL (default: false)
+    tmpfs:                         # OPTIONAL (temporary filesystems)
+      - "/tmp"
+      - "/var/cache"
+    
+    # Linux capabilities
+    cap_add:                       # OPTIONAL (add capabilities)
+      - "NET_ADMIN"                # Use with caution
+      - "SYS_TIME"
+    cap_drop:                      # OPTIONAL (drop capabilities - recommended)
+      - "ALL"                      # Drop all, then add specific ones
+    security_opt:                  # OPTIONAL (security options)
+      - "no-new-privileges:true"   # RECOMMENDED
+      - "apparmor:unconfined"      # Use with caution
+      - "seccomp:unconfined"       # Use with caution
 
-# Network configuration for inter-container communication
+    # MCP-Compose security policy
+    security:                      # OPTIONAL (mcp-compose security rules)
+      allow_docker_socket: false   # OPTIONAL (default: false) - DANGEROUS
+      allow_host_mounts:           # OPTIONAL (allowed host mount paths)
+        - "/home/user/safe-dir"
+        - "/tmp"
+      allow_privileged_ops: false  # OPTIONAL (default: false)
+      trusted_image: true          # OPTIONAL (default: false)
+      no_new_privileges: true      # OPTIONAL (default: true)
+      apparmor: "default"          # OPTIONAL (AppArmor profile)
+      seccomp: "default"           # OPTIONAL (seccomp profile)
+      selinux:                     # OPTIONAL (SELinux labels)
+        type: "container_t"
+
+    # ========================================================================
+    # RESOURCE LIMITS - OPTIONAL (prevent resource exhaustion)
+    # ========================================================================
+    deploy:
+      resources:
+        limits:                    # OPTIONAL (resource limits)
+          cpus: "1.0"              # OPTIONAL (CPU cores)
+          memory: "512m"           # OPTIONAL (RAM limit)
+          memory_swap: "1g"        # OPTIONAL (swap limit)
+          pids: 100                # OPTIONAL (process limit)
+          blkio_weight: 500        # OPTIONAL (block I/O weight)
+        reservations:              # OPTIONAL (resource reservations)
+          cpus: "0.5"              # OPTIONAL (guaranteed CPU)
+          memory: "256m"           # OPTIONAL (guaranteed RAM)
+      restart_policy: "unless-stopped" # OPTIONAL (restart behavior)
+      replicas: 1                  # OPTIONAL (number of instances)
+      update_config:               # OPTIONAL (update strategy)
+        parallelism: 1
+        delay: "10s"
+        failure_action: "pause"
+        monitor: "5s"
+        max_failure_ratio: "0.3"
+
+    # ========================================================================
+    # NETWORKING - OPTIONAL (defaults provided)
+    # ========================================================================
+    ports:                         # OPTIONAL (port mappings)
+      - "8080:8080"                # Format: "host:container"
+      - "127.0.0.1:8081:8081"      # Bind to specific interface
+    networks:                      # OPTIONAL (custom networks)
+      - "mcp-net"                  # Default network
+      - "custom-net"               # Additional networks
+    network_mode: "bridge"         # OPTIONAL (networking mode)
+    hostname: "my-server"          # OPTIONAL (container hostname)
+    domainname: "example.com"      # OPTIONAL (container domain)
+    dns:                           # OPTIONAL (custom DNS servers)
+      - "8.8.8.8"
+      - "1.1.1.1"
+    dns_search:                    # OPTIONAL (DNS search domains)
+      - "example.com"
+    extra_hosts:                   # OPTIONAL (additional hosts)
+      - "host.docker.internal:host-gateway"
+
+    # ========================================================================
+    # STORAGE - OPTIONAL (persistent data)
+    # ========================================================================
+    volumes:                       # OPTIONAL (volume mounts)
+      - "/host/path:/container/path:ro"     # Host mount (read-only)
+      - "/host/path:/container/path:rw"     # Host mount (read-write)
+      - "named-volume:/data"                # Named volume
+      - "/tmp:/tmp"                         # Temporary mount
+    workdir: "/app"                # OPTIONAL (working directory)
+
+    # ========================================================================
+    # ENVIRONMENT - OPTIONAL (runtime configuration)
+    # ========================================================================
+    env:                           # OPTIONAL (environment variables)
+      NODE_ENV: "production"
+      API_KEY: "${SECRET_KEY}"     # Environment variable expansion
+      DEBUG: "false"
+    pull: true                     # OPTIONAL (pull image before start)
+
+    # ========================================================================
+    # HEALTH & LIFECYCLE - OPTIONAL (monitoring and hooks)
+    # ========================================================================
+    healthcheck:                   # OPTIONAL (container health monitoring)
+      test: ["CMD", "curl", "-f", "http://localhost/health"]  # REQUIRED if healthcheck specified
+      interval: "30s"              # OPTIONAL (check interval)
+      timeout: "10s"               # OPTIONAL (check timeout)
+      retries: 3                   # OPTIONAL (failure threshold)
+      start_period: "40s"          # OPTIONAL (initial grace period)
+
+    lifecycle:                     # OPTIONAL (lifecycle hooks)
+      pre_start: "echo 'Starting'"  # OPTIONAL (run before start)
+      post_start: "echo 'Started'" # OPTIONAL (run after start)
+      pre_stop: "echo 'Stopping'"  # OPTIONAL (run before stop)
+      post_stop: "echo 'Stopped'"  # OPTIONAL (run after stop)
+
+    # ========================================================================
+    # LOGGING - OPTIONAL (log configuration)
+    # ========================================================================
+    log_driver: "json-file"        # OPTIONAL (logging driver)
+    log_options:                   # OPTIONAL (driver-specific options)
+      max-size: "10m"
+      max-file: "3"
+      compress: "true"
+
+    # ========================================================================
+    # RUNTIME OPTIONS - OPTIONAL (advanced container settings)
+    # ========================================================================
+    platform: "linux/amd64"       # OPTIONAL (target platform)
+    stop_signal: "SIGTERM"         # OPTIONAL (stop signal)
+    stop_grace_period: 30          # OPTIONAL (graceful stop timeout)
+    labels:                        # OPTIONAL (metadata labels)
+      com.example.service: "web"
+      com.example.version: "1.0"
+    annotations:                   # OPTIONAL (additional metadata)
+      description: "Web server component"
+
+    # ========================================================================
+    # MCP-SPECIFIC CONFIGURATION - OPTIONAL (mcp features)
+    # ========================================================================
+    capabilities: [tools, resources, prompts] # OPTIONAL (MCP capabilities)
+    depends_on:                    # OPTIONAL (service dependencies)
+      - "database"
+      - "redis"
+
+    # MCP Authentication
+    authentication:                # OPTIONAL (server-level auth)
+      enabled: true                # OPTIONAL (default: false)
+      required_scope: "mcp:tools"  # OPTIONAL (required OAuth scope)
+      optional_auth: false         # OPTIONAL (allow unauthenticated)
+      scopes: ["mcp:tools"]        # OPTIONAL (allowed scopes)
+      allow_api_key: true          # OPTIONAL (allow API key auth)
+
+    # OAuth Configuration (server-level)
+    oauth:                         # OPTIONAL (server OAuth settings)
+      enabled: true                # OPTIONAL (default: false)
+      required_scope: "mcp:tools"  # REQUIRED if oauth.enabled: true
+      allow_api_key_fallback: true # OPTIONAL (allow API key fallback)
+      optional_auth: false         # OPTIONAL (allow no auth)
+      allowed_clients: ["client1"] # OPTIONAL (restrict to specific clients)
+
+# ============================================================================
+# NETWORK DEFINITIONS - OPTIONAL (custom networks)
+# ============================================================================
 networks:
-  mcp-net:
-    driver: bridge
+  mcp-net:                         # Default network (automatically created)
+    driver: bridge                 # OPTIONAL (default: bridge)
+  custom-net:                      # Example custom network
+    driver: bridge                 # OPTIONAL (network driver)
+    driver_opts:                   # OPTIONAL (driver options)
+      com.docker.network.bridge.name: "custom0"
+    attachable: true               # OPTIONAL (allow manual attachment)
+    enable_ipv6: false             # OPTIONAL (enable IPv6)
+    ipam:                          # OPTIONAL (IP address management)
+      driver: default
+      config:
+        - subnet: "172.20.0.0/16"
+          gateway: "172.20.0.1"
+    internal: false                # OPTIONAL (internal network)
+    labels:                        # OPTIONAL (network labels)
+      environment: "production"
+    external: false                # OPTIONAL (use external network)
 
-# =============================================================================
-# SETUP INSTRUCTIONS:
-# =============================================================================
+# ============================================================================
+# VOLUME DEFINITIONS - OPTIONAL (named volumes)
+# ============================================================================
+volumes:
+  app-data:                        # Example named volume
+    driver: local                  # OPTIONAL (default: local)
+    driver_opts:                   # OPTIONAL (driver options)
+      type: "nfs"
+      o: "addr=192.168.1.1,rw"
+      device: ":/path/to/dir"
+    external: false                # OPTIONAL (use external volume)
+    labels:                        # OPTIONAL (volume labels)
+      backup: "daily"
+
+# ============================================================================
+# FIELD REQUIREMENTS SUMMARY
+# ============================================================================
+# REQUIRED FIELDS:
+# - version: "1" 
+# - servers: (at least one server)
+# - servers.{name}: (for each server, one of: image, build.context, or command)
 #
-# Environment Variables to Set:
-# - GITHUB_TOKEN: Your GitHub personal access token
+# CONDITIONALLY REQUIRED:
+# - oauth.issuer (if oauth.enabled: true)
+# - dashboard.proxy_url (if dashboard.enabled: true)
+# - build.context (if build specified)
+# - healthcheck.test (if healthcheck specified)
+# - oauth.required_scope (if server oauth.enabled: true)
 #
-# Before running:
-# 1. Copy this file to mcp-compose.yaml
-# 2. Update the filesystem volume path to your desired directory
-# 3. Set the GITHUB_TOKEN environment variable
-# 4. Ensure docker_utils/socat_stdio_hoster build context exists
-# 5. Run: mcp-compose up
+# ALL OTHER FIELDS ARE OPTIONAL with sensible defaults
 #
-# Key Configuration Notes:
-# - stdio_hoster_port: Must be unique for each service
-# - capabilities: Define what the MCP server provides (tools, resources, or both)
-# - All servers shown use the stdio protocol with socat hosting
-# - Build context assumes you have the socat_stdio_hoster utility
+# SECURITY RECOMMENDATIONS:
+# - Always use cap_drop: ["ALL"] and add only needed capabilities
+# - Set user: "non-root-user" whenever possible
+# - Use read_only: true when the container doesn't need to write
+# - Enable security_opt: ["no-new-privileges:true"]
+# - Limit resources with deploy.resources.limits
+# - Use security.allow_host_mounts to restrict volume mounts
+# - Never use privileged: true unless absolutely necessary
+# - Never use security.allow_docker_socket: true unless required
+# ============================================================================
