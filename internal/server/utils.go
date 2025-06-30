@@ -81,26 +81,34 @@ func getServerNameFromPath(path string) string {
 }
 
 func initializeOAuth(oauthConfig *config.OAuthConfig, logger *logging.Logger) (*auth.AuthorizationServer, *auth.AuthenticationMiddleware, *auth.ResourceMetadataHandler) {
-	// Create authorization server config
-	serverConfig := &auth.AuthorizationServerConfig{
-		Issuer:                            "http://localhost:9876", // Should be configurable
-		AuthorizationEndpoint:             "/oauth/authorize",
-		TokenEndpoint:                     "/oauth/token",
-		RegistrationEndpoint:              "/oauth/register",
-		ScopesSupported:                   []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"},
-		ResponseTypesSupported:            []string{"code"},
-		GrantTypesSupported:               []string{"authorization_code", "client_credentials", "refresh_token"},
-		TokenEndpointAuthMethodsSupported: []string{"client_secret_post", "client_secret_basic", "none"},
-		CodeChallengeMethodsSupported:     []string{"plain", "S256"},
+	// Use the issuer from config, with a sensible default for container environments
+	defaultIssuer := "http://mcp-compose-http-proxy:9876"
+	if oauthConfig.Issuer != "" {
+		defaultIssuer = oauthConfig.Issuer
 	}
 
-	// Override with config values if provided
-	if oauthConfig.Issuer != "" {
-		serverConfig.Issuer = oauthConfig.Issuer
+	// Create authorization server config
+	serverConfig := &auth.AuthorizationServerConfig{
+		Issuer:                                 defaultIssuer, // Use config value or container-aware default
+		AuthorizationEndpoint:                  "/oauth/authorize",
+		TokenEndpoint:                          "/oauth/token",
+		UserinfoEndpoint:                       "/oauth/userinfo",
+		RevocationEndpoint:                     "/oauth/revoke",
+		RegistrationEndpoint:                   "/oauth/register",
+		ScopesSupported:                        []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"},
+		ResponseTypesSupported:                 []string{"code"},
+		GrantTypesSupported:                    []string{"authorization_code", "client_credentials", "refresh_token"},
+		TokenEndpointAuthMethodsSupported:      []string{"client_secret_post", "client_secret_basic", "none"},
+		RevocationEndpointAuthMethodsSupported: []string{"client_secret_post", "client_secret_basic", "none"},
+		CodeChallengeMethodsSupported:          []string{"plain", "S256"},
 	}
+
+	// Apply any additional config overrides
 	if len(oauthConfig.ScopesSupported) > 0 {
 		serverConfig.ScopesSupported = oauthConfig.ScopesSupported
 	}
+
+	logger.Info("OAuth server initialized with issuer: %s", serverConfig.Issuer)
 
 	authServer := auth.NewAuthorizationServer(serverConfig, logger)
 	authMiddleware := auth.NewAuthenticationMiddleware(authServer)
@@ -277,4 +285,68 @@ func (h *ProxyHandler) sendAuthenticationError(w http.ResponseWriter, errorCode,
 		"error_description": description,
 	}
 	json.NewEncoder(w).Encode(response)
+}
+
+func (h *ProxyHandler) registerDefaultOAuthClients() {
+	if !h.oauthEnabled || h.authServer == nil {
+		return
+	}
+
+	// Register default test client with both proxy and dashboard callbacks
+	testClientConfig := &auth.OAuthConfig{
+		ClientID:     "HFakeCpMUQnRX_m5HJKamRjU_vufUnNbG4xWpmUyvzo",
+		ClientSecret: "test-secret-123",
+		RedirectURIs: []string{
+			"http://desk:3111/oauth/callback",           // Dashboard callback
+			"http://192.168.86.201:3111/oauth/callback", // External dashboard callback
+			"http://desk:9876/oauth/callback",           // Proxy callback (fallback)
+			"http://192.168.86.201:9876/oauth/callback", // External proxy callback
+		},
+		GrantTypes:        []string{"authorization_code", "client_credentials", "refresh_token"},
+		ResponseTypes:     []string{"code"},
+		Scope:             "mcp:* mcp:tools mcp:resources mcp:prompts",
+		ClientName:        "Testing",
+		TokenEndpointAuth: "client_secret_post",
+	}
+
+	_, err := h.authServer.RegisterClient(testClientConfig)
+	if err != nil {
+		h.logger.Warning("Failed to register default test client: %v", err)
+	} else {
+		h.logger.Info("Registered default OAuth test client with dashboard callback support")
+	}
+
+	// Register any clients from config
+	if h.Manager != nil && h.Manager.config != nil && h.Manager.config.OAuthClients != nil {
+		for name, clientConfig := range h.Manager.config.OAuthClients {
+			// Handle client secret pointer properly
+			var clientSecret string
+			if clientConfig.ClientSecret != nil {
+				clientSecret = *clientConfig.ClientSecret
+			}
+
+			oauthConfig := &auth.OAuthConfig{
+				ClientID:      clientConfig.ClientID,
+				ClientSecret:  clientSecret, // Now using the dereferenced value
+				RedirectURIs:  clientConfig.RedirectURIs,
+				GrantTypes:    clientConfig.GrantTypes,
+				ResponseTypes: []string{"code"},
+				Scope:         strings.Join(clientConfig.Scopes, " "),
+				ClientName:    clientConfig.Name,
+			}
+
+			if clientConfig.PublicClient {
+				oauthConfig.TokenEndpointAuth = "none"
+			} else {
+				oauthConfig.TokenEndpointAuth = "client_secret_post"
+			}
+
+			_, err := h.authServer.RegisterClient(oauthConfig)
+			if err != nil {
+				h.logger.Warning("Failed to register OAuth client %s: %v", name, err)
+			} else {
+				h.logger.Info("Registered OAuth client: %s", name)
+			}
+		}
+	}
 }

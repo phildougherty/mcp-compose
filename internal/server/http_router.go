@@ -175,8 +175,17 @@ func (h *ProxyHandler) handleOAuthEndpoints(w http.ResponseWriter, r *http.Reque
 	case "/oauth/token":
 		h.authServer.HandleToken(w, r)
 		return true
+	case "/oauth/userinfo": // Add this
+		h.authServer.HandleUserInfo(w, r)
+		return true
+	case "/oauth/revoke": // Add this
+		h.authServer.HandleRevoke(w, r)
+		return true
 	case "/oauth/register":
 		h.authServer.HandleRegister(w, r)
+		return true
+	case "/oauth/callback":
+		h.handleOAuthCallback(w, r)
 		return true
 	case "/api/oauth/status":
 		h.handleOAuthStatus(w, r)
@@ -224,10 +233,26 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 	case "/openapi.json":
 		h.handleOpenAPISpec(w, r)
 		return true
-	case "/oauth/callback":
-		h.handleOAuthCallback(w, r)
-		return true
 	}
+
+	// Handle server-specific OAuth endpoints
+	if strings.HasPrefix(path, "/api/servers/") {
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 4 {
+			switch pathParts[3] {
+			case "oauth":
+				h.handleServerOAuthConfig(w, r)
+				return true
+			case "test-oauth": // Add this case
+				h.handleServerOAuthTest(w, r)
+				return true
+			case "tokens":
+				h.handleServerTokens(w, r)
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
@@ -375,51 +400,6 @@ func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Re
 		h.logger.Error("Unsupported transport protocol '%s' for server %s", protocolType, serverName)
 		h.sendMCPError(w, reqIDVal, -32602, fmt.Sprintf("Unsupported transport protocol: %s", protocolType))
 	}
-}
-
-// Add this to your server's router setup
-func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	// This is just for testing - show the authorization code received
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
-	error := r.URL.Query().Get("error")
-
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>OAuth Callback</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-        .result-box { border: 1px solid #ddd; padding: 20px; border-radius: 5px; }
-        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
-        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
-        code { background: #f8f9fa; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
-    </style>
-</head>
-<body>
-    <h2>OAuth Authorization Result</h2>
-    %s
-</body>
-</html>`, func() string {
-		if error != "" {
-			return fmt.Sprintf(`<div class="result-box error">
-                <h3>Authorization Failed</h3>
-                <p><strong>Error:</strong> %s</p>
-                <p><strong>State:</strong> %s</p>
-            </div>`, error, state)
-		} else {
-			return fmt.Sprintf(`<div class="result-box success">
-                <h3>Authorization Successful!</h3>
-                <p><strong>Authorization Code:</strong> <code>%s</code></p>
-                <p><strong>State:</strong> %s</p>
-                <p>You can now exchange this code for an access token.</p>
-            </div>`, code, state)
-		}
-	}())
-
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
 }
 
 func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, _ *http.Request, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {

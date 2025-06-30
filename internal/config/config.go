@@ -126,6 +126,18 @@ type OAuthClient struct {
 	AutoApprove  bool     `yaml:"auto_approve"`
 }
 
+type OAuthClientConfig struct {
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret,omitempty"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description,omitempty"`
+	RedirectURIs []string `yaml:"redirect_uris"`
+	Scopes       []string `yaml:"scopes"`
+	GrantTypes   []string `yaml:"grant_types"`
+	PublicClient bool     `yaml:"public_client,omitempty"`
+	AutoApprove  bool     `yaml:"auto_approve,omitempty"`
+}
+
 type ServerConfig struct {
 	// Process-based setup
 	Command         string              `yaml:"command,omitempty"`
