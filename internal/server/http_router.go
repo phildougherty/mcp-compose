@@ -175,8 +175,17 @@ func (h *ProxyHandler) handleOAuthEndpoints(w http.ResponseWriter, r *http.Reque
 	case "/oauth/token":
 		h.authServer.HandleToken(w, r)
 		return true
+	case "/oauth/userinfo": // Add this
+		h.authServer.HandleUserInfo(w, r)
+		return true
+	case "/oauth/revoke": // Add this
+		h.authServer.HandleRevoke(w, r)
+		return true
 	case "/oauth/register":
 		h.authServer.HandleRegister(w, r)
+		return true
+	case "/oauth/callback":
+		h.handleOAuthCallback(w, r)
 		return true
 	case "/api/oauth/status":
 		h.handleOAuthStatus(w, r)
@@ -225,6 +234,25 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 		h.handleOpenAPISpec(w, r)
 		return true
 	}
+
+	// Handle server-specific OAuth endpoints
+	if strings.HasPrefix(path, "/api/servers/") {
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 4 {
+			switch pathParts[3] {
+			case "oauth":
+				h.handleServerOAuthConfig(w, r)
+				return true
+			case "test-oauth": // Add this case
+				h.handleServerOAuthTest(w, r)
+				return true
+			case "tokens":
+				h.handleServerTokens(w, r)
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
@@ -374,7 +402,7 @@ func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Re
 	}
 }
 
-func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, r *http.Request, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
+func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, _ *http.Request, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
 	h.logger.Info("Handling proxy standard MCP method '%s'", reqMethodVal)
 	var params json.RawMessage
 	if requestPayload["params"] != nil {

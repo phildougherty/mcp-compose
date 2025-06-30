@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"mcpcompose/internal/config"
@@ -129,12 +130,28 @@ func (d *DashboardServer) startInspectorCleanup() {
 func (d *DashboardServer) Start(port int, host string) error {
 	mux := http.NewServeMux()
 
-	// Serve static files
+	// Serve static files - CHOOSE ONE APPROACH
+	// Option 1: Use embedded static files (recommended)
 	staticFS, err := fs.Sub(static, "templates/static")
 	if err != nil {
-		return fmt.Errorf("failed to create static file system: %w", err)
+		d.logger.Warning("Failed to create embedded static file system: %v, using fallback", err)
+		// Fallback to basic static handler
+		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, ".css") {
+				w.Header().Set("Content-Type", "text/css")
+				w.Write([]byte(`/* Basic fallback CSS */`))
+			} else if strings.HasSuffix(r.URL.Path, ".js") {
+				w.Header().Set("Content-Type", "application/javascript")
+				w.Write([]byte(`// Basic fallback JS`))
+			} else {
+				http.NotFound(w, r)
+			}
+		})
+	} else {
+		// Use embedded static files
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+		d.logger.Info("Serving embedded static files")
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// Main dashboard
 	mux.HandleFunc("/", d.handleIndex)
@@ -181,10 +198,27 @@ func (d *DashboardServer) Start(port int, host string) error {
 	mux.HandleFunc("/oauth/authorize", d.handleOAuthAuthorize)
 	mux.HandleFunc("/oauth/callback", d.handleOAuthCallback)
 
+	// OAuth API proxying routes - NEW FOR SERVER-SPECIFIC OAUTH
+	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is an OAuth-related server API call
+		if strings.Contains(r.URL.Path, "/oauth") ||
+			strings.Contains(r.URL.Path, "/test-oauth") ||
+			strings.Contains(r.URL.Path, "/tokens") {
+			d.handleOAuthAPIProxy(w, r)
+			return
+		}
+		// For other server API calls, use existing proxy logic
+		d.handleAPIProxy(w, r)
+	})
+
+	// General API proxying for other endpoints
+	mux.HandleFunc("/api/", d.handleAPIProxy)
+
+	// REMOVED THE DUPLICATE STATIC FILE REGISTRATION HERE
+
 	// Start server...
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
-
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,

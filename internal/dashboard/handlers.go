@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -696,8 +697,8 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		url := d.proxyURL + endpoint
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+		proxyURL := d.proxyURL + endpoint
+		req, err := http.NewRequest("POST", proxyURL, bytes.NewBuffer(body))
 		if err != nil {
 			http.Error(w, "Failed to create request", http.StatusInternalServerError)
 			return
@@ -705,29 +706,63 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 
 		req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
 
-		resp, err := d.httpClient.Do(req)
+		// CRITICAL: Set a custom redirect policy - don't follow redirects!
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects automatically
+			},
+		}
+
+		resp, err := client.Do(req)
 		if err != nil {
+			d.logger.Error("OAuth authorize request failed: %v", err)
 			http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
 			return
 		}
 		defer resp.Body.Close()
 
-		// Handle redirects
+		// Handle redirects manually
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			location := resp.Header.Get("Location")
 			if location != "" {
-				http.Redirect(w, r, location, resp.StatusCode)
-				return
+				d.logger.Info("OAuth server wants to redirect to: %s", location)
+
+				// Parse the redirect URL
+				redirectURL, err := url.Parse(location)
+				if err != nil {
+					d.logger.Error("Failed to parse redirect URL: %v", err)
+					http.Error(w, "Invalid redirect URL", http.StatusInternalServerError)
+					return
+				}
+
+				// If it's a callback URL, redirect to our local callback endpoint
+				if strings.Contains(redirectURL.Path, "/oauth/callback") {
+					localCallback := "/oauth/callback?" + redirectURL.RawQuery
+					d.logger.Info("Redirecting browser to local callback: %s", localCallback)
+					http.Redirect(w, r, localCallback, http.StatusFound)
+					return
+				} else {
+					// For other redirects, redirect as-is
+					d.logger.Info("Redirecting browser to: %s", location)
+					http.Redirect(w, r, location, resp.StatusCode)
+					return
+				}
 			}
 		}
 
+		// For non-redirect responses, pass through
 		responseBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			http.Error(w, "Failed to read response", http.StatusInternalServerError)
 			return
 		}
 
-		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		// Copy headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
 		w.WriteHeader(resp.StatusCode)
 		w.Write(responseBody)
 		return
@@ -749,65 +784,464 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 	// Extract authorization code and state from query parameters
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
-	error := r.URL.Query().Get("error")
+	errorParam := r.URL.Query().Get("error")
+	errorDescription := r.URL.Query().Get("error_description")
 
-	// Create a simple HTML page to handle the callback
-	html := fmt.Sprintf(`
+	// Build query string to forward to the proxy
+	queryString := r.URL.RawQuery
+	endpoint := "/oauth/callback"
+	if queryString != "" {
+		endpoint += "?" + queryString
+	}
+
+	// For GET requests (standard OAuth callback), proxy to main server and enhance the response
+	if r.Method == http.MethodGet {
+		// Get the callback response from the proxy
+		resp, err := d.proxyRequest(endpoint)
+		if err != nil {
+			d.logger.Error("Failed to get OAuth callback from proxy: %v", err)
+			// Create our own callback response - NOW PASSING r AS PARAMETER
+			html := d.createCallbackHTML(code, state, errorParam, errorDescription, fmt.Sprintf("Proxy error: %v", err), r)
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(html))
+			return
+		}
+
+		// Enhancement: If we got a successful response from proxy, we can enhance it
+		// For now, just pass through the proxy response
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(resp)
+		return
+	}
+
+	// For POST requests (if needed), forward to proxy
+	if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		postResp, err := d.proxyPostRequest(endpoint, body)
+		if err != nil {
+			d.logger.Error("Failed to post OAuth callback to proxy: %v", err)
+			http.Error(w, "Failed to process callback", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(postResp)
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescription, proxyError string, r *http.Request) string {
+	var content string
+	var title string
+
+	if errorParam != "" {
+		title = "OAuth Authorization Failed"
+		content = fmt.Sprintf(`
+            <div class="error-box">
+                <h3>❌ Authorization Failed</h3>
+                <div class="error-details">
+                    <p><strong>Error:</strong> %s</p>
+                    <p><strong>Description:</strong> %s</p>
+                    <p><strong>State:</strong> %s</p>
+                </div>
+            </div>`, errorParam, errorDescription, state)
+	} else if code != "" {
+		title = "OAuth Authorization Successful"
+		content = fmt.Sprintf(`
+            <div class="success-box">
+                <h3>✅ Authorization Successful!</h3>
+                <p>Authorization code received successfully. You can now exchange this code for an access token.</p>
+                <div class="code-section">
+                    <strong>Authorization Code:</strong>
+                    <div class="code-display">
+                        <code>%s</code>
+                        <button onclick="copyToClipboard('%s')" class="copy-btn">📋 Copy</button>
+                    </div>
+                </div>
+                <div class="state-section">
+                    <strong>State:</strong> <code>%s</code>
+                </div>
+                <div class="next-steps">
+                    <h4>🎯 Automatic Token Exchange:</h4>
+                    <button onclick="exchangeCodeForToken()" class="exchange-btn">
+                        🔄 Exchange Code for Access Token
+                    </button>
+                    <div id="token-result" class="token-result"></div>
+                    
+                    <h4>💻 Manual cURL Example:</h4>
+                    <p>You can also exchange this code manually using the token endpoint:</p>
+                    <div class="curl-example">
+                        <div class="curl-header">
+                            <span>Copy and run this command:</span>
+                            <button onclick="copyToClipboard(document.getElementById('curl-command').textContent)" class="copy-btn">📋 Copy</button>
+                        </div>
+                        <pre><code id="curl-command">curl -X POST %s/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code&code=%s&client_id=YOUR_CLIENT_ID&redirect_uri=%s"</code></pre>
+                    </div>
+                </div>
+            </div>`, code, code, state, d.proxyURL, code, fmt.Sprintf("http://%s/oauth/callback", r.Host))
+	} else {
+		title = "OAuth Callback Error"
+		content = fmt.Sprintf(`
+            <div class="error-box">
+                <h3>❓ Unexpected Response</h3>
+                <p>No authorization code or error received from OAuth provider.</p>
+                <p><strong>Proxy Error:</strong> %s</p>
+                <div class="troubleshoot">
+                    <h4>🔧 Troubleshooting:</h4>
+                    <ul>
+                        <li>Check that the OAuth client configuration is correct</li>
+                        <li>Verify the redirect URI matches exactly</li>
+                        <li>Check proxy server logs for errors</li>
+                    </ul>
+                </div>
+            </div>`, proxyError)
+	}
+
+	// Create the JavaScript for token exchange - using proper escaping
+	exchangeScript := fmt.Sprintf(`
+        async function exchangeCodeForToken() {
+            const exchangeBtn = document.querySelector('.exchange-btn');
+            const resultDiv = document.getElementById('token-result');
+            
+            exchangeBtn.disabled = true;
+            exchangeBtn.textContent = '🔄 Exchanging...';
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'token-result';
+            resultDiv.innerHTML = '<div>🔄 Exchanging authorization code for access token...</div>';
+            
+            try {
+                const response = await fetch('/oauth/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        code: '%s',
+                        client_id: 'HFakeCpMUQnRX_m5HJKamRjU_vufUnNbG4xWpmUyvzo',
+                        redirect_uri: 'http://%s/oauth/callback',
+                        client_secret: 'test-secret-123'
+                    })
+                });
+                
+                if (response.ok) {
+                    const token = await response.json();
+                    resultDiv.className = 'token-result success';
+                    resultDiv.innerHTML = '' +
+                        '<div><strong>✅ Success! Access Token Generated:</strong></div>' +
+                        '<div style="margin: 10px 0;">' +
+                            '<strong>Access Token:</strong>' +
+                            '<div class="code-display">' +
+                                '<code>' + token.access_token + '</code>' +
+                                '<button onclick="copyToClipboard(\'' + token.access_token + '\')" class="copy-btn">📋</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div><strong>Type:</strong> ' + token.token_type + '</div>' +
+                        '<div><strong>Expires In:</strong> ' + token.expires_in + ' seconds</div>' +
+                        '<div><strong>Scope:</strong> ' + (token.scope || 'Not specified') + '</div>';
+                } else {
+                    const errorText = await response.text();
+                    resultDiv.className = 'token-result error';
+                    resultDiv.innerHTML = '' +
+                        '<div><strong>❌ Token Exchange Failed:</strong></div>' +
+                        '<div>Status: ' + response.status + '</div>' +
+                        '<div>Error: ' + errorText + '</div>';
+                }
+            } catch (error) {
+                resultDiv.className = 'token-result error';
+                resultDiv.innerHTML = '' +
+                    '<div><strong>❌ Network Error:</strong></div>' +
+                    '<div>' + error.message + '</div>';
+            } finally {
+                exchangeBtn.disabled = false;
+                exchangeBtn.textContent = '🔄 Exchange Code for Access Token';
+            }
+        }`, code, r.Host)
+
+	return fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OAuth Callback</title>
+    <title>%s - MCP Compose Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-        .success { color: green; }
-        .error { color: red; }
-        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            max-width: 800px; margin: 50px auto; padding: 20px; 
+            background: #f0f2f5; color: #333;
+        }
+        .success-box { 
+            border: 1px solid #28a745; padding: 30px; border-radius: 8px; 
+            background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #28a745; 
+        }
+        .error-box { 
+            border: 1px solid #dc3545; padding: 30px; border-radius: 8px; 
+            background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #dc3545; 
+        }
+        .code-display {
+            display: flex; align-items: center; gap: 10px; 
+            background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0;
+            border: 1px solid #dee2e6;
+        }
+        .code-display code { 
+            flex: 1; font-family: 'Monaco', 'Consolas', monospace; font-size: 14px;
+            word-break: break-all; color: #495057;
+        }
+        .copy-btn {
+            background: #007bff; color: white; border: none; 
+            padding: 5px 10px; border-radius: 3px; cursor: pointer; 
+            font-size: 12px; white-space: nowrap;
+        }
+        .copy-btn:hover { background: #0056b3; }
+        .exchange-btn {
+            background: #28a745; color: white; border: none;
+            padding: 10px 20px; border-radius: 5px; cursor: pointer;
+            font-size: 14px; margin: 10px 0;
+        }
+        .exchange-btn:hover { background: #218838; }
+        .exchange-btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .curl-example {
+            background: #2d3748; color: #e2e8f0; padding: 15px; 
+            border-radius: 6px; margin: 15px 0; overflow-x: auto;
+        }
+        .curl-example pre { margin: 0; white-space: pre-wrap; }
+        .curl-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px; color: #a0aec0; font-size: 13px;
+        }
+        .token-result {
+            margin: 15px 0; padding: 15px; border-radius: 6px;
+            background: #f8f9fa; border: 1px solid #dee2e6;
+            display: none;
+        }
+        .token-result.success {
+            background: #d4edda; border-color: #c3e6cb; color: #155724;
+        }
+        .token-result.error {
+            background: #f8d7da; border-color: #f5c6cb; color: #721c24;
+        }
+        .back-links { 
+            margin: 30px 0; text-align: center;
+        }
+        .back-links a { 
+            color: #007bff; text-decoration: none; margin: 0 15px;
+        }
+        .back-links a:hover { 
+            text-decoration: underline; 
+        }
+        .next-steps {
+            margin-top: 20px; padding: 15px; background: #f8f9fa;
+            border-radius: 6px; border: 1px solid #dee2e6;
+        }
+        .error-details, .troubleshoot {
+            background: #f8f9fa; padding: 15px; border-radius: 6px;
+            border: 1px solid #dee2e6; margin: 15px 0;
+        }
+        .popup-info {
+            background: #cce5ff; border: 1px solid #007bff;
+            padding: 15px; border-radius: 6px; margin: 15px 0;
+            color: #004085;
+        }
+        .countdown {
+            font-weight: bold; color: #007bff;
+        }
     </style>
-</head>
-<body>
-    <h2>OAuth Authorization Result</h2>
-    %s
-    <p><a href="/">Return to Dashboard</a></p>
     <script>
-        // Auto-close popup if opened in popup window
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                event.target.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    event.target.innerHTML = '📋 Copy';
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy to clipboard');
+            });
+        }
+        
+        %s
+        
+        // Handle popup window communication and auto-close
+        let countdownInterval;
+        
         if (window.opener) {
+            console.log('📨 Sending OAuth callback message to parent window');
             window.opener.postMessage({
                 type: 'oauth_callback',
                 code: '%s',
                 state: '%s',
                 error: '%s'
             }, '*');
-            setTimeout(() => window.close(), 2000);
+            
+            const popupInfo = document.createElement('div');
+            popupInfo.className = 'popup-info';
+            popupInfo.innerHTML = '' +
+                '<div><strong>🪟 Popup Window Detected</strong></div>' +
+                '<div>Results have been sent to the parent window.</div>' +
+                '<div>This popup will close automatically in <span class="countdown" id="countdown">10</span> seconds.</div>' +
+                '<button onclick="window.close()" style="margin-top: 10px; padding: 5px 10px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer;">' +
+                    'Close Now' +
+                '</button>';
+            document.body.insertBefore(popupInfo, document.body.firstChild);
+            
+            let countdown = 10;
+            countdownInterval = setInterval(() => {
+                countdown--;
+                const countdownEl = document.getElementById('countdown');
+                if (countdownEl) {
+                    countdownEl.textContent = countdown;
+                }
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    window.close();
+                }
+            }, 1000);
+        }
+        
+        const returnUrl = sessionStorage.getItem('oauth_test_return');
+        if (returnUrl && !window.opener) {
+            setTimeout(() => {
+                sessionStorage.removeItem('oauth_test_return');
+                if (confirm('Return to OAuth configuration page?')) {
+                    window.location.href = returnUrl;
+                }
+            }, 3000);
         }
     </script>
+</head>
+<body>
+    <h2>🔐 OAuth Authorization Result</h2>
+    %s
+    <div class="back-links">
+        <a href="javascript:history.back()">← Back</a>
+        <a href="/">← Return to Dashboard</a>
+        <a href="#" onclick="window.location.reload()">🔄 Refresh</a>
+    </div>
 </body>
-</html>`, getCallbackContent(code, state, error), code, state, error)
-
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+</html>`, title, exchangeScript, code, state, errorParam, content)
 }
 
-func getCallbackContent(code, state, errorParam string) string {
-	if errorParam != "" {
-		return fmt.Sprintf(`
-            <div class="error">
-                <h3>Authorization Failed</h3>
-                <p><strong>Error:</strong> %s</p>
-            </div>`, errorParam)
+// Add this method to handle OAuth API proxying
+func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract the path after /api/
+	path := strings.TrimPrefix(r.URL.Path, "/api")
+	endpoint := "/api" + path
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
 	}
 
-	if code != "" {
-		return fmt.Sprintf(`
-            <div class="success">
-                <h3>Authorization Successful!</h3>
-                <p>Authorization code received. You can now exchange this code for an access token.</p>
-                <details>
-                    <summary>Technical Details</summary>
-                    <pre>Authorization Code: %s
-State: %s</pre>
-                </details>
-            </div>`, code, state)
+	d.logger.Info("Proxying OAuth API request to proxy server: %s %s", r.Method, endpoint)
+
+	switch r.Method {
+	case http.MethodGet:
+		resp, err := d.proxyRequest(endpoint)
+		if err != nil {
+			d.logger.Error("Failed to proxy OAuth GET request: %v", err)
+			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+
+	case http.MethodPost, http.MethodPut:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		var resp []byte
+		if r.Method == http.MethodPost {
+			resp, err = d.proxyPostRequest(endpoint, body)
+		} else {
+			resp, err = d.proxyPutRequest(endpoint, body)
+		}
+
+		if err != nil {
+			d.logger.Error("Failed to proxy OAuth %s request: %v", r.Method, err)
+			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// Add a PUT request helper method
+func (d *DashboardServer) proxyPutRequest(endpoint string, body []byte) ([]byte, error) {
+	url := d.proxyURL + endpoint
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
 	}
 
-	return `<div class="error"><h3>Invalid callback</h3><p>No authorization code received.</p></div>`
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return io.ReadAll(resp.Body)
+}
+
+// Add this general API proxy method
+func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract the API path
+	endpoint := r.URL.Path
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
+	}
+
+	d.logger.Info("Proxying general API request: %s %s", r.Method, endpoint)
+
+	switch r.Method {
+	case http.MethodGet:
+		resp, err := d.proxyRequest(endpoint)
+		if err != nil {
+			d.logger.Error("Failed to proxy API GET request: %v", err)
+			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
+			return
+		}
+
+		// Try to detect content type from response
+		if endpoint == "/api/servers" || strings.Contains(endpoint, "/api/oauth/") {
+			w.Header().Set("Content-Type", "application/json")
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+		}
+		w.Write(resp)
+
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := d.proxyPostRequest(endpoint, body)
+		if err != nil {
+			d.logger.Error("Failed to proxy API POST request: %v", err)
+			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resp)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

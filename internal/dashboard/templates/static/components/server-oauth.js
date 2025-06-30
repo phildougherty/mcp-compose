@@ -294,26 +294,48 @@ const ServerOAuthConfig = {
         },
         async testServerAccess(serverName) {
             try {
-                const response = await fetch(`/api/servers/${serverName}/test-oauth`);
-                if (response.ok) {
+                console.log(`Testing OAuth access for server: ${serverName}`);
+                
+                // Use the dashboard's proxy method instead of direct calls
+                const response = await fetch(`/api/servers/${serverName}/test-oauth`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log(`Response status: ${response.status}`);
+                console.log(`Response content-type: ${response.headers.get('content-type')}`);
+                
+                if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
                     const result = await response.json();
+                    console.log('Test result:', result);
+                    
                     if (result.success) {
                         this.$emit('show-toast', {
-                            message: `OAuth test successful for ${serverName}`,
+                            message: `✅ OAuth test successful for ${serverName}: ${result.message}`,
                             type: 'success'
                         });
+                        
+                        // Show detailed results if available
+                        if (result.details) {
+                            console.log('OAuth test details:', result.details);
+                        }
                     } else {
                         this.$emit('show-toast', {
-                            message: `OAuth test failed for ${serverName}: ${result.error}`,
+                            message: `❌ OAuth test failed for ${serverName}: ${result.error || 'Unknown error'}`,
                             type: 'error'
                         });
                     }
                 } else {
-                    throw new Error('Test endpoint not available');
+                    const responseText = await response.text();
+                    console.error('Non-JSON response:', responseText.substring(0, 200) + '...');
+                    throw new Error(`HTTP ${response.status}: Expected JSON but got ${response.headers.get('content-type')}`);
                 }
             } catch (error) {
+                console.error(`OAuth test error for ${serverName}:`, error);
                 this.$emit('show-toast', {
-                    message: `Failed to test OAuth for ${serverName}: ${error.message}`,
+                    message: `❌ Failed to test OAuth for ${serverName}: ${error.message}`,
                     type: 'error'
                 });
             }

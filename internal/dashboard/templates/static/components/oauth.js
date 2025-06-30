@@ -361,9 +361,103 @@ Scopes: ${client.scope || 'None'}`;
             alert(details);
         },
         testAuthFlow() {
+            console.log('🚀 Testing OAuth flow with direct navigation');
+            
             if (!this.selectedTestClient) return;
-            const authUrl = `/oauth/authorize?response_type=code&client_id=${this.selectedTestClient.client_id}&redirect_uri=${encodeURIComponent(this.selectedTestClient.redirect_uris[0])}&scope=mcp:tools`;
-            window.open(authUrl, '_blank');
+            
+            const state = Math.random().toString(36).substring(2, 15);
+            
+            // Store current location for return navigation
+            sessionStorage.setItem('oauth_test_return', window.location.href);
+            
+            const authParams = new URLSearchParams({
+                response_type: 'code',
+                client_id: this.selectedTestClient.client_id,
+                redirect_uri: this.selectedTestClient.redirect_uris[0],
+                scope: 'mcp:tools',
+                state: state
+            });
+            
+            const authUrl = `/oauth/authorize?${authParams.toString()}`;
+            console.log('🔗 Navigating to:', authUrl);
+            
+            // Navigate directly - this will definitely work
+            window.location.href = authUrl;
+        },
+        async exchangeCodeForToken(code, state) {
+            if (!this.selectedTestClient) return;
+            
+            try {
+                const tokenData = new URLSearchParams({
+                    grant_type: 'authorization_code',
+                    code: code,
+                    client_id: this.selectedTestClient.client_id,
+                    redirect_uri: this.selectedTestClient.redirect_uris[0],
+                    state: state
+                });
+                
+                // Add client secret for confidential clients
+                if (!this.selectedTestClient.public && this.selectedTestClient.client_secret) {
+                    tokenData.append('client_secret', this.selectedTestClient.client_secret);
+                }
+                
+                const response = await fetch('/oauth/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: tokenData.toString()
+                });
+                
+                if (response.ok) {
+                    const token = await response.json();
+                    this.$emit('show-toast', { 
+                        message: '🎉 Token exchange successful! Check console for details.', 
+                        type: 'success' 
+                    });
+                    console.log('Access Token:', token);
+                    
+                    // You can now use this token to test API calls
+                    this.testAPIWithToken(token.access_token);
+                    
+                } else {
+                    const errorText = await response.text();
+                    console.error('Token exchange failed:', errorText);
+                    this.$emit('show-toast', { 
+                        message: `Token exchange failed: ${response.status}`, 
+                        type: 'error' 
+                    });
+                }
+            } catch (error) {
+                console.error('Token exchange error:', error);
+                this.$emit('show-toast', { 
+                    message: `Token exchange error: ${error.message}`, 
+                    type: 'error' 
+                });
+            }
+        },
+        
+        // Optional: Test the token by making an API call
+        async testAPIWithToken(accessToken) {
+            try {
+                // Test the token by calling the userinfo endpoint
+                const response = await fetch('/oauth/userinfo', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const userInfo = await response.json();
+                    console.log('User Info:', userInfo);
+                    this.$emit('show-toast', { 
+                        message: '✅ Token is valid! User info retrieved.', 
+                        type: 'success' 
+                    });
+                } else {
+                    console.error('Token validation failed:', response.status);
+                }
+            } catch (error) {
+                console.error('Token test error:', error);
+            }
         },
         async testClientCredentials() {
             if (!this.selectedTestClient || this.selectedTestClient.public) {

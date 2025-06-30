@@ -10,71 +10,226 @@ import (
 	"time"
 )
 
-// HandleAuthorize handles authorization requests
 func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS for oauth endpoints
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse request parameters
-	req, err := s.parseAuthorizationRequest(r)
+	// Parse authorization request
+	authReq, err := s.parseAuthorizationRequest(r)
 	if err != nil {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_request", err.Error(), req.State)
+		s.logger.Error("Failed to parse authorization request: %v", err)
+		s.redirectWithError(w, r, "", "invalid_request", err.Error(), "")
 		return
 	}
 
+	s.logger.Info("Processing authorization request for client: %s", authReq.ClientID)
+
 	// Validate client
-	client, exists := s.GetClient(req.ClientID)
+	client, exists := s.GetClient(authReq.ClientID)
 	if !exists {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_client", "Unknown client", req.State)
+		s.logger.Error("Unknown client: %s", authReq.ClientID)
+		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_client", "Unknown client", authReq.State)
 		return
 	}
 
 	// Validate redirect URI
-	if !s.validateRedirectURI(client, req.RedirectURI) {
+	if !s.validateRedirectURI(client, authReq.RedirectURI) {
+		s.logger.Error("Invalid redirect URI: %s for client: %s", authReq.RedirectURI, authReq.ClientID)
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 		return
 	}
 
 	// Validate response type
-	if !contains(client.ResponseTypes, req.ResponseType) {
-		s.redirectWithError(w, r, req.RedirectURI, "unsupported_response_type", "Response type not allowed for this client", req.State)
+	if !contains(client.ResponseTypes, authReq.ResponseType) {
+		s.redirectWithError(w, r, authReq.RedirectURI, "unsupported_response_type", "Response type not supported for this client", authReq.State)
 		return
 	}
 
 	// Validate scope
-	if req.Scope != "" && !s.validateScope(req.Scope) {
-		s.redirectWithError(w, r, req.RedirectURI, "invalid_scope", "Invalid scope", req.State)
+	if authReq.Scope != "" && !s.validateScope(authReq.Scope) {
+		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_scope", "Invalid scope", authReq.State)
 		return
 	}
 
-	// For simplicity, auto-approve for now
-	// In production, show consent screen here
-	userID := "system_user" // This would come from authentication
+	// Handle GET request - show authorization page
+	if r.Method == http.MethodGet {
+		s.logger.Info("Showing authorization page for client: %s", authReq.ClientID)
+		s.showAutoApprovalPage(w, r, authReq, client)
+		return
+	}
+
+	// Handle POST request - process authorization
+	if r.Method == http.MethodPost {
+		s.logger.Info("Processing authorization POST for client: %s", authReq.ClientID)
+		s.processAuthorization(w, r, authReq, client)
+		return
+	}
+}
+
+func (s *AuthorizationServer) showAutoApprovalPage(w http.ResponseWriter, _ *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authorization Request</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .auth-box { border: 1px solid #ddd; padding: 20px; border-radius: 5px; background: #f9f9f9; }
+        .client-info { background: #e7f3ff; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .scope-list { background: #fff; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 3px; }
+        .buttons { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; }
+        .approve { background: #28a745; color: white; }
+        .deny { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="auth-box">
+        <h2>Authorization Request</h2>
+        <div class="client-info">
+            <strong>Application:</strong> %s<br>
+            <strong>Client ID:</strong> %s
+        </div>
+        <div class="scope-list">
+            <strong>Requested Permissions:</strong><br>
+            %s
+        </div>
+        <p>Do you want to authorize this application?</p>
+        <form method="POST" action="/oauth/authorize">
+            <input type="hidden" name="client_id" value="%s">
+            <input type="hidden" name="redirect_uri" value="%s">
+            <input type="hidden" name="response_type" value="%s">
+            <input type="hidden" name="scope" value="%s">
+            <input type="hidden" name="state" value="%s">
+            <input type="hidden" name="code_challenge" value="%s">
+            <input type="hidden" name="code_challenge_method" value="%s">
+            <div class="buttons">
+                <button type="submit" name="action" value="approve" class="approve">Approve</button>
+                <button type="submit" name="action" value="deny" class="deny">Deny</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>`,
+		getClientDisplayName(client),
+		client.ID,
+		formatScopes(authReq.Scope),
+		authReq.ClientID,
+		authReq.RedirectURI,
+		authReq.ResponseType,
+		authReq.Scope,
+		authReq.State,
+		authReq.CodeChallenge,
+		authReq.CodeChallengeMethod,
+	)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
+}
+
+func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		s.logger.Error("Failed to parse authorization form: %v", err)
+		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to parse form", authReq.State)
+		return
+	}
+
+	action := r.Form.Get("action")
+	s.logger.Info("Authorization action: %s for client: %s", action, authReq.ClientID)
+
+	if action != "approve" {
+		s.logger.Info("User denied authorization for client: %s", authReq.ClientID)
+		s.redirectWithError(w, r, authReq.RedirectURI, "access_denied", "User denied authorization", authReq.State)
+		return
+	}
 
 	// Generate authorization code
-	code, err := s.generateAuthorizationCode(client.ID, userID, req.RedirectURI, req.Scope, req.CodeChallenge, req.CodeChallengeMethod)
+	// For demo purposes, use a static user ID. In production, get from authenticated session
+	userID := "demo-user"
+
+	s.logger.Info("Generating authorization code for client: %s, user: %s", authReq.ClientID, userID)
+
+	s.mu.Lock()
+	authCode, err := s.generateAuthorizationCode(
+		authReq.ClientID,
+		userID,
+		authReq.RedirectURI,
+		authReq.Scope,
+		authReq.CodeChallenge,
+		authReq.CodeChallengeMethod,
+	)
+	s.mu.Unlock()
+
 	if err != nil {
-		s.redirectWithError(w, r, req.RedirectURI, "server_error", "Failed to generate authorization code", req.State)
+		s.logger.Error("Failed to generate authorization code: %v", err)
+		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to generate authorization code", authReq.State)
 		return
 	}
 
-	// Redirect with code
-	redirectURL, err := url.Parse(req.RedirectURI)
+	s.logger.Info("Generated authorization code: %s for client: %s", authCode.Code, authReq.ClientID)
+
+	// Redirect back to client with authorization code
+	redirectURL, err := url.Parse(authReq.RedirectURI)
 	if err != nil {
+		s.logger.Error("Invalid redirect URI: %v", err)
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 		return
 	}
 
 	query := redirectURL.Query()
-	query.Set("code", code.Code)
-	if req.State != "" {
-		query.Set("state", req.State)
+	query.Set("code", authCode.Code)
+	if authReq.State != "" {
+		query.Set("state", authReq.State)
 	}
 	redirectURL.RawQuery = query.Encode()
 
+	s.logger.Info("Authorization approved for client %s, redirecting to: %s", client.ID, redirectURL.String())
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// Helper functions
+func getClientDisplayName(client *OAuthClient) string {
+	if client.ClientName != "" {
+		return client.ClientName
+	}
+	return client.ID
+}
+
+func formatScopes(scope string) string {
+	if scope == "" {
+		return "No specific permissions requested"
+	}
+
+	scopes := strings.Fields(scope)
+	formatted := make([]string, len(scopes))
+	for i, s := range scopes {
+		switch s {
+		case "mcp:*":
+			formatted[i] = "• Full access to all MCP resources"
+		case "mcp:tools":
+			formatted[i] = "• Access to MCP tools"
+		case "mcp:resources":
+			formatted[i] = "• Access to MCP resources"
+		case "mcp:prompts":
+			formatted[i] = "• Access to MCP prompts"
+		default:
+			formatted[i] = "• " + s
+		}
+	}
+	return strings.Join(formatted, "<br>")
 }
 
 // HandleToken handles token requests
@@ -184,17 +339,17 @@ type AuthorizationRequest struct {
 }
 
 func (s *AuthorizationServer) parseAuthorizationRequest(r *http.Request) (*AuthorizationRequest, error) {
-	query := r.URL.Query()
-	if r.Method == http.MethodPost {
+	var query url.Values
+
+	if r.Method == http.MethodGet {
+		query = r.URL.Query()
+	} else if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
-			return nil, fmt.Errorf("failed to parse form")
+			return nil, fmt.Errorf("failed to parse form: %w", err)
 		}
-		// Use form values for POST
-		for key, values := range r.Form {
-			if len(values) > 0 {
-				query.Set(key, values[0])
-			}
-		}
+		query = r.Form
+	} else {
+		return nil, fmt.Errorf("unsupported method: %s", r.Method)
 	}
 
 	req := &AuthorizationRequest{
@@ -643,4 +798,227 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// HandleUserInfo handles userinfo requests
+func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract access token from Authorization header
+	token := s.extractBearerToken(r)
+	if token == "" {
+		s.sendUserInfoError(w, "invalid_token", "Access token required")
+		return
+	}
+
+	// Validate access token
+	accessToken, err := s.ValidateAccessToken(token)
+	if err != nil {
+		s.sendUserInfoError(w, "invalid_token", err.Error())
+		return
+	}
+
+	// Get client information
+	client, exists := s.GetClient(accessToken.ClientID)
+	if !exists {
+		s.sendUserInfoError(w, "invalid_token", "Invalid client")
+		return
+	}
+
+	// Build userinfo response
+	userInfo := map[string]interface{}{
+		"sub":        accessToken.UserID,
+		"client_id":  accessToken.ClientID,
+		"scope":      accessToken.Scope,
+		"iat":        accessToken.CreatedAt.Unix(),
+		"exp":        accessToken.ExpiresAt.Unix(),
+		"token_type": "Bearer",
+		"active":     true,
+	}
+
+	// Add client information if available
+	if client.ClientName != "" {
+		userInfo["client_name"] = client.ClientName
+	}
+
+	// Add custom claims if they exist
+	if accessToken.Claims != nil {
+		for key, value := range accessToken.Claims {
+			// Don't override standard claims
+			if key != "sub" && key != "iat" && key != "exp" && key != "client_id" {
+				userInfo[key] = value
+			}
+		}
+	}
+
+	// Add MCP-specific information
+	userInfo["mcp_server"] = "mcp-compose"
+	userInfo["mcp_version"] = "1.0.0"
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+
+	if err := json.NewEncoder(w).Encode(userInfo); err != nil {
+		s.logger.Error("Failed to encode userinfo response: %v", err)
+	}
+}
+
+// HandleRevoke handles token revocation requests
+func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request
+	if err := r.ParseForm(); err != nil {
+		s.sendRevokeError(w, "invalid_request", "Failed to parse request")
+		return
+	}
+
+	token := r.Form.Get("token")
+	tokenTypeHint := r.Form.Get("token_type_hint") // "access_token" or "refresh_token"
+	clientID := r.Form.Get("client_id")
+	clientSecret := r.Form.Get("client_secret")
+
+	if token == "" {
+		s.sendRevokeError(w, "invalid_request", "token parameter is required")
+		return
+	}
+
+	// Authenticate client if credentials provided
+	var authenticatedClient *OAuthClient
+	if clientID != "" {
+		// Try HTTP Basic authentication first
+		if clientSecret == "" {
+			if username, password, ok := r.BasicAuth(); ok {
+				clientID = username
+				clientSecret = password
+			}
+		}
+
+		client, err := s.ValidateClient(clientID, clientSecret)
+		if err != nil {
+			s.sendRevokeError(w, "invalid_client", err.Error())
+			return
+		}
+		authenticatedClient = client
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	revoked := false
+
+	// Try to revoke as access token first (or if hint suggests it)
+	if tokenTypeHint == "" || tokenTypeHint == "access_token" {
+		if accessToken, exists := s.accessTokens[token]; exists {
+			// Check if client owns this token (if client authenticated)
+			if authenticatedClient == nil || accessToken.ClientID == authenticatedClient.ID {
+				accessToken.Revoked = true
+				revoked = true
+				s.logger.Info("Revoked access token for client: %s", accessToken.ClientID)
+
+				// Also revoke associated refresh tokens
+				for _, refreshToken := range s.refreshTokens {
+					if refreshToken.ClientID == accessToken.ClientID && refreshToken.UserID == accessToken.UserID {
+						refreshToken.Revoked = true
+						s.logger.Info("Revoked associated refresh token for client: %s", refreshToken.ClientID)
+					}
+				}
+			}
+		}
+	}
+
+	// Try to revoke as refresh token if not found as access token
+	if !revoked && (tokenTypeHint == "" || tokenTypeHint == "refresh_token") {
+		if refreshToken, exists := s.refreshTokens[token]; exists {
+			// Check if client owns this token (if client authenticated)
+			if authenticatedClient == nil || refreshToken.ClientID == authenticatedClient.ID {
+				refreshToken.Revoked = true
+				revoked = true
+				s.logger.Info("Revoked refresh token for client: %s", refreshToken.ClientID)
+
+				// Also revoke associated access tokens
+				for _, accessToken := range s.accessTokens {
+					if accessToken.ClientID == refreshToken.ClientID && accessToken.UserID == refreshToken.UserID {
+						accessToken.Revoked = true
+						s.logger.Info("Revoked associated access token for client: %s", accessToken.ClientID)
+					}
+				}
+			}
+		}
+	}
+
+	// RFC 7009: The authorization server responds with HTTP status code 200
+	// regardless of whether the token was successfully revoked
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if revoked {
+		s.logger.Info("Token revocation successful")
+	} else {
+		s.logger.Info("Token revocation requested for unknown or unauthorized token")
+	}
+
+	// Return empty JSON object as per RFC 7009
+	w.Write([]byte("{}"))
+}
+
+// Helper method to extract bearer token for userinfo
+func (s *AuthorizationServer) extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+
+	return parts[1]
+}
+
+// Helper method to send userinfo errors
+func (s *AuthorizationServer) sendUserInfoError(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="%s", error_description="%s"`, errorCode, description))
+	w.WriteHeader(http.StatusUnauthorized)
+
+	response := map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// Helper method to send revoke errors
+func (s *AuthorizationServer) sendRevokeError(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var statusCode int
+	switch errorCode {
+	case "invalid_client":
+		statusCode = http.StatusUnauthorized
+		w.Header().Set("WWW-Authenticate", "Basic")
+	case "invalid_request":
+		statusCode = http.StatusBadRequest
+	default:
+		statusCode = http.StatusBadRequest
+	}
+
+	w.WriteHeader(statusCode)
+
+	response := map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }

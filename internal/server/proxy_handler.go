@@ -93,7 +93,6 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	if mgr.config != nil && mgr.config.Logging.Level != "" {
 		logLvl = mgr.config.Logging.Level
 	}
-
 	logger := logging.NewLogger(logLvl)
 
 	// CREATE STANDARD METHOD HANDLER
@@ -153,9 +152,10 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		oauthEnabled:              oauthEnabled,
 	}
 
-	// Start periodic token cleanup if OAuth is enabled
 	if oauthEnabled && authServer != nil {
 		go handler.startOAuthTokenCleanup()
+		// Register default OAuth clients
+		handler.registerDefaultOAuthClients()
 	}
 
 	handler.startConnectionMaintenance()

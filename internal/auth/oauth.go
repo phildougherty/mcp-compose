@@ -55,23 +55,25 @@ type AuthorizationServer struct {
 
 // AuthorizationServerConfig contains server configuration
 type AuthorizationServerConfig struct {
-	Issuer                            string   `json:"issuer" yaml:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint" yaml:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint" yaml:"token_endpoint"`
-	JWKSUri                           string   `json:"jwks_uri,omitempty" yaml:"jwks_uri,omitempty"`
-	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty" yaml:"registration_endpoint,omitempty"`
-	ScopesSupported                   []string `json:"scopes_supported,omitempty" yaml:"scopes_supported,omitempty"`
-	ResponseTypesSupported            []string `json:"response_types_supported" yaml:"response_types_supported"`
-	ResponseModesSupported            []string `json:"response_modes_supported,omitempty" yaml:"response_modes_supported,omitempty"`
-	GrantTypesSupported               []string `json:"grant_types_supported" yaml:"grant_types_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported" yaml:"token_endpoint_auth_methods_supported"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported" yaml:"code_challenge_methods_supported"`
-	ServiceDocumentation              string   `json:"service_documentation,omitempty" yaml:"service_documentation,omitempty"`
-	UILocalesSupported                []string `json:"ui_locales_supported,omitempty" yaml:"ui_locales_supported,omitempty"`
-	OpPolicyURI                       string   `json:"op_policy_uri,omitempty" yaml:"op_policy_uri,omitempty"`
-	OpTosURI                          string   `json:"op_tos_uri,omitempty" yaml:"op_tos_uri,omitempty"`
-	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty" yaml:"revocation_endpoint,omitempty"`
-	DeviceAuthorizationEndpoint       string   `json:"device_authorization_endpoint,omitempty" yaml:"device_authorization_endpoint,omitempty"`
+	Issuer                                 string   `json:"issuer" yaml:"issuer"`
+	AuthorizationEndpoint                  string   `json:"authorization_endpoint" yaml:"authorization_endpoint"`
+	TokenEndpoint                          string   `json:"token_endpoint" yaml:"token_endpoint"`
+	UserinfoEndpoint                       string   `json:"userinfo_endpoint" yaml:"userinfo_endpoint"`     // Add this
+	RevocationEndpoint                     string   `json:"revocation_endpoint" yaml:"revocation_endpoint"` // Add this
+	JWKSUri                                string   `json:"jwks_uri,omitempty" yaml:"jwks_uri,omitempty"`
+	RegistrationEndpoint                   string   `json:"registration_endpoint,omitempty" yaml:"registration_endpoint,omitempty"`
+	ScopesSupported                        []string `json:"scopes_supported,omitempty" yaml:"scopes_supported,omitempty"`
+	ResponseTypesSupported                 []string `json:"response_types_supported" yaml:"response_types_supported"`
+	ResponseModesSupported                 []string `json:"response_modes_supported,omitempty" yaml:"response_modes_supported,omitempty"`
+	GrantTypesSupported                    []string `json:"grant_types_supported" yaml:"grant_types_supported"`
+	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported" yaml:"token_endpoint_auth_methods_supported"`
+	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported,omitempty" yaml:"revocation_endpoint_auth_methods_supported,omitempty"` // Add this
+	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported" yaml:"code_challenge_methods_supported"`
+	ServiceDocumentation                   string   `json:"service_documentation,omitempty" yaml:"service_documentation,omitempty"`
+	UILocalesSupported                     []string `json:"ui_locales_supported,omitempty" yaml:"ui_locales_supported,omitempty"`
+	OpPolicyURI                            string   `json:"op_policy_uri,omitempty" yaml:"op_policy_uri,omitempty"`
+	OpTosURI                               string   `json:"op_tos_uri,omitempty" yaml:"op_tos_uri,omitempty"`
+	DeviceAuthorizationEndpoint            string   `json:"device_authorization_endpoint,omitempty" yaml:"device_authorization_endpoint,omitempty"`
 }
 
 // OAuthClient represents a registered OAuth client
@@ -139,6 +141,15 @@ func (t *AccessToken) IsExpired() bool {
 // RefreshToken represents a refresh token
 type RefreshToken struct {
 	Token     string    `json:"refresh_token"`
+	ClientID  string    `json:"client_id"`
+	UserID    string    `json:"user_id"`
+	Scope     string    `json:"scope"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	Revoked   bool      `json:"revoked"`
+}
+
+type TokenInfo struct {
 	ClientID  string    `json:"client_id"`
 	UserID    string    `json:"user_id"`
 	Scope     string    `json:"scope"`
@@ -276,6 +287,12 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 	}
 	if config.RegistrationEndpoint == "" {
 		config.RegistrationEndpoint = "/oauth/register"
+	}
+	if config.UserinfoEndpoint == "" {
+		config.UserinfoEndpoint = "/oauth/userinfo"
+	}
+	if config.RevocationEndpoint == "" {
+		config.RevocationEndpoint = "/oauth/revoke"
 	}
 	if len(config.ResponseTypesSupported) == 0 {
 		config.ResponseTypesSupported = []string{"code"}
@@ -565,4 +582,23 @@ func (s *AuthorizationServer) GetAllClients() []*OAuthClient {
 		clients = append(clients, client)
 	}
 	return clients
+}
+
+func (s *AuthorizationServer) GetAllAccessTokens() []TokenInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var tokens []TokenInfo
+	for _, token := range s.accessTokens {
+		tokens = append(tokens, TokenInfo{
+			ClientID:  token.ClientID,
+			UserID:    token.UserID,
+			Scope:     token.Scope,
+			ExpiresAt: token.ExpiresAt,
+			CreatedAt: token.CreatedAt,
+			Revoked:   token.Revoked,
+		})
+	}
+
+	return tokens
 }
