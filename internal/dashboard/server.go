@@ -197,6 +197,10 @@ func (d *DashboardServer) Start(port int, host string) error {
 	mux.HandleFunc("/oauth/token", d.handleOAuthToken)
 	mux.HandleFunc("/oauth/authorize", d.handleOAuthAuthorize)
 	mux.HandleFunc("/oauth/callback", d.handleOAuthCallback)
+	mux.HandleFunc("/api/task-scheduler/health", d.handleTaskSchedulerHealth)
+	mux.HandleFunc("/api/task-scheduler/", d.handleTaskSchedulerProxy)
+	mux.HandleFunc("/api/activity/history", d.handleActivityHistory)
+	mux.HandleFunc("/api/activity/stats", d.handleActivityStats)
 
 	// OAuth API proxying routes - NEW FOR SERVER-SPECIFIC OAUTH
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
@@ -317,4 +321,57 @@ func (d *DashboardServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 		"logs":      logs,
 		"timestamp": time.Now().Format(time.RFC3339),
 	})
+}
+
+func (d *DashboardServer) handleActivityHistory(w http.ResponseWriter, r *http.Request) {
+	if activityBroadcaster.storage == nil {
+		http.Error(w, "Activity storage not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters
+	limitStr := r.URL.Query().Get("limit")
+	sinceStr := r.URL.Query().Get("since")
+
+	limit := 100 // default
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	var since *time.Time
+	if sinceStr != "" {
+		if parsedSince, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = &parsedSince
+		}
+	}
+
+	activities, err := activityBroadcaster.storage.GetRecentActivities(limit, since)
+	if err != nil {
+		http.Error(w, "Failed to retrieve activities", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"activities": activities,
+		"count":      len(activities),
+	})
+}
+
+func (d *DashboardServer) handleActivityStats(w http.ResponseWriter, r *http.Request) {
+	if activityBroadcaster.storage == nil {
+		http.Error(w, "Activity storage not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	stats, err := activityBroadcaster.storage.GetActivityStats()
+	if err != nil {
+		http.Error(w, "Failed to retrieve activity stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }

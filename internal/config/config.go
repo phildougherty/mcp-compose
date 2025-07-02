@@ -21,23 +21,25 @@ type ProxyAuthConfig struct {
 
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
-	Version      string                       `yaml:"version"`
-	ProxyAuth    ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
-	OAuth        *OAuthConfig                 `yaml:"oauth,omitempty"`
-	Audit        *AuditConfig                 `yaml:"audit,omitempty"`
-	RBAC         *RBACConfig                  `yaml:"rbac,omitempty"`
-	Users        map[string]*User             `yaml:"users,omitempty"`
-	OAuthClients map[string]*OAuthClient      `yaml:"oauth_clients,omitempty"`
-	Servers      map[string]ServerConfig      `yaml:"servers"`
-	Connections  map[string]ConnectionConfig  `yaml:"connections,omitempty"`
-	Logging      LoggingConfig                `yaml:"logging,omitempty"`
-	Monitoring   MonitoringConfig             `yaml:"monitoring,omitempty"`
-	Development  DevelopmentConfig            `yaml:"development,omitempty"`
-	Environments map[string]EnvironmentConfig `yaml:"environments,omitempty"`
-	CurrentEnv   string                       `yaml:"-"`
-	Dashboard    DashboardConfig              `yaml:"dashboard,omitempty"`
-	Networks     map[string]NetworkConfig     `yaml:"networks,omitempty"`
-	Volumes      map[string]VolumeConfig      `yaml:"volumes,omitempty"`
+	Version       string                       `yaml:"version"`
+	ProxyAuth     ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
+	OAuth         *OAuthConfig                 `yaml:"oauth,omitempty"`
+	Audit         *AuditConfig                 `yaml:"audit,omitempty"`
+	RBAC          *RBACConfig                  `yaml:"rbac,omitempty"`
+	Users         map[string]*User             `yaml:"users,omitempty"`
+	OAuthClients  map[string]*OAuthClient      `yaml:"oauth_clients,omitempty"`
+	Servers       map[string]ServerConfig      `yaml:"servers"`
+	Connections   map[string]ConnectionConfig  `yaml:"connections,omitempty"`
+	Logging       LoggingConfig                `yaml:"logging,omitempty"`
+	Monitoring    MonitoringConfig             `yaml:"monitoring,omitempty"`
+	Development   DevelopmentConfig            `yaml:"development,omitempty"`
+	Environments  map[string]EnvironmentConfig `yaml:"environments,omitempty"`
+	CurrentEnv    string                       `yaml:"-"`
+	Dashboard     DashboardConfig              `yaml:"dashboard,omitempty"`
+	Networks      map[string]NetworkConfig     `yaml:"networks,omitempty"`
+	Volumes       map[string]VolumeConfig      `yaml:"volumes,omitempty"`
+	TaskScheduler *TaskScheduler               `yaml:"task_scheduler,omitempty"`
+	Memory        MemoryConfig                 `yaml:"memory"`
 }
 
 // OAuth 2.1 Configuration
@@ -435,6 +437,44 @@ type HealthCheck struct {
 	Action      string   `yaml:"action,omitempty"`   // Action when health check fails
 }
 
+type MemoryConfig struct {
+	Enabled          bool              `yaml:"enabled"`
+	Port             int               `yaml:"port"`
+	Host             string            `yaml:"host"`
+	DatabaseURL      string            `yaml:"database_url"`
+	PostgresEnabled  bool              `yaml:"postgres_enabled"`
+	PostgresPort     int               `yaml:"postgres_port"`
+	PostgresDB       string            `yaml:"postgres_db"`
+	PostgresUser     string            `yaml:"postgres_user"`
+	PostgresPassword string            `yaml:"postgres_password"`
+	CPUs             string            `yaml:"cpus"`
+	Memory           string            `yaml:"memory"`
+	PostgresCPUs     string            `yaml:"postgres_cpus"`
+	PostgresMemory   string            `yaml:"postgres_memory"`
+	Volumes          []string          `yaml:"volumes"`
+	Authentication   *ServerAuthConfig `yaml:"authentication"`
+}
+
+type TaskScheduler struct {
+	Enabled          bool              `yaml:"enabled"`
+	Port             int               `yaml:"port"`
+	Host             string            `yaml:"host"`
+	DatabasePath     string            `yaml:"database_path"`
+	LogLevel         string            `yaml:"log_level"`
+	OpenRouterAPIKey string            `yaml:"openrouter_api_key"`
+	OpenRouterModel  string            `yaml:"openrouter_model"`
+	OllamaURL        string            `yaml:"ollama_url"`
+	OllamaModel      string            `yaml:"ollama_model"`
+	MCPProxyURL      string            `yaml:"mcp_proxy_url"`
+	MCPProxyAPIKey   string            `yaml:"mcp_proxy_api_key"`
+	OpenWebUIEnabled bool              `yaml:"openwebui_enabled"`
+	Workspace        string            `yaml:"workspace"`
+	CPUs             string            `yaml:"cpus"`
+	Memory           string            `yaml:"memory"`
+	Volumes          []string          `yaml:"volumes"`
+	Env              map[string]string `yaml:"env"`
+}
+
 // CapabilityOptConfig defines capability-specific options
 type CapabilityOptConfig struct {
 	Resources ResourcesCapOpt `yaml:"resources,omitempty"`
@@ -551,6 +591,7 @@ type DashboardConfig struct {
 	Port         int                  `yaml:"port,omitempty"`
 	Host         string               `yaml:"host,omitempty"`
 	ProxyURL     string               `yaml:"proxy_url,omitempty"`
+	PostgresURL  string               `yaml:"postgres_url,omitempty"`
 	Theme        string               `yaml:"theme,omitempty"`
 	LogStreaming bool                 `yaml:"log_streaming,omitempty"`
 	ConfigEditor bool                 `yaml:"config_editor,omitempty"`

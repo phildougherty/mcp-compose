@@ -30,10 +30,42 @@ const DashboardApp = {
     computed: {
         tabs() {
             return [
-                { id: 'overview', name: 'Overview', icon: 'M4 6a2 2 0 012-2h8a2 2 0 012 2v7a2 2 0 01-2 2H8l-4 4V6z', enabled: true },
-                { id: 'logs', name: 'Logs', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', enabled: this.config.enabledTabs.logs },
-                { id: 'activity', name: 'Activity', icon: 'M13 10V3L4 14h7v7l9-11h-7z', enabled: true },
-                { id: 'security', name: 'Security', icon: 'M12 15v2a6 6 0 01-6 6H4a2 2 0 01-2-2v-1a6 6 0 016-6h2zm-6 6a2 2 0 100-4 2 2 0 000 4zm8-13a2 2 0 100-4 2 2 0 000 4z', enabled: true },
+                {
+                    id: 'overview',
+                    name: 'Overview',
+                    icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2v-6a2 2 0 00-2-2H5a2 2 0 00-2 2z',
+                    enabled: true
+                },
+                {
+                    id: 'tasks',
+                    name: 'Tasks',
+                    icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+                    enabled: true
+                },
+                {
+                    id: 'memory',
+                    name: 'Memory',
+                    icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+                    enabled: true
+                },
+                {
+                    id: 'logs',
+                    name: 'Logs',
+                    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+                    enabled: this.config.enabledTabs.logs
+                },
+                {
+                    id: 'activity',
+                    name: 'Activity',
+                    icon: 'M13 10V3L4 14h7v7l9-11h-7z',
+                    enabled: true
+                },
+                {
+                    id: 'security',
+                    name: 'Security',
+                    icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z',
+                    enabled: true
+                },
             ].filter(tab => tab.enabled);
         },
         
@@ -43,7 +75,6 @@ const DashboardApp = {
                 const matchesFilter = this.getFilterMatch(server);
                 return matchesSearch && matchesFilter;
             });
-            
             return filtered.sort((a, b) => {
                 switch (this.sortBy) {
                     case 'status':
@@ -59,13 +90,65 @@ const DashboardApp = {
         },
         
         statusCounts() {
-            return {
-                total: this.servers.length,
-                running: this.servers.filter(s => this.isContainerRunning(s)).length,
-                stopped: this.servers.filter(s => !this.isContainerRunning(s)).length,
-                connected: this.servers.filter(s => this.getConnectionStatus(s) === 'Connected').length,
-                healthy: this.servers.filter(s => this.isServerHealthy(s)).length
+            if (!this.servers || this.servers.length === 0) {
+                return { total: 0, running: 0, stopped: 0, connected: 0, healthy: 0 };
+            }
+            
+            // Helper functions defined inside computed property
+            const isContainerRunning = (server) => {
+                const status = server.containerStatus;
+                if (!status) return false;
+                const normalizedStatus = status.toLowerCase().trim();
+                return normalizedStatus === 'running' || normalizedStatus === 'up' || normalizedStatus.includes('up ');
             };
+            
+            const getConnectionStatus = (server) => {
+                if (!this.connections || !this.connections.activeHttpConnectionsManagedByProxy) {
+                    return 'Disconnected';
+                }
+                const connection = this.connections.activeHttpConnectionsManagedByProxy[server.name];
+                if (!connection) {
+                    return 'Disconnected';
+                }
+                if (connection.initialized && connection.rawHealthyFlag) {
+                    return 'Connected';
+                }
+                return 'Disconnected';
+            };
+            
+            const isServerHealthy = (server) => {
+                return isContainerRunning(server) && getConnectionStatus(server) === 'Connected';
+            };
+            
+            // Calculate stats
+            const stats = {
+                total: this.servers.length,
+                running: 0,
+                stopped: 0,
+                connected: 0,
+                healthy: 0
+            };
+            
+            this.servers.forEach(server => {
+                // Count running containers
+                if (isContainerRunning(server)) {
+                    stats.running++;
+                } else {
+                    stats.stopped++;
+                }
+                
+                // Count connected servers
+                if (getConnectionStatus(server) === 'Connected') {
+                    stats.connected++;
+                }
+                
+                // Count healthy servers
+                if (isServerHealthy(server)) {
+                    stats.healthy++;
+                }
+            });
+            
+            return stats;
         },
         
         refreshFrequencyOptions() {
@@ -276,20 +359,32 @@ const DashboardApp = {
         },
         
         isContainerRunning(server) {
-            return server.containerStatus?.toLowerCase() === 'running';
-        },
-        
-        isServerHealthy(server) {
-            const connection = this.getHttpConnection(server);
-            return connection && connection.initialized && connection.rawHealthyFlag;
+            if (!server.containerStatus) return false;
+            
+            const status = server.containerStatus.toLowerCase().trim();
+            // Match Docker's actual status values
+            return status === 'running' || status === 'up' || status.includes('up ');
         },
         
         getConnectionStatus(server) {
-            const connection = this.getHttpConnection(server);
-            if (connection && connection.initialized && connection.rawHealthyFlag) {
-                return 'Connected';
+            if (!this.connections?.activeHttpConnectionsManagedByProxy) {
+                return 'Disconnected';
             }
-            return 'Disconnected';
+            
+            const connection = this.connections.activeHttpConnectionsManagedByProxy[server.name];
+            if (!connection) {
+                return 'Disconnected'; 
+            }
+            
+            // More strict health check
+            return connection.initialized && connection.rawHealthyFlag ? 'Connected' : 'Disconnected';
+        },
+        
+        isServerHealthy(server) {
+            // A server is healthy if both:
+            // 1. Container is running
+            // 2. Proxy connection is established and healthy
+            return this.isContainerRunning(server) && this.getConnectionStatus(server) === 'Connected';
         },
         
         getHttpConnection(server) {
@@ -467,142 +562,151 @@ const DashboardApp = {
     },
     
     template: `
-    <div class="min-h-screen bg-gray-900 dark:bg-gray-900">
-        <!-- Enhanced Header -->
-            <header class="bg-gray-800 dark:bg-gray-800 shadow-sm border-b border-gray-700 dark:border-gray-700 sticky top-0 z-50">
-                <div class="px-3 sm:px-4 lg:px-6">
-                    <div class="flex justify-between items-center h-14">
-                        <!-- Logo and Title -->
-                        <div class="flex items-center space-x-3">
-                            <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                                <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
-                                </svg>
-                            </div>
-                            <div class="hidden sm:block">
-                                <h1 class="text-lg font-semibold text-gray-900 dark:text-white">MCP Dashboard</h1>
-                            </div>
+        <div class="min-h-screen bg-gray-900 dark:bg-gray-900">
+        <!-- Compact Header -->
+        <header class="bg-gray-800 dark:bg-gray-800 shadow-sm border-b border-gray-700 dark:border-gray-700 sticky top-0 z-50">
+            <div class="px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-12">
+                    <!-- Logo and Title -->
+                    <div class="flex items-center space-x-3">
+                        <div class="w-7 h-7 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
                         </div>
-                        
-                        <!-- Controls -->
-                        <div class="flex items-center space-x-2">
-                            <!-- Auto Refresh Controls -->
-                            <div class="relative" ref="refreshDropdown">
-                                <div class="flex rounded-lg shadow-sm">
-                                    <button
-                                        @click="loadData"
-                                        :disabled="loading"
-                                        :class="[
-                                            'relative inline-flex items-center px-2 sm:px-3 py-2 rounded-l-lg border text-xs sm:text-sm font-medium focus:z-10 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-all touch-target',
-                                            autoRefresh
-                                                ? 'border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-200'
-                                                : 'border-gray-600 dark:border-gray-600 bg-gray-700 dark:bg-gray-700 text-gray-200 dark:text-gray-200'
-                                        ]"
-                                    >
-                                        <svg class="w-4 h-4 sm:mr-2" :class="{ 'animate-spin': loading }" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                                        </svg>
-                                        <span class="hidden sm:inline">{{ autoRefresh ? 'Auto' : 'Refresh' }}</span>
-                                        <span v-if="autoRefresh" class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 border border-white dark:border-gray-800 rounded-full animate-pulse"></span>
-                                    </button>
-                                    <button
-                                        @click="showRefreshDropdown = !showRefreshDropdown"
-                                        :class="[
-                                            'relative inline-flex items-center px-2 py-2 rounded-r-lg border border-l-0 text-xs sm:text-sm font-medium focus:z-10 focus:outline-none transition-colors touch-target',
-                                            autoRefresh
-                                                ? 'border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-200'
-                                                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'
-                                        ]"
-                                    >
-                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                                
-                                <!-- Refresh Dropdown -->
-                                <div v-if="showRefreshDropdown" class="origin-top-right absolute right-0 mt-2 w-64 rounded-lg shadow-lg bg-gray-800 dark:bg-gray-800 ring-1 ring-black ring-opacity-5 border border-gray-600 dark:border-gray-600 z-50">
-                                    <div class="p-4 space-y-4">
-                                        <div class="flex items-center justify-between">
-                                            <label class="text-sm font-medium text-gray-700 dark:text-gray-200">Auto Refresh</label>
+                        <h1 class="text-base font-semibold text-gray-900 dark:text-white hidden sm:block">MCP Dashboard</h1>
+                    </div>
+
+                    <!-- Compact Controls -->
+                    <div class="flex items-center space-x-2">
+                        <!-- Auto Refresh Toggle -->
+                        <div class="relative">
+                            <button
+                                @click="loadData"
+                                :disabled="loading"
+                                :class="[
+                                    'relative inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-all group',
+                                    autoRefresh
+                                        ? 'bg-green-900/40 text-green-200 border border-green-600/30 shadow-sm'
+                                        : 'bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600'
+                                ]"
+                            >
+                                <svg class="w-3 h-3 mr-1.5" :class="{ 'animate-spin': loading }" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                                </svg>
+                                <span class="hidden sm:inline">{{ autoRefresh ? 'Auto' : 'Refresh' }}</span>
+                                <!-- Active indicator -->
+                                <span v-if="autoRefresh" class="absolute -top-1 -right-1 flex h-3 w-3">
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                    <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                </span>
+                            </button>
+                            
+                            <!-- Settings Dropdown -->
+                            <button
+                                @click="showRefreshDropdown = !showRefreshDropdown"
+                                class="ml-1 inline-flex items-center px-1.5 py-1.5 border border-gray-600 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                            >
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path>
+                                </svg>
+                            </button>
+
+                            <!-- Compact Dropdown -->
+                            <div v-if="showRefreshDropdown" class="absolute right-0 mt-2 w-64 rounded-lg shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 border border-gray-600 z-50">
+                                <div class="p-3 space-y-3">
+                                    <!-- Auto Refresh Toggle -->
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-medium text-gray-200">Auto Refresh</span>
+                                        <button
+                                            @click="toggleAutoRefresh"
+                                            :class="[
+                                                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                                                autoRefresh ? 'bg-blue-600' : 'bg-gray-600'
+                                            ]"
+                                        >
+                                            <span :class="[
+                                                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out',
+                                                autoRefresh ? 'translate-x-4' : 'translate-x-0'
+                                            ]"></span>
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Frequency Options -->
+                                    <div v-if="autoRefresh" class="space-y-1">
+                                        <label class="text-xs font-medium text-gray-300">Interval</label>
+                                        <div class="space-y-1">
                                             <button
-                                                @click="toggleAutoRefresh"
+                                                v-for="option in refreshFrequencyOptions"
+                                                :key="option.value"
+                                                @click="setRefreshFrequency(option.value)"
                                                 :class="[
-                                                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
-                                                    autoRefresh ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'
+                                                    'w-full text-left px-2 py-1 text-xs rounded transition-colors',
+                                                    refreshFrequency === option.value
+                                                        ? 'bg-blue-600 text-white'
+                                                        : 'text-gray-300 hover:bg-gray-700'
                                                 ]"
                                             >
-                                                <span :class="[
-                                                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out',
-                                                    autoRefresh ? 'translate-x-5' : 'translate-x-0'
-                                                ]"></span>
+                                                {{ option.label }}
                                             </button>
                                         </div>
-                                        <div v-if="autoRefresh">
-                                            <label class="text-sm font-medium text-gray-700 dark:text-gray-200">Frequency</label>
-                                            <div class="mt-2 space-y-2">
-                                                <button
-                                                    v-for="option in refreshFrequencyOptions"
-                                                    :key="option.value"
-                                                    @click="setRefreshFrequency(option.value)"
-                                                    :class="[
-                                                        'w-full text-left px-3 py-2 text-sm rounded-md transition-colors touch-target',
-                                                        refreshFrequency === option.value
-                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
-                                                            : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                                    ]"
-                                                >
-                                                    {{ option.label }}
-                                                </button>
-                                            </div>
+                                    </div>
+                                    
+                                    <!-- Status -->
+                                    <div class="border-t border-gray-600 pt-2 space-y-1 text-xs">
+                                        <div class="flex justify-between text-gray-400">
+                                            <span>Last updated:</span>
+                                            <span>{{ timeAgoText }}</span>
                                         </div>
-                                        <div class="border-t border-gray-200 dark:border-gray-600 pt-3">
-                                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ timeAgoText }}</p>
+                                        <div v-if="autoRefresh" class="flex justify-between text-gray-400">
+                                            <span>Next update:</span>
+                                            <span class="text-green-400">{{ refreshFrequency / 1000 }}s</span>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- Restart Proxy Button -->
-                            <button
-                                @click="reloadProxy"
-                                :disabled="loading"
-                                class="touch-target inline-flex items-center px-2 sm:px-3 py-2 border border-transparent text-xs sm:text-sm leading-4 font-medium rounded-lg text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 transition-colors shadow-sm"
-                            >
-                                <svg class="w-4 h-4 sm:mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                                </svg>
-                                <span class="hidden sm:inline">Restart</span>
-                            </button>
                         </div>
-                    </div>
-                </div>
-            </header>
-            
-            <!-- Mobile-First Navigation Tabs -->
-            <nav class="bg-gray-800 border-b border-gray-700 sticky top-14 z-40">
-                <div class="px-3 sm:px-4 lg:px-6">
-                    <div class="flex overflow-x-auto py-2 space-x-1" style="-webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none;">
+
+                        <!-- Restart Proxy Button -->
                         <button
-                            v-for="tab in tabs"
-                            :key="tab.id"
-                            @click="activeTab = tab.id"
-                            :class="[
-                                'flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex-shrink-0',
-                                activeTab === tab.id
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                            ]"
-                            style="touch-action: manipulation;"
+                            @click="reloadProxy"
+                            :disabled="loading"
+                            class="inline-flex items-center px-2.5 py-1.5 border border-orange-600/30 text-xs font-medium rounded-md text-orange-200 bg-orange-900/40 hover:bg-orange-900/60 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all"
+                            title="Restart Proxy"
                         >
-                            <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon"></path>
+                            <svg class="w-3 h-3 sm:mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
                             </svg>
-                            {{ tab.name }}
+                            <span class="hidden sm:inline">Restart</span>
                         </button>
                     </div>
                 </div>
-            </nav>
+            </div>
+        </header>
+
+        <!-- Compact Navigation Pills -->
+        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40">
+            <div class="px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center py-2 space-x-1 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                    <button
+                        v-for="tab in tabs"
+                        :key="tab.id"
+                        @click="activeTab = tab.id"
+                        :class="[
+                            'inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0',
+                            activeTab === tab.id
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                        ]"
+                    >
+                        <svg class="w-3 h-3 mr-1.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon"></path>
+                        </svg>
+                        {{ tab.name }}
+                    </button>
+                </div>
+            </div>
+        </nav>
             
             <!-- Main Content -->
             <main class="px-3 sm:px-4 lg:px-6 py-4 max-w-full overflow-x-hidden">
@@ -972,9 +1076,10 @@ const DashboardApp = {
                                     
                                     <!-- Integrated MCP Inspector -->
                                     <div class="mb-6">
-                                        <mcp-inspector 
+                                        <mcp-inspector
                                             :server-name="server.name"
                                             :server-config="server"
+                                            :is-expanded="isServerExpanded(server.name)"
                                             @tools-discovered="(tools) => onToolsDiscovered(server.name, tools)"
                                         ></mcp-inspector>
                                     </div>
@@ -1032,8 +1137,14 @@ const DashboardApp = {
                         </div>
                     </div>
                 </div>
-                
-                <!-- Other tabs -->
+                <task-scheduler
+                    v-if="activeTab === 'tasks'"
+                    :config="config"
+                ></task-scheduler>
+                <memory-viewer
+                    v-if="activeTab === 'memory'"
+                    :config="config"
+                ></memory-viewer>
                 <log-viewer
                     v-if="activeTab === 'logs'"
                     ref="logViewer"

@@ -43,7 +43,7 @@
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 transition-colors min-h-screen overflow-x-hidden">
-    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2 w-full max-w-xs sm:max-w-sm pointer-events-none"></div>
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-0 w-full max-w-sm pointer-events-none"></div>
     <div id="app" v-cloak>
         <dashboard-app
             :config="{
@@ -62,7 +62,9 @@
     <!-- Load utilities first -->
     <script src="/static/utils.js"></script>
     <!-- Load all Vue components in dependency order -->
+    <script src="/static/components/task-scheduler.js"></script>
     <script src="/static/components/logs.js"></script>
+    <script src="/static/components/memory.js"></script>
     <script src="/static/components/activity.js"></script>
     <script src="/static/components/inspector.js"></script>
     <script src="/static/components/oauth.js"></script>

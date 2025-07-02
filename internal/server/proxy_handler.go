@@ -275,7 +275,20 @@ func (h *ProxyHandler) sendMCPError(w http.ResponseWriter, id interface{}, code 
 }
 
 func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.ServerConfig) string {
-	targetHost := fmt.Sprintf("mcp-compose-%s", serverName)
+	var targetHost string
+
+	// Special case for built-in task-scheduler
+	if serverName == "task-scheduler" {
+		// Check if it's running as a container or external process
+		if h.isTaskSchedulerContainer() {
+			targetHost = "mcp-compose-task-scheduler"
+		} else {
+			targetHost = "localhost" // Running natively
+		}
+	} else {
+		targetHost = fmt.Sprintf("mcp-compose-%s", serverName)
+	}
+
 	targetPort := serverConfig.HttpPort
 
 	// If HttpPort is not explicitly set in YAML, try to infer it from the 'ports' mapping
@@ -310,9 +323,17 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 
 	// Build the URL with the HTTP path
 	baseURL := fmt.Sprintf("http://%s:%d", targetHost, targetPort)
+
 	// Add the HTTP path if specified
 	if serverConfig.HttpPath != "" {
 		path := serverConfig.HttpPath
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		baseURL += path
+	} else if serverConfig.SSEPath != "" {
+		// For SSE servers, use SSEPath
+		path := serverConfig.SSEPath
 		if !strings.HasPrefix(path, "/") {
 			path = "/" + path
 		}
@@ -323,6 +344,17 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 
 	h.logger.Debug("Resolved internal HTTP URL (MCP Endpoint for containerized proxy) for server %s: %s", serverName, baseURL)
 	return baseURL
+}
+
+// Helper function to check if task-scheduler is running as container
+func (h *ProxyHandler) isTaskSchedulerContainer() bool {
+	if h.Manager == nil || h.Manager.containerRuntime == nil {
+		return false
+	}
+
+	// Check if container exists
+	status, err := h.Manager.containerRuntime.GetContainerStatus("mcp-compose-task-scheduler")
+	return err == nil && status == "running"
 }
 
 func (h *ProxyHandler) recordConnectionEvent(serverName string, success bool, isTimeout bool) {

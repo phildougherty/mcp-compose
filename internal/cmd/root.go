@@ -30,6 +30,8 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewProxyCommand())
 	rootCmd.AddCommand(NewReloadCommand())
 	rootCmd.AddCommand(NewDashboardCommand())
+	rootCmd.AddCommand(NewTaskSchedulerCommand())
+	rootCmd.AddCommand(NewMemoryCommand())
 
 	return rootCmd
 }

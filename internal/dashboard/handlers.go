@@ -1245,3 +1245,214 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
+
+// Update the task scheduler proxy to use the inspector service
+func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract the path after /api/task-scheduler/
+	path := strings.TrimPrefix(r.URL.Path, "/api/task-scheduler")
+
+	d.logger.Info("Task scheduler proxy request: %s %s", r.Method, path)
+
+	// Map REST-like calls to MCP tool calls
+	var toolName string
+	var toolArgs map[string]interface{}
+
+	switch {
+	case path == "/tasks" && r.Method == "GET":
+		toolName = "list_tasks"
+		toolArgs = map[string]interface{}{}
+
+	case path == "/tasks" && r.Method == "POST":
+		toolName = "add_task"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(body, &toolArgs); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+	case strings.HasSuffix(path, "/run") && r.Method == "POST":
+		toolName = "run_task"
+		// Extract task ID from path like /tasks/123/run
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+			return
+		}
+
+	case strings.HasSuffix(path, "/enable") && r.Method == "POST":
+		toolName = "enable_task"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+			return
+		}
+
+	case strings.HasSuffix(path, "/disable") && r.Method == "POST":
+		toolName = "disable_task"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+			return
+		}
+
+	case strings.Contains(path, "/tasks/") && strings.HasSuffix(path, "/output"):
+		toolName = "get_run_output"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"task_id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+			return
+		}
+
+	case path == "/runs/status" || path == "/runs/status/":
+		toolName = "list_run_status"
+		toolArgs = map[string]interface{}{}
+
+	case path == "/metrics" || path == "/metrics/":
+		toolName = "get_metrics"
+		toolArgs = map[string]interface{}{}
+
+	default:
+		http.Error(w, fmt.Sprintf("Unsupported operation: %s %s", r.Method, path), http.StatusBadRequest)
+		return
+	}
+
+	d.logger.Info("Calling MCP tool: %s with args: %v", toolName, toolArgs)
+
+	// Use the inspector service to make the MCP call
+	if d.inspectorService == nil {
+		http.Error(w, `{"error": "Inspector service not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create a session for the task-scheduler server
+	session, err := d.inspectorService.CreateSession("task-scheduler")
+	if err != nil {
+		d.logger.Error("Failed to create task scheduler session: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error": "Failed to create session: %v"}`, err), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create the inspector request
+	inspectorReq := InspectorRequest{
+		SessionID: session.ID,
+		Method:    "tools/call",
+		Params:    json.RawMessage(fmt.Sprintf(`{"name": "%s", "arguments": %s}`, toolName, mustJSON(toolArgs))),
+	}
+
+	// Execute the request
+	response, err := d.inspectorService.ExecuteRequest(session.ID, inspectorReq)
+	if err != nil {
+		d.logger.Error("Task scheduler tool call failed: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error": "Tool call failed: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	// Clean up session
+	d.inspectorService.DestroySession(session.ID)
+
+	// Return the result
+	w.Header().Set("Content-Type", "application/json")
+
+	// Extract the tool call result
+	if response.Result != nil {
+		// The result should contain the tool output
+		if resultMap, ok := response.Result.(map[string]interface{}); ok {
+			if content, exists := resultMap["content"]; exists {
+				// Tool results are usually in content array
+				if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
+					if contentItem, ok := contentArray[0].(map[string]interface{}); ok {
+						if text, exists := contentItem["text"]; exists {
+							// Try to parse as JSON, fallback to raw text
+							var jsonResult interface{}
+							if err := json.Unmarshal([]byte(text.(string)), &jsonResult); err == nil {
+								json.NewEncoder(w).Encode(jsonResult)
+								return
+							}
+						}
+					}
+				}
+			}
+			// Fallback to returning the whole result
+			json.NewEncoder(w).Encode(resultMap)
+			return
+		}
+		json.NewEncoder(w).Encode(response.Result)
+	} else if response.Error != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": response.Error,
+		})
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"result": "success",
+		})
+	}
+}
+
+// Helper function to marshal JSON safely
+func mustJSON(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// Update health check to use inspector
+func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if d.inspectorService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"available": false,
+			"error":     "Inspector service not available",
+		})
+		return
+	}
+
+	// Try to create a session with the task scheduler
+	session, err := d.inspectorService.CreateSession("task-scheduler")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"available": false,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Clean up session
+	defer d.inspectorService.DestroySession(session.ID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"available":    true,
+		"sessionId":    session.ID,
+		"serverName":   "task-scheduler",
+		"capabilities": session.Capabilities,
+	})
+}

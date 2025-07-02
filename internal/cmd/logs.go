@@ -13,16 +13,20 @@ func NewLogsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logs [SERVER...]",
 		Short: "View logs from MCP servers",
-		Long: `View logs from MCP servers, proxy, or dashboard.
-
+		Long: `View logs from MCP servers, proxy, dashboard, task-scheduler, or memory server.
 Special containers:
-  proxy     - Shows logs from mcp-compose-http-proxy container
-  dashboard - Shows logs from mcp-compose-dashboard container
+  proxy          - Shows logs from mcp-compose-http-proxy container
+  dashboard      - Shows logs from mcp-compose-dashboard container
+  task-scheduler - Shows logs from mcp-compose-task-scheduler container
+  memory         - Shows logs from mcp-compose-memory container
+  postgres-memory - Shows logs from mcp-compose-postgres-memory container
 
 Examples:
   mcp-compose logs                    # Show logs from all servers
   mcp-compose logs proxy -f           # Follow proxy logs
   mcp-compose logs dashboard -f       # Follow dashboard logs  
+  mcp-compose logs task-scheduler -f  # Follow task scheduler logs
+  mcp-compose logs memory -f          # Follow memory server logs
   mcp-compose logs filesystem -f      # Follow filesystem server logs
   mcp-compose logs proxy dashboard -f # Follow both proxy and dashboard logs`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,13 +35,12 @@ Examples:
 			return runLogsCommand(file, args, follow)
 		},
 	}
-
 	cmd.Flags().BoolP("follow", "f", false, "Follow log output")
 	return cmd
 }
 
 func runLogsCommand(configFile string, serverNames []string, follow bool) error {
-	// Check if we have special container requests (proxy, dashboard)
+	// Check if we have special container requests (proxy, dashboard, etc.)
 	specialContainers := make(map[string]string)
 	regularServers := make([]string, 0)
 
@@ -47,6 +50,12 @@ func runLogsCommand(configFile string, serverNames []string, follow bool) error 
 			specialContainers["proxy"] = "mcp-compose-http-proxy"
 		case "dashboard":
 			specialContainers["dashboard"] = "mcp-compose-dashboard"
+		case "task-scheduler":
+			specialContainers["task-scheduler"] = "mcp-compose-task-scheduler"
+		case "memory":
+			specialContainers["memory"] = "mcp-compose-memory"
+		case "postgres-memory":
+			specialContainers["postgres-memory"] = "mcp-compose-postgres-memory"
 		default:
 			regularServers = append(regularServers, name)
 		}
@@ -87,7 +96,7 @@ func handleSpecialContainerLogs(containers map[string]string, follow bool) error
 	}
 
 	if runtime.GetRuntimeName() == "none" {
-		fmt.Println("No container runtime detected. Cannot show logs for proxy/dashboard containers.")
+		fmt.Println("No container runtime detected. Cannot show logs for built-in service containers.")
 		return nil
 	}
 

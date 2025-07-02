@@ -16,13 +16,12 @@ const LogViewer = {
     computed: {
         filteredLogs() {
             return this.logs.filter(log => {
-                const matchesSearch = !this.searchTerm || 
+                const matchesSearch = !this.searchTerm ||
                     log.message.toLowerCase().includes(this.searchTerm.toLowerCase());
                 const matchesLevel = this.filterLevel === 'all' || log.level === this.filterLevel;
                 return matchesSearch && matchesLevel;
             });
         },
-        
         logStats() {
             return {
                 total: this.logs.length,
@@ -36,16 +35,13 @@ const LogViewer = {
     methods: {
         async loadLogs() {
             if (!this.selectedServer) return;
-            
             this.loading = true;
             this.error = '';
-            
             try {
                 const response = await fetch(`/api/containers/mcp-compose-${this.selectedServer}/logs?tail=100`);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
                 const data = await response.json();
                 this.logs = data.logs.map((line, index) => ({
                     id: index,
@@ -55,7 +51,6 @@ const LogViewer = {
                     message: line,
                     raw: line
                 }));
-                
                 this.scrollToBottom();
                 this.showToast('Logs loaded successfully', 'success');
             } catch (err) {
@@ -66,23 +61,17 @@ const LogViewer = {
                 this.loading = false;
             }
         },
-        
         startStreaming() {
             if (!this.selectedServer || this.streaming) return;
-            
             this.streaming = true;
             this.error = '';
-            
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/logs?server=${this.selectedServer}`;
-            
             this.wsConnection = new WebSocket(wsUrl);
-            
             this.wsConnection.onopen = () => {
                 console.log('Log stream connected for server:', this.selectedServer);
                 this.showToast('Log streaming started', 'success');
             };
-            
             this.wsConnection.onmessage = (event) => {
                 try {
                     const logMessage = JSON.parse(event.data);
@@ -91,13 +80,11 @@ const LogViewer = {
                     console.error('Failed to parse log message:', err);
                 }
             };
-            
             this.wsConnection.onclose = () => {
                 console.log('Log stream disconnected');
                 this.streaming = false;
                 this.showToast('Log streaming stopped', 'info');
             };
-            
             this.wsConnection.onerror = (err) => {
                 console.error('WebSocket error:', err);
                 this.error = 'WebSocket connection error';
@@ -105,7 +92,6 @@ const LogViewer = {
                 this.showToast('Log streaming error', 'error');
             };
         },
-        
         addLogEntry(logMessage) {
             this.logs.push({
                 id: this.logs.length,
@@ -115,17 +101,14 @@ const LogViewer = {
                 message: logMessage.message,
                 raw: logMessage.message
             });
-            
             // Keep only last 1000 logs to prevent memory issues
             if (this.logs.length > 1000) {
                 this.logs = this.logs.slice(-1000);
             }
-            
             if (this.autoScroll) {
                 this.$nextTick(() => this.scrollToBottom());
             }
         },
-        
         stopStreaming() {
             if (this.wsConnection) {
                 this.wsConnection.close();
@@ -133,7 +116,6 @@ const LogViewer = {
             }
             this.streaming = false;
         },
-        
         toggleStreaming() {
             if (this.streaming) {
                 this.stopStreaming();
@@ -141,17 +123,14 @@ const LogViewer = {
                 this.startStreaming();
             }
         },
-        
         clearLogs() {
             this.logs = [];
             this.showToast('Logs cleared', 'info');
         },
-        
         downloadLogs() {
-            const logsText = this.logs.map(log => 
+            const logsText = this.logs.map(log =>
                 `[${log.timestamp}] [${log.level}] [${log.server}] ${log.message}`
             ).join('\n');
-            
             const blob = new Blob([logsText], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -161,10 +140,8 @@ const LogViewer = {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            
             this.showToast('Logs downloaded', 'success');
         },
-        
         detectLogLevel(message) {
             const msg = message.toLowerCase();
             if (msg.includes('error') || msg.includes('failed') || msg.includes('exception') || msg.includes('fatal')) return 'ERROR';
@@ -172,7 +149,6 @@ const LogViewer = {
             if (msg.includes('debug') || msg.includes('trace')) return 'DEBUG';
             return 'INFO';
         },
-        
         getLogLevelClass(level) {
             switch (level) {
                 case 'ERROR': return 'text-red-400 bg-red-900/20';
@@ -182,7 +158,6 @@ const LogViewer = {
                 default: return 'text-green-400 bg-green-900/20';
             }
         },
-        
         formatLogTimestamp(timestamp) {
             try {
                 const date = new Date(timestamp);
@@ -191,14 +166,12 @@ const LogViewer = {
                 return timestamp;
             }
         },
-        
         scrollToBottom() {
             const container = this.$refs.logContainer;
             if (container) {
                 container.scrollTop = container.scrollHeight;
             }
         },
-        
         onServerChange() {
             this.stopStreaming();
             this.logs = [];
@@ -207,27 +180,22 @@ const LogViewer = {
                 this.loadLogs();
             }
         },
-        
         setSelectedServer(serverName) {
             this.selectedServer = serverName;
             if (serverName) {
                 this.loadLogs();
             }
         },
-        
         showToast(message, type = 'info') {
             window.showToast && window.showToast(message, type);
         }
     },
-    
     watch: {
         selectedServer: 'onServerChange'
     },
-    
     beforeUnmount() {
         this.stopStreaming();
     },
-    
     template: `
         <div class="space-y-4 animate-fade-in">
             <!-- Enhanced Header -->
@@ -246,7 +214,6 @@ const LogViewer = {
                             <p class="text-sm text-gray-500 dark:text-gray-400">Real-time container log monitoring</p>
                         </div>
                     </div>
-                    
                     <!-- Controls -->
                     <div class="space-y-3 lg:space-y-0 lg:space-x-3 lg:flex">
                         <select
@@ -258,7 +225,6 @@ const LogViewer = {
                                 {{ server.name }}
                             </option>
                         </select>
-                        
                         <button
                             @click="toggleStreaming"
                             :disabled="!selectedServer"
@@ -278,42 +244,38 @@ const LogViewer = {
                             </svg>
                             {{ streaming ? 'Stop' : 'Start' }} Stream
                         </button>
-                        
                         <button
                             @click="loadLogs"
                             :disabled="!selectedServer || loading"
                             class="touch-target inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
                         >
                             <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loading }" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                                <path fill-rule="evenodd" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" clip-rule="evenodd"></path>
                             </svg>
                             Refresh
                         </button>
-                        
                         <button
                             @click="downloadLogs"
                             :disabled="!logs.length"
                             class="touch-target inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
                         >
-                            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                             </svg>
                             Download
                         </button>
-                        
                         <button
                             @click="clearLogs"
                             :disabled="!logs.length"
                             class="touch-target inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
                         >
-                            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z M4 5a2 2 0 012-2v1a2 2 0 002 2h4a2 2 0 002-2V3a2 2 0 012 2v6.5l1.707 1.707A1 1 0 0117 10.414V5a4 4 0 00-8 0v5.586l1.707-1.707A1 1 0 0112 10.414z" clip-rule="evenodd"></path>
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                             </svg>
                             Clear
                         </button>
                     </div>
                 </div>
-                
                 <!-- Search and Filter -->
                 <div class="mt-4 flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
                     <div class="flex-1 relative">
@@ -329,7 +291,6 @@ const LogViewer = {
                             class="form-input pl-10"
                         >
                     </div>
-                    
                     <select v-model="filterLevel" class="form-input w-full sm:w-32">
                         <option value="all">All Levels</option>
                         <option value="ERROR">Errors</option>
@@ -337,14 +298,12 @@ const LogViewer = {
                         <option value="INFO">Info</option>
                         <option value="DEBUG">Debug</option>
                     </select>
-                    
                     <label class="inline-flex items-center">
                         <input v-model="autoScroll" type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Auto-scroll</span>
                     </label>
                 </div>
             </div>
-            
             <!-- Error Message -->
             <div v-if="error" class="enhanced-card border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
                 <div class="flex items-start">
@@ -362,7 +321,6 @@ const LogViewer = {
                     </div>
                 </div>
             </div>
-            
             <!-- Enhanced Log Display -->
             <div class="enhanced-card overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -382,7 +340,6 @@ const LogViewer = {
                         </div>
                     </div>
                 </div>
-                
                 <div class="bg-gray-900 relative">
                     <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-gray-900/75 z-10">
                         <div class="text-center">
@@ -390,7 +347,6 @@ const LogViewer = {
                             <p class="text-gray-400">Loading logs...</p>
                         </div>
                     </div>
-                    
                     <div
                         ref="logContainer"
                         class="h-96 overflow-y-auto custom-scrollbar font-mono text-sm"
@@ -403,7 +359,6 @@ const LogViewer = {
                                 <p class="text-lg font-medium">Please select a server to view logs</p>
                             </div>
                         </div>
-                        
                         <div v-else-if="filteredLogs.length === 0" class="flex items-center justify-center h-full text-gray-500">
                             <div class="text-center p-8">
                                 <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -413,7 +368,6 @@ const LogViewer = {
                                 <p class="text-gray-400 mt-2">Logs for {{ selectedServer }} will appear here</p>
                             </div>
                         </div>
-                        
                         <div v-else class="p-4">
                             <div
                                 v-for="log in filteredLogs"
@@ -428,7 +382,6 @@ const LogViewer = {
                     </div>
                 </div>
             </div>
-            
             <!-- Enhanced Statistics -->
             <div class="responsive-grid cols-2 lg:cols-4">
                 <div class="enhanced-card p-4">
@@ -446,7 +399,6 @@ const LogViewer = {
                         </div>
                     </div>
                 </div>
-                
                 <div class="enhanced-card p-4">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">
@@ -462,7 +414,6 @@ const LogViewer = {
                         </div>
                     </div>
                 </div>
-                
                 <div class="enhanced-card p-4">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">
@@ -478,7 +429,6 @@ const LogViewer = {
                         </div>
                     </div>
                 </div>
-                
                 <div class="enhanced-card p-4">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">

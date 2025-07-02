@@ -2,29 +2,43 @@ package dashboard
 
 import (
 	"fmt"
+	"mcpcompose/internal/config"
+	"mcpcompose/internal/container"
+	"mcpcompose/internal/logging"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/logging"
 )
 
 type Manager struct {
-	config     *config.ComposeConfig
-	runtime    container.Runtime
-	logger     *logging.Logger
-	configFile string
+	config          *config.ComposeConfig
+	runtime         container.Runtime
+	logger          *logging.Logger
+	configFile      string
+	activityStorage *ActivityStorage
 }
 
 func NewManager(cfg *config.ComposeConfig, runtime container.Runtime) *Manager {
-	return &Manager{
+	m := &Manager{
 		config:  cfg,
 		runtime: runtime,
 		logger:  logging.NewLogger(cfg.Logging.Level),
 	}
+
+	// Initialize activity storage if PostgreSQL URL is provided
+	if cfg.Dashboard.PostgresURL != "" {
+		activityStorage, err := NewActivityStorage(cfg.Dashboard.PostgresURL)
+		if err != nil {
+			// Use Info instead of Warn if Warn doesn't exist
+			m.logger.Info("Failed to initialize activity storage: %v", err)
+			// Continue without activity storage
+		} else {
+			m.activityStorage = activityStorage
+		}
+	}
+
+	return m
 }
 
 func (m *Manager) SetConfigFile(configFile string) {
@@ -53,6 +67,14 @@ func (m *Manager) Start() error {
 }
 
 func (m *Manager) Stop() error {
+	// Close activity storage if initialized
+	if m.activityStorage != nil {
+		if err := m.activityStorage.Close(); err != nil {
+			// Use Info instead of Warn if Warn doesn't exist
+			m.logger.Info("Error closing activity storage: %v", err)
+		}
+	}
+
 	err := m.runtime.StopContainer("mcp-compose-dashboard")
 	if err != nil {
 		return fmt.Errorf("failed to stop dashboard container: %w", err)
@@ -64,7 +86,7 @@ func (m *Manager) Stop() error {
 func (m *Manager) buildDashboardImage() error {
 	m.logger.Info("Building dashboard Docker image...")
 
-	// Create Dockerfile that uses the same binary in containerized mode
+	// Enhanced Dockerfile with PostgreSQL dependencies
 	dockerfileContent := `FROM golang:1.21-alpine AS builder
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -74,23 +96,27 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o mcp-compose cmd/mcp-compose/main.go
 
 FROM alpine:latest
-# Install Docker CLI for container management
-RUN apk --no-cache add ca-certificates docker-cli curl
+# Install required packages including PostgreSQL client
+RUN apk --no-cache add ca-certificates docker-cli curl postgresql-client
+
 # Create non-root user
 RUN adduser -D -u 1000 dashboard
 WORKDIR /app
 COPY --from=builder /build/mcp-compose .
+
 # Change ownership to dashboard user
 RUN chown dashboard:dashboard /app/mcp-compose && chmod +x /app/mcp-compose
+
 EXPOSE 3001
 
-# Create a startup script
+# Create a startup script with health checks
 RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo "Dashboard container starting..."' >> /app/start.sh && \
     echo 'echo "Environment variables:"' >> /app/start.sh && \
     echo 'echo "  MCP_PROXY_URL: $MCP_PROXY_URL"' >> /app/start.sh && \
     echo 'echo "  MCP_API_KEY: $MCP_API_KEY"' >> /app/start.sh && \
     echo 'echo "  MCP_DASHBOARD_HOST: $MCP_DASHBOARD_HOST"' >> /app/start.sh && \
+    echo 'echo "  POSTGRES_URL: ${POSTGRES_URL:+configured}"' >> /app/start.sh && \
     echo 'echo "Starting dashboard server on 0.0.0.0:3001..."' >> /app/start.sh && \
     echo 'exec ./mcp-compose dashboard --native --file /app/mcp-compose.yaml --port 3001 --host 0.0.0.0' >> /app/start.sh && \
     chmod +x /app/start.sh && \
@@ -98,7 +124,6 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
 
 # Switch to non-root user
 USER dashboard
-
 CMD ["/app/start.sh"]
 `
 
@@ -169,6 +194,7 @@ func (m *Manager) startDashboardContainer() error {
 		"MCP_DASHBOARD_LOG_STREAMING": strconv.FormatBool(m.config.Dashboard.LogStreaming),
 		"MCP_DASHBOARD_CONFIG_EDITOR": strconv.FormatBool(m.config.Dashboard.ConfigEditor),
 		"MCP_DASHBOARD_METRICS":       strconv.FormatBool(m.config.Dashboard.Metrics),
+		"POSTGRES_URL":                m.config.Dashboard.PostgresURL,
 	}
 
 	// Prepare volumes - mount config file and docker socket
@@ -184,31 +210,26 @@ func (m *Manager) startDashboardContainer() error {
 		Ports:    []string{fmt.Sprintf("%d:%d", hostPort, containerPort)}, // hostPort:3001
 		Networks: []string{"mcp-net"},
 		Volumes:  volumes,
-
-		// ADD SECURITY CONFIGURATION FOR DASHBOARD:
+		// Security configuration for dashboard:
 		User: "1000:1000", // Run as non-root user
 		Security: container.SecurityConfig{
 			AllowDockerSocket:  true,  // Dashboard needs Docker socket access for monitoring
 			TrustedImage:       true,  // Mark as trusted system container
 			AllowPrivilegedOps: false, // No privileged operations needed
 		},
-
 		// Resource limits
 		CPUs:   "0.5",
 		Memory: "512m",
-
 		// Security hardening
 		CapDrop:     []string{"ALL"},
 		CapAdd:      []string{"SETUID", "SETGID"}, // Minimal capabilities for container operations
 		SecurityOpt: []string{"no-new-privileges:true"},
 		ReadOnly:    false, // Dashboard may need to write temp files
-
 		// System container labels
 		Labels: map[string]string{
 			"mcp-compose.system": "true",
 			"mcp-compose.role":   "dashboard",
 		},
-
 		// Restart policy
 		RestartPolicy: "unless-stopped",
 	}
@@ -223,5 +244,17 @@ func (m *Manager) startDashboardContainer() error {
 	m.logger.Info("Config file mounted from: %s", configPath)
 	m.logger.Info("Container listening on port %d, mapped to host port %d", containerPort, hostPort)
 
+	// Log activity storage status
+	if m.config.Dashboard.PostgresURL != "" {
+		m.logger.Info("Activity storage enabled with PostgreSQL")
+	} else {
+		m.logger.Info("Activity storage disabled - no PostgreSQL URL configured")
+	}
+
 	return nil
+}
+
+// GetActivityStorage returns the activity storage instance (for use by other components)
+func (m *Manager) GetActivityStorage() *ActivityStorage {
+	return m.activityStorage
 }

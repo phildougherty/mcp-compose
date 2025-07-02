@@ -76,10 +76,124 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 	if cfg.Logging.Level != "" {
 		logLevel = cfg.Logging.Level
 	}
+
 	logger := logging.NewLogger(logLevel)
 
 	// Create a temporary manager with logger for validation
 	tempManager := &Manager{logger: logger}
+
+	// Add task-scheduler as a built-in service if enabled
+	if cfg.TaskScheduler != nil && cfg.TaskScheduler.Enabled {
+		logger.Info("Task scheduler enabled in config, adding as built-in server")
+
+		// Create task-scheduler server config
+		taskSchedulerConfig := config.ServerConfig{
+			// CRITICAL: Add image so validation passes
+			Image:        "mcp-compose-task-scheduler:latest",
+			Protocol:     "sse",
+			HttpPort:     cfg.TaskScheduler.Port,
+			SSEPath:      "/sse",
+			User:         "root",
+			ReadOnly:     false,
+			Privileged:   false,
+			Capabilities: []string{"tools", "resources"},
+			Env: map[string]string{
+				"TZ":                                 "America/New_York",
+				"MCP_CRON_SERVER_TRANSPORT":          "sse",
+				"MCP_CRON_SERVER_ADDRESS":            "0.0.0.0",
+				"MCP_CRON_SERVER_PORT":               fmt.Sprintf("%d", cfg.TaskScheduler.Port),
+				"MCP_CRON_DATABASE_PATH":             cfg.TaskScheduler.DatabasePath,
+				"MCP_CRON_DATABASE_ENABLED":          "true",
+				"MCP_CRON_LOGGING_LEVEL":             cfg.TaskScheduler.LogLevel,
+				"MCP_CRON_SCHEDULER_DEFAULT_TIMEOUT": "10m",
+				"MCP_CRON_OLLAMA_ENABLED":            "true",
+				"MCP_CRON_OLLAMA_BASE_URL":           cfg.TaskScheduler.OllamaURL,
+				"MCP_CRON_OLLAMA_DEFAULT_MODEL":      cfg.TaskScheduler.OllamaModel,
+				"USE_OPENROUTER":                     "true",
+				"OPENROUTER_ENABLED":                 "true",
+				"OPENROUTER_API_KEY":                 cfg.TaskScheduler.OpenRouterAPIKey,
+				"OPENROUTER_MODEL":                   cfg.TaskScheduler.OpenRouterModel,
+				"MCP_PROXY_URL":                      cfg.TaskScheduler.MCPProxyURL,
+				"MCP_PROXY_API_KEY":                  cfg.TaskScheduler.MCPProxyAPIKey,
+				"MCP_MEMORY_SERVER_URL":              "http://mcp-compose-memory:3001",
+				"MCP_FILESYSTEM_URL":                 "http://mcp-compose-filesystem:3000",
+				"MCP_OPENROUTER_GATEWAY_URL":         "http://mcp-compose-openrouter-gateway:8012",
+			},
+			Networks: []string{"mcp-net"},
+			Authentication: &config.ServerAuthConfig{
+				Enabled:       true,
+				RequiredScope: "mcp:tools",
+				OptionalAuth:  false,
+				AllowAPIKey:   &[]bool{true}[0],
+			},
+			// Add volumes if specified in task scheduler config
+			Volumes: cfg.TaskScheduler.Volumes,
+		}
+
+		// Merge any additional env vars from task scheduler config
+		if cfg.TaskScheduler.Env != nil {
+			for k, v := range cfg.TaskScheduler.Env {
+				taskSchedulerConfig.Env[k] = v
+			}
+		}
+
+		// Add to servers map
+		if cfg.Servers == nil {
+			cfg.Servers = make(map[string]config.ServerConfig)
+		}
+		cfg.Servers["task-scheduler"] = taskSchedulerConfig
+
+		logger.Info("Added task-scheduler as built-in server on port %d", cfg.TaskScheduler.Port)
+	}
+
+	if cfg.Memory.Enabled {
+		logger.Info("Memory server enabled in config, adding as built-in server")
+
+		// Create memory server config
+		memoryConfig := config.ServerConfig{
+			// Use the built image name that will be created by the memory manager
+			Image:        "mcp-compose-memory:latest",
+			Protocol:     "http",
+			HttpPort:     cfg.Memory.Port,
+			User:         "root",
+			ReadOnly:     false,
+			Privileged:   false,
+			Capabilities: []string{"tools", "resources"},
+			Env: map[string]string{
+				"NODE_ENV":     "production",
+				"DATABASE_URL": cfg.Memory.DatabaseURL,
+			},
+			Networks:       []string{"mcp-net"},
+			Authentication: cfg.Memory.Authentication,
+			DependsOn:      []string{"postgres-memory"},
+		}
+
+		// Add postgres-memory config too
+		postgresMemoryConfig := config.ServerConfig{
+			Image:       "postgres:15-alpine",
+			User:        "postgres",
+			ReadOnly:    false,
+			Privileged:  false,
+			SecurityOpt: []string{"no-new-privileges:true"},
+			Env: map[string]string{
+				"POSTGRES_DB":       cfg.Memory.PostgresDB,
+				"POSTGRES_USER":     cfg.Memory.PostgresUser,
+				"POSTGRES_PASSWORD": cfg.Memory.PostgresPassword,
+			},
+			Volumes:       cfg.Memory.Volumes,
+			Networks:      []string{"mcp-net"},
+			RestartPolicy: "unless-stopped",
+		}
+
+		// Add to servers map
+		if cfg.Servers == nil {
+			cfg.Servers = make(map[string]config.ServerConfig)
+		}
+		cfg.Servers["memory"] = memoryConfig
+		cfg.Servers["postgres-memory"] = postgresMemoryConfig
+
+		logger.Info("Added memory as built-in server on port %d", cfg.Memory.Port)
+	}
 
 	// Validate each server configuration using our method
 	for name, serverCfg := range cfg.Servers {

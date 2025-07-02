@@ -7,6 +7,7 @@ import (
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/dashboard"
+	"mcpcompose/internal/task_scheduler"
 
 	"github.com/spf13/cobra"
 )
@@ -40,6 +41,10 @@ Examples:
 				case "dashboard":
 					if err := restartDashboard(file); err != nil {
 						return fmt.Errorf("failed to restart dashboard: %w", err)
+					}
+				case "task-scheduler":
+					if err := restartTaskScheduler(file); err != nil {
+						return fmt.Errorf("failed to restart task scheduler: %w", err)
 					}
 				default:
 					// Regular server restart
@@ -149,5 +154,28 @@ func restartDashboard(configFile string) error {
 	}
 
 	fmt.Println("✅ Dashboard restarted successfully.")
+	return nil
+}
+
+func restartTaskScheduler(configFile string) error {
+	fmt.Println("Restarting MCP task scheduler...")
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	runtime, err := container.DetectRuntime()
+	if err != nil {
+		return fmt.Errorf("failed to detect container runtime: %w", err)
+	}
+
+	taskManager := task_scheduler.NewManager(cfg, runtime)
+	taskManager.SetConfigFile(configFile)
+
+	if err := taskManager.Restart(); err != nil {
+		return fmt.Errorf("failed to restart task scheduler: %w", err)
+	}
+
+	fmt.Println("✅ Task scheduler restarted successfully.")
 	return nil
 }

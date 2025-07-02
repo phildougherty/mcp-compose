@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -84,6 +85,7 @@ type ActivityBroadcaster struct {
 	running       bool
 	runMutex      sync.Mutex
 	clientCounter int64
+	storage       *ActivityStorage
 }
 
 // Global activity broadcaster instance
@@ -96,18 +98,85 @@ var activityBroadcaster = &ActivityBroadcaster{
 }
 
 func init() {
+	// Initialize storage if database URL is available
+	dbURL := os.Getenv("POSTGRES_URL")
+	if dbURL != "" {
+		storage, err := NewActivityStorage(dbURL)
+		if err != nil {
+			log.Printf("[ACTIVITY] Failed to initialize activity storage: %v", err)
+		} else {
+			activityBroadcaster.storage = storage
+			log.Printf("[ACTIVITY] Activity storage initialized")
+
+			// Start cleanup routine
+			go startActivityCleanup(storage)
+		}
+	}
+
 	activityBroadcaster.start()
 }
 
-// Activity broadcaster methods
 func (ab *ActivityBroadcaster) start() {
 	ab.runMutex.Lock()
-	defer ab.runMutex.Unlock()
-	if !ab.running {
-		ab.running = true
-		go ab.run()
-		log.Println("[ACTIVITY] Activity broadcaster started")
+	if ab.running {
+		ab.runMutex.Unlock()
+		return
 	}
+	ab.running = true
+	ab.runMutex.Unlock()
+
+	go ab.run() // Start the goroutine instead of calling start recursively
+}
+
+func startActivityCleanup(storage *ActivityStorage) {
+	ticker := time.NewTicker(24 * time.Hour) // Run daily
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Clean up activities older than 30 days
+			if err := storage.CleanupOldActivities(30 * 24 * time.Hour); err != nil {
+				log.Printf("[ACTIVITY] Cleanup error: %v", err)
+			}
+		}
+	}
+}
+
+func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
+	if ab.storage == nil {
+		return
+	}
+
+	// Send last 50 activities to new client
+	activities, err := ab.storage.GetRecentActivities(50, nil)
+	if err != nil {
+		log.Printf("[ACTIVITY] Failed to get recent activities: %v", err)
+		return
+	}
+
+	for _, activity := range activities {
+		// Convert StoredActivity back to ActivityMessage
+		activityMsg := ActivityMessage{
+			ID:        activity.ActivityID,
+			Timestamp: activity.Timestamp.Format(time.RFC3339Nano),
+			Level:     activity.Level,
+			Type:      activity.Type,
+			Server:    activity.Server,
+			Client:    activity.Client,
+			Message:   activity.Message,
+			Details:   activity.Details,
+		}
+
+		// Send directly to the client using WriteJSON
+		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.WriteJSON(activityMsg); err != nil {
+			log.Printf("[ACTIVITY] Failed to send historical activity to client: %v", err)
+			return // Client disconnected
+		}
+	}
+
+	log.Printf("[ACTIVITY] Sent %d historical activities to new client", len(activities))
 }
 
 func (ab *ActivityBroadcaster) run() {
@@ -118,19 +187,31 @@ func (ab *ActivityBroadcaster) run() {
 			ab.runMutex.Lock()
 			ab.running = false
 			ab.runMutex.Unlock()
-			ab.start()
+			ab.start() // Restart
 		}
 	}()
 
 	log.Println("[ACTIVITY] Activity broadcaster running")
+
 	for {
 		select {
 		case client := <-ab.register:
 			ab.handleClientRegistration(client)
+
 		case client := <-ab.unregister:
 			ab.handleClientUnregistration(client)
+
 		case message := <-ab.broadcast:
+			// Store the activity in database
+			if ab.storage != nil {
+				if err := ab.storage.StoreActivity(message); err != nil {
+					log.Printf("[ACTIVITY] Failed to store activity: %v", err)
+				}
+			}
+
+			// Broadcast to connected clients
 			ab.handleBroadcast(message)
+
 		case <-ab.shutdown:
 			ab.handleShutdown()
 			return
@@ -147,6 +228,11 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 	ab.mu.Unlock()
 
 	log.Printf("[ACTIVITY] ✅ Client #%d registered (total: %d)", clientID, clientCount)
+
+	// Send recent activities to newly connected client
+	if ab.storage != nil {
+		go ab.sendRecentActivities(client)
+	}
 
 	welcomeMsg := ActivityMessage{
 		ID:        generateID(),

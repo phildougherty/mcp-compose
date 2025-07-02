@@ -7,6 +7,7 @@ import (
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/dashboard"
+	"mcpcompose/internal/task_scheduler"
 
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,10 @@ Examples:
 				case "dashboard":
 					if err := stopDashboard(file); err != nil {
 						return fmt.Errorf("failed to stop dashboard: %w", err)
+					}
+				case "task-scheduler":
+					if err := stopTaskScheduler(file); err != nil {
+						return fmt.Errorf("failed to stop task scheduler: %w", err)
 					}
 				default:
 					// Regular server stop - collect all regular servers and stop them together
@@ -99,5 +104,28 @@ func stopDashboard(configFile string) error {
 	}
 
 	fmt.Println("✅ Dashboard stopped successfully.")
+	return nil
+}
+
+func stopTaskScheduler(configFile string) error {
+	fmt.Println("Stopping MCP task scheduler...")
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	runtime, err := container.DetectRuntime()
+	if err != nil {
+		return fmt.Errorf("failed to detect container runtime: %w", err)
+	}
+
+	taskManager := task_scheduler.NewManager(cfg, runtime)
+	taskManager.SetConfigFile(configFile)
+
+	if err := taskManager.Stop(); err != nil {
+		return fmt.Errorf("failed to stop task scheduler: %w", err)
+	}
+
+	fmt.Println("✅ Task scheduler stopped successfully.")
 	return nil
 }
