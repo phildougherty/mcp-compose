@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,61 +85,6 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (d *DashboardServer) handleContainerLogs(w http.ResponseWriter, r *http.Request, containerName string) {
-	tail := r.URL.Query().Get("tail")
-	if tail == "" {
-		tail = "100"
-	}
-	logs, err := d.getContainerLogs(containerName, tail, false)
-	if err != nil {
-		d.logger.Error("Failed to get container logs for %s: %v", containerName, err)
-		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
-		return
-	}
-	response := map[string]interface{}{
-		"container": containerName,
-		"logs":      logs,
-		"timestamp": time.Now().Format(time.RFC3339),
-		"title":     "Logs", // Changed from "Container Logs"
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Request, containerName string) {
-	cmd := exec.Command("docker", "stats", "--no-stream", "--format", "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}", containerName)
-	output, err := cmd.Output()
-	if err != nil {
-		d.logger.Error("Failed to get container stats for %s: %v", containerName, err)
-		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
-		return
-	}
-	// Parse docker stats output
-	lines := strings.Split(string(output), "\n")
-	var stats map[string]interface{}
-	if len(lines) >= 2 && lines[1] != "" {
-		fields := strings.Fields(lines[1])
-		if len(fields) >= 6 {
-			stats = map[string]interface{}{
-				"name":      fields[0],
-				"cpu_perc":  fields[1],
-				"mem_usage": fields[2],
-				"mem_perc":  fields[3],
-				"net_io":    fields[4],
-				"block_io":  fields[5],
-				"timestamp": time.Now().Format(time.RFC3339),
-			}
-		}
-	}
-	if stats == nil {
-		stats = map[string]interface{}{
-			"error": "No stats available for container " + containerName,
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
-}
-
 func (d *DashboardServer) handleServerStart(w http.ResponseWriter, r *http.Request) {
 	d.handleServerAction(w, r, "start")
 }
@@ -147,63 +95,6 @@ func (d *DashboardServer) handleServerStop(w http.ResponseWriter, r *http.Reques
 
 func (d *DashboardServer) handleServerRestart(w http.ResponseWriter, r *http.Request) {
 	d.handleServerAction(w, r, "restart")
-}
-
-func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Request, action string) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Server string `json:"server"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Server == "" {
-		http.Error(w, "Server name required", http.StatusBadRequest)
-		return
-	}
-	containerName := fmt.Sprintf("mcp-compose-%s", req.Server)
-	var cmd *exec.Cmd
-	switch action {
-	case "start":
-		// Starting requires rebuilding the container with proper config
-		// This is complex, so we'll return a helpful message
-		response := map[string]string{
-			"error": fmt.Sprintf("Server start not implemented in dashboard yet. Use CLI: mcp-compose start %s", req.Server),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		json.NewEncoder(w).Encode(response)
-		return
-	case "stop":
-		cmd = exec.Command("docker", "stop", containerName)
-	case "restart":
-		cmd = exec.Command("docker", "restart", containerName)
-	default:
-		http.Error(w, "Unknown action", http.StatusBadRequest)
-		return
-	}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		d.logger.Error("Failed to %s container %s: %v. Output: %s", action, containerName, err, string(output))
-		response := map[string]string{
-			"error":  fmt.Sprintf("Failed to %s container: %v", action, err),
-			"output": string(output),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	response := map[string]string{
-		"success": fmt.Sprintf("Container %s %sed successfully", containerName, action),
-		"output":  string(output),
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }
 
 func (d *DashboardServer) handleProxyReload(w http.ResponseWriter, r *http.Request) {
@@ -1455,4 +1346,507 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 		"serverName":   "task-scheduler",
 		"capabilities": session.Capabilities,
 	})
+}
+
+// Update handleContainerLogs function
+func (d *DashboardServer) handleContainerLogs(w http.ResponseWriter, r *http.Request, containerName string) {
+	// Get query parameters
+	tail := r.URL.Query().Get("tail")
+	if tail == "" {
+		tail = "100"
+	}
+
+	// Validate tail parameter
+	tailInt, err := strconv.Atoi(tail)
+	if err != nil || tailInt < 1 || tailInt > 10000 {
+		tailInt = 100
+		tail = "100"
+	}
+
+	follow := r.URL.Query().Get("follow") == "true"
+	timestamps := r.URL.Query().Get("timestamps") == "true"
+	since := r.URL.Query().Get("since") // Optional: logs since timestamp
+
+	d.logger.Info("Getting logs for container: %s (tail: %s, follow: %t, timestamps: %t)",
+		containerName, tail, follow, timestamps)
+
+	// Check if container exists first
+	if err := d.verifyContainerExists(containerName); err != nil {
+		d.logger.Error("Container %s not found: %v", containerName, err)
+		http.Error(w, fmt.Sprintf("Container not found: %s", containerName), http.StatusNotFound)
+		return
+	}
+
+	if follow {
+		// Handle streaming logs
+		d.streamContainerLogs(w, r, containerName, tail, timestamps, since)
+	} else {
+		// Handle static logs
+		d.getStaticContainerLogs(w, r, containerName, tailInt, timestamps, since)
+	}
+}
+
+// Replace the existing getContainerLogs function with these new functions
+func (d *DashboardServer) verifyContainerExists(containerName string) error {
+	runtime := d.detectContainerRuntime()
+
+	var cmd *exec.Cmd
+	switch runtime {
+	case "docker":
+		cmd = exec.Command("docker", "inspect", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "inspect", containerName)
+	default:
+		return fmt.Errorf("unsupported container runtime: %s", runtime)
+	}
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("container not found")
+	}
+
+	return nil
+}
+
+func (d *DashboardServer) detectContainerRuntime() string {
+	// Try docker first
+	if _, err := exec.LookPath("docker"); err == nil {
+		if cmd := exec.Command("docker", "version"); cmd.Run() == nil {
+			return "docker"
+		}
+	}
+
+	// Try podman
+	if _, err := exec.LookPath("podman"); err == nil {
+		if cmd := exec.Command("podman", "version"); cmd.Run() == nil {
+			return "podman"
+		}
+	}
+
+	return "docker" // fallback
+}
+
+func (d *DashboardServer) getStaticContainerLogs(w http.ResponseWriter, r *http.Request, containerName string, tail int, timestamps bool, since string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	logs, err := d.getLogsFromRuntime(ctx, containerName, tail, timestamps, since, false)
+	if err != nil {
+		d.logger.Error("Failed to get logs for container %s: %v", containerName, err)
+		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"container": containerName,
+		"logs":      logs,
+		"tail":      tail,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"title":     "Logs",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		d.logger.Error("Failed to encode logs response: %v", err)
+	}
+}
+
+func (d *DashboardServer) streamContainerLogs(w http.ResponseWriter, r *http.Request, containerName, tail string, timestamps bool, since string) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable proxy buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Send initial connection event
+	fmt.Fprintf(w, "event: connected\n")
+	fmt.Fprintf(w, "data: {\"container\":\"%s\",\"message\":\"Log stream connected\"}\n\n", containerName)
+	flusher.Flush()
+
+	// Create context with cancellation
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// Start the log streaming
+	if err := d.streamLogsFromRuntime(ctx, w, flusher, containerName, tail, timestamps, since); err != nil {
+		d.logger.Error("Error streaming logs for container %s: %v", containerName, err)
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"%s\"}\n\n", err.Error()) // FIXED: Added err.Error()
+		flusher.Flush()
+	}
+}
+
+func (d *DashboardServer) getLogsFromRuntime(ctx context.Context, containerName string, tail int, timestamps bool, since string, follow bool) ([]string, error) {
+	runtime := d.detectContainerRuntime()
+
+	var cmd *exec.Cmd
+	var args []string
+
+	switch runtime {
+	case "docker":
+		args = []string{"logs"}
+		if timestamps {
+			args = append(args, "-t")
+		}
+		if tail > 0 {
+			args = append(args, "--tail", strconv.Itoa(tail))
+		}
+		if since != "" {
+			args = append(args, "--since", since)
+		}
+		if follow {
+			args = append(args, "-f")
+		}
+		args = append(args, containerName)
+		cmd = exec.CommandContext(ctx, "docker", args...)
+
+	case "podman":
+		args = []string{"logs"}
+		if timestamps {
+			args = append(args, "-t")
+		}
+		if tail > 0 {
+			args = append(args, "--tail", strconv.Itoa(tail))
+		}
+		if since != "" {
+			args = append(args, "--since", since)
+		}
+		if follow {
+			args = append(args, "-f")
+		}
+		args = append(args, containerName)
+		cmd = exec.CommandContext(ctx, "podman", args...)
+
+	default:
+		return nil, fmt.Errorf("unsupported container runtime: %s", runtime)
+	}
+
+	d.logger.Debug("Executing command: %s %v", cmd.Path, cmd.Args[1:])
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "no such container") ||
+			strings.Contains(stderrStr, "No such container") {
+			return nil, fmt.Errorf("container not found: %s", containerName)
+		}
+		return nil, fmt.Errorf("command failed: %v, stderr: %s", err, stderrStr)
+	}
+
+	if stderr.Len() > 0 {
+		d.logger.Warning("Command stderr for %s: %s", containerName, stderr.String())
+	}
+
+	return d.parseLogOutput(stdout.String()), nil
+}
+
+func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, containerName, tail string, timestamps bool, since string) error {
+	runtime := d.detectContainerRuntime()
+
+	var cmd *exec.Cmd
+	var args []string
+
+	switch runtime {
+	case "docker":
+		args = []string{"logs", "-f"}
+		if timestamps {
+			args = append(args, "-t")
+		}
+		if tail != "" && tail != "0" {
+			args = append(args, "--tail", tail)
+		}
+		if since != "" {
+			args = append(args, "--since", since)
+		}
+		args = append(args, containerName)
+		cmd = exec.CommandContext(ctx, "docker", args...)
+
+	case "podman":
+		args = []string{"logs", "-f"}
+		if timestamps {
+			args = append(args, "-t")
+		}
+		if tail != "" && tail != "0" {
+			args = append(args, "--tail", tail)
+		}
+		if since != "" {
+			args = append(args, "--since", since)
+		}
+		args = append(args, containerName)
+		cmd = exec.CommandContext(ctx, "podman", args...)
+
+	default:
+		return fmt.Errorf("unsupported container runtime: %s", runtime)
+	}
+
+	d.logger.Debug("Streaming command: %s %v", cmd.Path, cmd.Args[1:])
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %v", err)
+	}
+
+	// Handle stderr in a separate goroutine
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				d.logger.Warning("Container %s stderr: %s", containerName, line)
+			}
+		}
+	}()
+
+	// Stream stdout line by line
+	scanner := bufio.NewScanner(stdout)
+	lineCount := 0
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			d.logger.Info("Log streaming cancelled for container %s", containerName)
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+		lineCount++
+
+		// Parse and format the log line
+		logEntry := d.parseLogLine(line, lineCount)
+
+		// Send as SSE event
+		fmt.Fprintf(w, "event: log\n")
+		fmt.Fprintf(w, "data: %s\n\n", logEntry)
+		flusher.Flush()
+
+		// Rate limiting - prevent overwhelming the client
+		if lineCount%50 == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading logs: %v", err)
+	}
+
+	// Wait for command to complete
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() // Context was cancelled
+		}
+		return fmt.Errorf("command failed: %v", err)
+	}
+
+	// Send completion event
+	fmt.Fprintf(w, "event: completed\n")
+	fmt.Fprintf(w, "data: {\"message\":\"Log stream completed\"}\n\n")
+	flusher.Flush()
+
+	return nil
+}
+
+func (d *DashboardServer) parseLogOutput(output string) []string {
+	if output == "" {
+		return []string{}
+	}
+
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	var result []string
+
+	for i, line := range lines {
+		if line != "" { // Skip empty lines
+			result = append(result, d.parseLogLine(line, i+1))
+		}
+	}
+
+	return result
+}
+
+func (d *DashboardServer) parseLogLine(line string, lineNumber int) string {
+	logEntry := map[string]interface{}{
+		"line":      lineNumber,
+		"content":   line,
+		"timestamp": time.Now().Format(time.RFC3339Nano),
+	}
+
+	// Try to extract timestamp from Docker/Podman log line
+	if strings.Contains(line, "T") && strings.Contains(line, "Z") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			if timestamp, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
+				logEntry["original_timestamp"] = timestamp.Format(time.RFC3339Nano)
+				logEntry["content"] = parts[1]
+			}
+		}
+	}
+
+	// Try to detect log level
+	content := strings.ToLower(line)
+	if strings.Contains(content, "error") || strings.Contains(content, "err") {
+		logEntry["level"] = "error"
+	} else if strings.Contains(content, "warn") {
+		logEntry["level"] = "warning"
+	} else if strings.Contains(content, "info") {
+		logEntry["level"] = "info"
+	} else if strings.Contains(content, "debug") {
+		logEntry["level"] = "debug"
+	} else {
+		logEntry["level"] = "info"
+	}
+
+	jsonBytes, err := json.Marshal(logEntry)
+	if err != nil {
+		d.logger.Error("Failed to marshal log entry: %v", err)
+		return fmt.Sprintf("{\"line\":%d,\"content\":%q,\"timestamp\":%q}",
+			lineNumber, line, time.Now().Format(time.RFC3339Nano))
+	}
+
+	return string(jsonBytes)
+}
+
+func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Request, containerName string) {
+	runtime := d.detectContainerRuntime()
+
+	var cmd *exec.Cmd
+	switch runtime {
+	case "docker":
+		cmd = exec.Command("docker", "stats", "--no-stream", "--format",
+			"table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}",
+			containerName)
+	case "podman":
+		cmd = exec.Command("podman", "stats", "--no-stream", "--format",
+			"table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}",
+			containerName)
+	default:
+		http.Error(w, "Unsupported container runtime", http.StatusInternalServerError)
+		return
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		d.logger.Error("Failed to get container stats for %s: %v", containerName, err)
+		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse stats output
+	lines := strings.Split(string(output), "\n")
+	var stats map[string]interface{}
+	if len(lines) >= 2 && lines[1] != "" {
+		fields := strings.Fields(lines[1])
+		if len(fields) >= 6 {
+			stats = map[string]interface{}{
+				"name":      fields[0],
+				"cpu_perc":  fields[1],
+				"mem_usage": fields[2],
+				"mem_perc":  fields[3],
+				"net_io":    fields[4],
+				"block_io":  fields[5],
+				"timestamp": time.Now().Format(time.RFC3339),
+				"runtime":   runtime,
+			}
+		}
+	}
+
+	if stats == nil {
+		stats = map[string]interface{}{
+			"error":   "No stats available for container " + containerName,
+			"runtime": runtime,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// Update handleServerAction to support both Docker and Podman
+func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Request, action string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Server string `json:"server"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Server == "" {
+		http.Error(w, "Server name required", http.StatusBadRequest)
+		return
+	}
+
+	containerName := fmt.Sprintf("mcp-compose-%s", req.Server)
+	runtime := d.detectContainerRuntime()
+
+	var cmd *exec.Cmd
+	switch action {
+	case "start":
+		// Starting requires rebuilding the container with proper config
+		response := map[string]string{
+			"error": fmt.Sprintf("Server start not implemented in dashboard yet. Use CLI: mcp-compose start %s", req.Server),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		json.NewEncoder(w).Encode(response)
+		return
+	case "stop":
+		if runtime == "docker" {
+			cmd = exec.Command("docker", "stop", containerName)
+		} else {
+			cmd = exec.Command("podman", "stop", containerName)
+		}
+	case "restart":
+		if runtime == "docker" {
+			cmd = exec.Command("docker", "restart", containerName)
+		} else {
+			cmd = exec.Command("podman", "restart", containerName)
+		}
+	default:
+		http.Error(w, "Unknown action", http.StatusBadRequest)
+		return
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		d.logger.Error("Failed to %s container %s: %v. Output: %s", action, containerName, err, string(output))
+		response := map[string]string{
+			"error":   fmt.Sprintf("Failed to %s container: %v", action, err),
+			"output":  string(output),
+			"runtime": runtime,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	response := map[string]string{
+		"success": fmt.Sprintf("Container %s %sed successfully", containerName, action),
+		"output":  string(output),
+		"runtime": runtime,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

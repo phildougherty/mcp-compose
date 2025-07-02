@@ -109,7 +109,7 @@ func init() {
 			log.Printf("[ACTIVITY] Activity storage initialized")
 
 			// Start cleanup routine
-			go startActivityCleanup(storage)
+			go startActivityCleanup(storage, context.Background())
 		}
 	}
 
@@ -128,7 +128,7 @@ func (ab *ActivityBroadcaster) start() {
 	go ab.run() // Start the goroutine instead of calling start recursively
 }
 
-func startActivityCleanup(storage *ActivityStorage) {
+func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 	ticker := time.NewTicker(24 * time.Hour) // Run daily
 	defer ticker.Stop()
 
@@ -139,6 +139,9 @@ func startActivityCleanup(storage *ActivityStorage) {
 			if err := storage.CleanupOldActivities(30 * 24 * time.Hour); err != nil {
 				log.Printf("[ACTIVITY] Cleanup error: %v", err)
 			}
+		case <-ctx.Done():
+			log.Printf("[ACTIVITY] Cleanup goroutine shutting down")
+			return
 		}
 	}
 }

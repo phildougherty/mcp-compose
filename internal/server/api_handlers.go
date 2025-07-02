@@ -405,7 +405,6 @@ func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
-// Add this method to api_handlers.go
 func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// This is just for testing - show the authorization code received
 	code := r.URL.Query().Get("code")
@@ -518,8 +517,6 @@ func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
 	w.Write([]byte(html))
 }
 
-// Add these corrected handler methods to api_handlers.go
-
 func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Request) {
 	// Extract server name from the path
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -528,29 +525,28 @@ func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 	serverName := pathParts[2]
-
 	w.Header().Set("Content-Type", "application/json")
 
-	if r.Method == http.MethodGet {
+	// Use tagged switch instead of if-else chain
+	switch r.Method {
+	case http.MethodGet:
 		// Return current OAuth config for server
 		config := h.getServerOAuthConfig(serverName)
 		json.NewEncoder(w).Encode(config)
-	} else if r.Method == http.MethodPut {
+	case http.MethodPut:
 		// Update OAuth config for server
 		var config config.ServerOAuthConfig
 		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-
 		err := h.updateServerOAuthConfig(serverName, config)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
-	} else {
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }

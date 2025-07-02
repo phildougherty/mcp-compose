@@ -341,14 +341,16 @@ type AuthorizationRequest struct {
 func (s *AuthorizationServer) parseAuthorizationRequest(r *http.Request) (*AuthorizationRequest, error) {
 	var query url.Values
 
-	if r.Method == http.MethodGet {
+	// Use tagged switch instead of if-else chain
+	switch r.Method {
+	case http.MethodGet:
 		query = r.URL.Query()
-	} else if r.Method == http.MethodPost {
+	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
 			return nil, fmt.Errorf("failed to parse form: %w", err)
 		}
 		query = r.Form
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported method: %s", r.Method)
 	}
 
