@@ -56,335 +56,511 @@ MCP-Compose bridges the gap between traditional MCP STDIO servers and modern HTT
 - **Swagger UI Integration**: Interactive API documentation for each server
 - **Schema Generation**: Automatic parameter and response schema inference
 
-## Configuration Example
+## Security Notice
 
-Here's a comprehensive `mcp-compose.yaml` showing all major configuration options:
+⚠️ **CRITICAL SECURITY REQUIREMENTS** ⚠️
+
+Before using MCP-Compose, please review these security requirements:
+
+1. **Never commit secrets to version control**: All API keys, passwords, and tokens must be stored in environment variables
+2. **Use strong credentials**: Generate secure random strings for all API keys and passwords
+3. **Follow the principle of least privilege**: Run containers as non-root users and drop unnecessary capabilities
+4. **Use the provided security templates**: See `mcp-compose_example.yaml` for secure configuration patterns
+
+### Required Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+# Core authentication
+MCP_API_KEY=your-secure-random-api-key-here
+POSTGRES_PASSWORD=your-secure-database-password
+
+# Optional external services
+GITHUB_TOKEN=ghp_your-github-token-here
+OPENROUTER_API_KEY=sk-or-v1-your-openrouter-api-key-here
+OAUTH_CLIENT_SECRET=your-oauth-client-secret-here
+```
+
+**Generate secure keys:**
+```bash
+# Generate a secure API key
+openssl rand -hex 32
+
+# Or using /dev/urandom
+head -c 32 /dev/urandom | base64
+```
+
+## Documentation
+
+### 🚀 New to MCP-Compose?
+- **[Getting Started Guide](GETTING-STARTED.md)** - Complete 10-minute tutorial
+- **[Basic Configuration](mcp-compose-basic.yaml)** - Simple 3-server example
+- **[Quickstart](mcp-compose-quickstart.yaml)** - Minimal 1-server example
+
+### 🔄 Migrating from Other Solutions?
+- **[Migration Guide](MIGRATION.md)** - Step-by-step migration instructions
+- **[From Docker Compose](MIGRATION.md#from-docker-compose--mcp-compose)** - Convert existing setups
+- **[From Individual Servers](MIGRATION.md#from-individual-mcp-servers--mcp-compose)** - Centralize management
+
+### 🏢 Enterprise & Advanced Features?
+- **[Advanced Configuration](mcp-compose-advanced.yaml)** - OAuth, audit logging, monitoring
+- **[Security Best Practices](#security-notice)** - Production security guide
+- **[Performance Tuning](#troubleshooting)** - Optimization and debugging
+
+## Quick Start
+
+### 1. Minimal Configuration (30 seconds)
+
+Create a `mcp-compose.yaml` file:
 
 ```yaml
 version: '1'
 
-# Optional: Proxy authentication
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+```
+
+Run with:
+```bash
+export MCP_API_KEY="your-secure-key-here"
+./mcp-compose up
+./mcp-compose proxy --port 9876
+```
+
+Your MCP servers are now available at `http://localhost:9876`!
+
+### 2. Basic Configuration (3 servers)
+
+For a more complete setup with file access, memory, and search:
+
+```yaml
+version: '1'
+
+# Simple authentication
 proxy_auth:
   enabled: true
-  api_key: "${MCP_API_KEY:-myapikey}"
-
-# Global connections configuration
-connections:
-  default:
-    transport: http
-    port: 9876
-    expose: true
-    tls: false
-
-# Global logging configuration
-logging:
-  level: info
-  format: json
-  destinations:
-    - type: stdout
-    - type: file
-      path: /var/log/mcp-compose.log
-
-# Monitoring configuration
-monitoring:
-  metrics:
-    enabled: true
-    port: 9877
-
-# Development tools
-development:
-  inspector:
-    enabled: true
-    port: 9878
-  testing:
-    scenarios:
-      - name: basic_functionality
-        tools:
-          - name: read_file
-            input: {"path": "/test.txt"}
-            expected_status: "success"
+  api_key: "${MCP_API_KEY}"
 
 servers:
-  # HTTP-based MCP server with full configuration
+  # File system access
   filesystem:
-    image: node:22-slim
-    build:
-      context: ./custom_mcp/filesystem
-      dockerfile: Dockerfile
-      args:
-        NODE_VERSION: "22"
-    protocol: http
-    http_port: 3000
-    http_path: "/"
-    command: "node"
-    args: ["/app/dist/index.js", "--transport", "http", "--host", "0.0.0.0", "--port", "3000"]
-    env:
-      NODE_ENV: production
-      LOG_LEVEL: debug
+    image: "mcp/filesystem:latest"
     capabilities: [resources, tools]
     volumes:
-      - "${HOME}/projects:/workspace:rw"
-      - "mcp-data:/data"
-    networks: [mcp-net]
-    ports:
-      - "3000:3000"
-    # Advanced configurations
-    resources:
-      paths:
-        - source: "/home/user/documents"
-          target: "/workspace/docs"
-          watch: true
-          read_only: false
-    security:
-      auth:
-        type: api_key
-        header: "X-API-Key"
-    lifecycle:
-      pre_start: "echo 'Starting filesystem server'"
-      post_start: "echo 'Filesystem server started'"
-      health_check:
-        endpoint: "/health"
-        interval: "30s"
-        timeout: "5s"
-        retries: 3
-        action: "restart"
-    capability_options:
-      resources:
-        enabled: true
-        list_changed: true
-        subscribe: true
-      tools:
-        enabled: true
-        list_changed: true
-
-  # SSE-based server with cron capabilities
-  cron-server:
-    build:
-      context: ./custom_mcp/cron
-      dockerfile: Dockerfile
-    protocol: sse
-    http_port: 8080
-    sse_path: "/sse"
-    sse_heartbeat: 30
-    command: "/app/mcp-cron"
-    args: ["--transport", "sse", "--address", "0.0.0.0", "--port", "8080"]
-    env:
-      TZ: "America/New_York"
-      DATABASE_PATH: "/data/cron.db"
-    capabilities: [tools, resources]
-    volumes:
-      - "cron-data:/data"
-    networks: [mcp-net]
-
-  # STDIO server with socat hosting
-  memory-server:
-    build:
-      context: ./docker_utils/socat_stdio_hoster
-      dockerfile: Dockerfile.base_socat_hoster
-      args:
-        BASE_IMAGE: node:22-slim
-    runtime: docker
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-memory"]
-    env:
-      MCP_SOCAT_INTERNAL_PORT: "12347"
-    stdio_hoster_port: 12347
-    capabilities: [tools, resources]
-    networks: [mcp-net]
-
-  # Database dependency example
-  postgres:
-    image: postgres:15-alpine
-    runtime: docker
-    env:
-      POSTGRES_DB: mcp_data
-      POSTGRES_USER: mcp
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-    volumes:
-      - "postgres-data:/var/lib/postgresql/data"
-    networks: [mcp-net]
-    lifecycle:
-      health_check:
-        test: ["CMD-SHELL", "pg_isready -U mcp"]
-        interval: 10s
-        timeout: 5s
-        retries: 5
-
-  # Server with database dependency
-  database-server:
-    image: custom-mcp-db:latest
-    runtime: docker
-    protocol: http
-    http_port: 8001
-    env:
-      DATABASE_URL: "postgresql://mcp:${POSTGRES_PASSWORD}@postgres:5432/mcp_data"
-    capabilities: [tools, resources, prompts]
-    networks: [mcp-net]
-    depends_on:
-      - postgres
-
-# Network definitions
-networks:
-  mcp-net:
-    driver: bridge
+      - "${HOME}/Documents:/workspace:ro"
     
-# Volume definitions
-volumes:
-  mcp-data:
-    driver: local
-  cron-data:
-    driver: local
-  postgres-data:
-    driver: local
+  # Persistent memory/notes
+  memory:
+    image: "mcp/memory:latest"
+    capabilities: [tools, resources]
+    env:
+      DATABASE_URL: "sqlite:///data/memory.db"
+    volumes:
+      - "mcp-memory-data:/data"
 
-# Environment-specific configurations
-environments:
-  development:
-    servers:
-      filesystem:
-        env:
-          LOG_LEVEL: debug
-        resources:
-          sync_interval: "5s"
-  production:
-    servers:
-      filesystem:
-        env:
-          LOG_LEVEL: warn
-        resources:
-          sync_interval: "30s"
+  # Web search
+  search:
+    image: "mcp/search:latest"
+    capabilities: [tools]
+    env:
+      SEARCH_ENGINE: "duckduckgo"
+
+volumes:
+  mcp-memory-data:
+    driver: local
 ```
 
-## Quick Start
+### 3. Advanced Configuration
 
-### Installation
+For enterprise features like OAuth, audit logging, and complex deployments, see [Advanced Configuration](mcp-compose-advanced.yaml).
+
+## Installation
+
+### Pre-built Binaries (Recommended)
 
 ```bash
-# Clone and build
+# Download for your platform
+curl -LO https://github.com/phildougherty/mcp-compose/releases/latest/download/mcp-compose-linux-amd64
+chmod +x mcp-compose-linux-amd64
+sudo mv mcp-compose-linux-amd64 /usr/local/bin/mcp-compose
+```
+
+### Build from Source
+
+```bash
 git clone https://github.com/phildougherty/mcp-compose.git
 cd mcp-compose
-go build -o mcp-compose cmd/mcp-compose/main.go
+make build
+sudo cp build/mcp-compose /usr/local/bin/
 ```
 
-### Basic Usage
+## Common Use Cases
+
+### Development Environment
+
+```yaml
+# mcp-compose.yaml for developers
+version: '1'
+
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+    volumes:
+      - "${HOME}/code:/workspace:rw"
+  
+  git:
+    image: "mcp/git:latest" 
+    capabilities: [tools]
+    volumes:
+      - "${HOME}/.gitconfig:/root/.gitconfig:ro"
+      - "${HOME}/code:/workspace:rw"
+```
+
+### Content Creation
+
+```yaml
+# mcp-compose.yaml for writers/researchers  
+version: '1'
+
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+    volumes:
+      - "${HOME}/Documents:/documents:rw"
+  
+  search:
+    image: "mcp/search:latest"
+    capabilities: [tools]
+    env:
+      SEARCH_ENGINE: "duckduckgo"
+  
+  memory:
+    image: "mcp/memory:latest"
+    capabilities: [tools, resources]
+    env:
+      DATABASE_URL: "sqlite:///data/notes.db"
+    volumes:
+      - "content-memory:/data"
+
+volumes:
+  content-memory:
+    driver: local
+```
+
+### Enterprise Setup
+
+For production deployments with OAuth, audit logging, monitoring, and advanced security, see [mcp-compose-advanced.yaml](mcp-compose-advanced.yaml).
+
+## Step-by-Step Tutorial
+
+### 1. First Time Setup (5 minutes)
 
 ```bash
-# Start all servers
+# 1. Install mcp-compose (see Installation section above)
+
+# 2. Create your first configuration
+cat > mcp-compose.yaml << 'EOF'
+version: '1'
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+EOF
+
+# 3. Set your API key
+export MCP_API_KEY=$(openssl rand -hex 32)
+echo "Your API key: $MCP_API_KEY"
+
+# 4. Start the servers
 ./mcp-compose up
 
-# Start specific servers
-./mcp-compose up filesystem memory-server
+# 5. Start the proxy in another terminal
+./mcp-compose proxy --port 9876 --api-key "$MCP_API_KEY"
+```
 
-# Check server status
-./mcp-compose ls
+Your MCP servers are now running! Test with:
+```bash
+curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:9876/api/servers
+```
 
-# Start the HTTP proxy
-./mcp-compose proxy --port 9876 --api-key "your-api-key" --container
+### 2. Adding More Servers (2 minutes)
 
-# View logs
-./mcp-compose logs filesystem
-
-# Stop everything
+```bash
+# Stop current setup
 ./mcp-compose down
+
+# Update configuration to add memory and search
+cat > mcp-compose.yaml << 'EOF'
+version: '1'
+
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+    volumes:
+      - "${HOME}/Documents:/workspace:ro"
+  
+  memory:
+    image: "mcp/memory:latest"
+    capabilities: [tools, resources]
+    env:
+      DATABASE_URL: "sqlite:///data/memory.db"
+    volumes:
+      - "mcp-memory:/data"
+  
+  search:
+    image: "mcp/search:latest"
+    capabilities: [tools]
+
+volumes:
+  mcp-memory:
+    driver: local
+EOF
+
+# Restart with new configuration
+./mcp-compose up
+./mcp-compose proxy --port 9876
 ```
 
-## Current Limitations
-
-### Protocol Support
-- **WebSocket Transport**: Not yet implemented (planned for v2.0)
-- **gRPC Transport**: Not currently supported
-- **Custom Protocol Extensions**: Limited to standard MCP methods
-
-### Container Management
-- **Kubernetes Support**: Limited to Docker and Podman runtimes
-- **Container Updates**: Requires manual restart for image updates
-- **Resource Limits**: Basic memory/CPU limiting not implemented in config
-
-### Proxy Features
-- **Load Balancing**: Single proxy instance, no clustering support
-- **Request Queuing**: No built-in request queue management for high load
-- **Rate Limiting**: Authentication only, no per-client rate limiting
-
-### MCP Protocol Compliance
-- **Nested Transactions**: Complex transaction scenarios may have edge cases
-- **Large Payloads**: File transfers over 10MB may timeout
-- **Concurrent Sessions**: Limited testing with high concurrent session counts
-
-### Development Tools
-- **Distributed Tracing**: No integration with OpenTelemetry or Jaeger
-- **Performance Profiling**: Basic metrics only, no detailed profiling
-- **Test Framework**: Limited automated testing for complex multi-server scenarios
-
-## OpenWebUI Integration
-
-### Server-Specific Configuration
-Each server provides its own OpenAPI endpoint:
+### 3. Connect to Claude Desktop (3 minutes)
 
 ```bash
-# Filesystem server
-http://localhost:9876/filesystem/openapi.json
+# Generate Claude Desktop configuration
+./mcp-compose create-config --type claude --output ./claude-config
 
-# Memory server  
-http://localhost:9876/memory-server/openapi.json
-
-# Cron server
-http://localhost:9876/cron-server/openapi.json
+# Copy the generated config to Claude Desktop settings
+# Location varies by OS:
+# - macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+# - Linux: ~/.config/Claude/claude_desktop_config.json
+# - Windows: %APPDATA%\Claude\claude_desktop_config.json
 ```
 
-### Authentication Setup
-Use the same API key for all servers:
-```json
-{
-  "api_key": "your-configured-api-key",
-  "base_url": "http://localhost:9876"
-}
-```
+## Migration Guides
 
-## Claude Desktop Integration
+### From Individual MCP Servers
 
-### Automatic Configuration Generation
+If you're currently running individual MCP servers, migration is straightforward:
+
+**Before (individual servers):**
 ```bash
-./mcp-compose create-config --type claude --output claude-config.json
+npx @modelcontextprotocol/server-filesystem /path/to/files
+npx @modelcontextprotocol/server-memory
 ```
 
-### Manual Configuration
-Add to Claude Desktop settings:
+**After (mcp-compose):**
+```yaml
+version: '1'
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+    volumes:
+      - "/path/to/files:/workspace:ro"
+  
+  memory:
+    image: "mcp/memory:latest"
+    capabilities: [tools, resources]
+```
+
+### From Docker Compose
+
+If you're already using Docker Compose for MCP servers:
+
+**Before (docker-compose.yml):**
+```yaml
+version: '3.8'
+services:
+  mcp-filesystem:
+    image: mcp/filesystem
+    ports:
+      - "3000:3000"
+```
+
+**After (mcp-compose.yaml):**
+```yaml
+version: '1'
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+```
+
+Benefits of migrating:
+- ✅ Built-in MCP protocol support
+- ✅ Automatic service discovery
+- ✅ Unified HTTP proxy
+- ✅ Claude Desktop integration
+- ✅ Health monitoring and restarts
+
+### From Manual Configuration
+
+**Before (manual Claude Desktop config):**
 ```json
 {
   "mcpServers": {
-    "mcp-compose-filesystem": {
-      "command": "curl",
-      "args": [
-        "-X", "POST",
-        "-H", "Content-Type: application/json", 
-        "-H", "Authorization: Bearer your-api-key",
-        "http://localhost:9876/filesystem"
-      ],
-      "capabilities": ["resources", "tools"]
+    "filesystem": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "/path"],
+      "env": {}
     }
   }
 }
 ```
 
-## API Reference
+**After (with mcp-compose):**
+1. Create `mcp-compose.yaml` (see examples above)
+2. Run `./mcp-compose create-config --type claude`
+3. Replace your Claude Desktop config with the generated one
 
-### Core Endpoints
-- `GET /` - Interactive dashboard with server status
-- `POST /{server}` - Forward MCP JSON-RPC requests
-- `GET /{server}` - Server details and capabilities
-- `DELETE /{server}` - Terminate server session
-- `GET /{server}/openapi.json` - Server-specific OpenAPI spec
-- `GET /{server}/docs` - Interactive documentation
+## Authentication Examples
 
-### Management API
-- `GET /api/servers` - Detailed server status and configuration
-- `GET /api/status` - Overall proxy health and metrics
-- `GET /api/connections` - Active connection details
-- `GET /api/discovery` - MCP discovery endpoint for clients
-- `POST /api/reload` - Hot reload configuration
+### Basic API Key (Recommended for getting started)
 
-### Direct Tool Access
-- `POST /{tool_name}` - Direct tool invocation (FastAPI-style)
+```yaml
+version: '1'
+
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"  # Set via environment variable
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+```
+
+### No Authentication (Development only)
+
+```yaml
+version: '1'
+
+# No proxy_auth section = no authentication required
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+```
+
+⚠️ **Never use no authentication in production!**
+
+### Enterprise OAuth (Advanced)
+
+For OAuth 2.1, RBAC, audit logging, and enterprise features, see [mcp-compose-advanced.yaml](mcp-compose-advanced.yaml).
+
+## Client Integration
+
+### Claude Desktop
+
+```bash
+# Generate configuration
+./mcp-compose create-config --type claude --output ./claude-config
+
+# Your servers will be available as:
+# - http://localhost:9876/filesystem
+# - http://localhost:9876/memory  
+# - http://localhost:9876/search
+```
+
+### OpenWebUI
+
+Each server provides its own OpenAPI endpoint:
+```bash
+# Filesystem server API docs
+curl http://localhost:9876/filesystem/openapi.json
+
+# Memory server API docs  
+curl http://localhost:9876/memory/openapi.json
+```
+
+### Custom Clients
+
+Direct HTTP API access:
+```bash
+# List available tools
+curl -H "Authorization: Bearer $MCP_API_KEY" \
+  http://localhost:9876/filesystem -X POST \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Call a tool
+curl -H "Authorization: Bearer $MCP_API_KEY" \
+  http://localhost:9876/filesystem -X POST \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/workspace/README.md"}}}'
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"Server not found" error:**
+```bash
+# Check if servers are running
+./mcp-compose ls
+
+# Check logs for errors
+./mcp-compose logs filesystem
+```
+
+**"Connection refused" error:**
+```bash
+# Ensure proxy is running
+./mcp-compose proxy --port 9876
+
+# Check if port is already in use
+lsof -i :9876
+```
+
+**Authentication errors:**
+```bash
+# Verify API key is set
+echo $MCP_API_KEY
+
+# Check proxy authentication config
+grep -A5 "proxy_auth:" mcp-compose.yaml
+```
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+export MCP_LOG_LEVEL=debug
+./mcp-compose up
+
+# View detailed proxy logs
+./mcp-compose proxy --port 9876 --debug
+```
+
+### Performance Tuning
+
+```yaml
+# Add connection timeouts (optional)
+connections:
+  default:
+    timeouts:
+      connect: "10s"
+      read: "30s" 
+      write: "30s"
+      idle: "60s"
+```
+
+For complete configuration reference, see [mcp-compose-advanced.yaml](mcp-compose-advanced.yaml)
 
 ## Architecture
 

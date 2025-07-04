@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -826,4 +829,219 @@ func (h *ProxyHandler) getServerTokens(serverName string) map[string]interface{}
 	}
 
 	return result
+}
+
+func (h *ProxyHandler) handleContainerAPI(w http.ResponseWriter, r *http.Request) {
+	// Extract container name and action from path
+	path := strings.TrimPrefix(r.URL.Path, "/api/containers/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		http.Error(w, "Invalid path format", http.StatusBadRequest)
+		return
+	}
+
+	containerName := parts[0]
+	action := parts[1]
+
+	h.logger.Info("MCP Proxy handling container %s for %s", action, containerName)
+
+	switch action {
+	case "logs":
+		h.handleContainerLogs(w, r, containerName)
+	case "stats":
+		h.handleContainerStats(w, r, containerName)
+	default:
+		http.Error(w, "Unknown container action", http.StatusBadRequest)
+	}
+}
+
+func (h *ProxyHandler) handleContainerLogs(w http.ResponseWriter, r *http.Request, containerName string) {
+	// Get query parameters
+	tail := r.URL.Query().Get("tail")
+	if tail == "" {
+		tail = "100"
+	}
+
+	follow := r.URL.Query().Get("follow") == "true"
+	timestamps := r.URL.Query().Get("timestamps") == "true"
+	since := r.URL.Query().Get("since")
+
+	h.logger.Info("Getting logs for container: %s (tail: %s, follow: %t, timestamps: %t)",
+		containerName, tail, follow, timestamps)
+
+	// Build docker command
+	args := []string{"logs"}
+	if timestamps {
+		args = append(args, "-t")
+	}
+	if tail != "" {
+		args = append(args, "--tail", tail)
+	}
+	if since != "" {
+		args = append(args, "--since", since)
+	}
+	if follow {
+		args = append(args, "-f")
+	}
+	args = append(args, containerName)
+
+	h.logger.Debug("Executing: docker %v", args)
+
+	if follow {
+		h.streamContainerLogs(w, r, containerName, args)
+	} else {
+		h.getStaticContainerLogs(w, r, containerName, args)
+	}
+}
+
+func (h *ProxyHandler) getStaticContainerLogs(w http.ResponseWriter, r *http.Request, containerName string, args []string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		h.logger.Error("Docker logs command failed for %s: %v", containerName, err)
+		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse output into lines
+	lines := strings.Split(string(output), "\n")
+	var filteredLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+
+	response := map[string]interface{}{
+		"container": containerName,
+		"logs":      filteredLines,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("Failed to encode logs response: %v", err)
+	}
+}
+
+func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Request, containerName string, args []string) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Send initial connection event
+	fmt.Fprintf(w, "event: connected\n")
+	fmt.Fprintf(w, "data: {\"container\":\"%s\",\"message\":\"Log stream connected\"}\n\n", containerName)
+	flusher.Flush()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"Failed to create stdout pipe: %v\"}\n\n", err)
+		flusher.Flush()
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"Failed to start command: %v\"}\n\n", err)
+		flusher.Flush()
+		return
+	}
+
+	// Stream stdout line by line
+	scanner := bufio.NewScanner(stdout)
+	lineCount := 0
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		line := scanner.Text()
+		lineCount++
+
+		// Format log entry
+		logEntry := map[string]interface{}{
+			"line":      lineCount,
+			"content":   line,
+			"timestamp": time.Now().Format(time.RFC3339Nano),
+		}
+
+		// Detect log level
+		content := strings.ToLower(line)
+		if strings.Contains(content, "error") {
+			logEntry["level"] = "error"
+		} else if strings.Contains(content, "warn") {
+			logEntry["level"] = "warning"
+		} else if strings.Contains(content, "info") {
+			logEntry["level"] = "info"
+		} else if strings.Contains(content, "debug") {
+			logEntry["level"] = "debug"
+		} else {
+			logEntry["level"] = "info"
+		}
+
+		jsonBytes, _ := json.Marshal(logEntry)
+
+		// Send as SSE event
+		fmt.Fprintf(w, "event: log\n")
+		fmt.Fprintf(w, "data: %s\n\n", string(jsonBytes))
+		flusher.Flush()
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"Error reading logs: %v\"}\n\n", err)
+		flusher.Flush()
+	}
+
+	cmd.Wait()
+
+	// Send completion event
+	fmt.Fprintf(w, "event: completed\n")
+	fmt.Fprintf(w, "data: {\"message\":\"Log stream completed\"}\n\n")
+	flusher.Flush()
+}
+
+func (h *ProxyHandler) handleContainerStats(w http.ResponseWriter, r *http.Request, containerName string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format",
+		"table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}",
+		containerName)
+
+	output, err := cmd.Output()
+	if err != nil {
+		h.logger.Error("Docker stats command failed for %s: %v", containerName, err)
+		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"container": containerName,
+		"stats":     string(output),
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

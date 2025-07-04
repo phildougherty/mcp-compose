@@ -138,12 +138,8 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 }
 
 func (h *ProxyHandler) sendSSEToolsRequestWithRetry(serverName string, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {
-	h.logger.Debug("Attempting SSE request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
-	conn, connErr := h.getSSEConnection(serverName)
-	if connErr != nil {
-		return nil, connErr
-	}
-	return h.sendSSERequest(conn, requestPayload)
+	h.logger.Debug("Attempting enhanced SSE request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
+	return h.sendOptimalSSERequest(serverName, requestPayload)
 }
 
 func (h *ProxyHandler) sendHTTPToolsRequestWithRetry(serverName string, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {

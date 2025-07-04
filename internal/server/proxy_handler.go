@@ -25,10 +25,12 @@ type ProxyHandler struct {
 	ProxyStarted              time.Time
 	ServerConnections         map[string]*MCPHTTPConnection
 	SSEConnections            map[string]*MCPSSEConnection
+	EnhancedSSEConnections    map[string]*EnhancedMCPSSEConnection
 	StdioConnections          map[string]*MCPSTDIOConnection
 	ConnectionMutex           sync.RWMutex
 	StdioMutex                sync.RWMutex
 	SSEMutex                  sync.RWMutex
+	EnhancedSSEMutex          sync.RWMutex
 	logger                    *logging.Logger
 	httpClient                *http.Client
 	sseClient                 *http.Client
@@ -48,6 +50,7 @@ type ProxyHandler struct {
 	authMiddleware            *auth.AuthenticationMiddleware
 	resourceMeta              *auth.ResourceMetadataHandler
 	oauthEnabled              bool
+	connectionManager         *ConnectionManager
 }
 
 // ConnectionStats tracks connection performance
@@ -127,9 +130,10 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		APIKey:            apiKey,
 		EnableAPI:         true,
 		ProxyStarted:      time.Now(),
-		ServerConnections: make(map[string]*MCPHTTPConnection),
-		SSEConnections:    make(map[string]*MCPSSEConnection),
-		StdioConnections:  make(map[string]*MCPSTDIOConnection),
+		ServerConnections:      make(map[string]*MCPHTTPConnection),
+		SSEConnections:         make(map[string]*MCPSSEConnection),
+		EnhancedSSEConnections: make(map[string]*EnhancedMCPSSEConnection),
+		StdioConnections:       make(map[string]*MCPSTDIOConnection),
 		httpClient: &http.Client{
 			Transport: customTransport,
 			Timeout:   60 * time.Second,
@@ -152,6 +156,9 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		oauthEnabled:              oauthEnabled,
 	}
 
+	// Initialize connection manager after handler is created
+	handler.connectionManager = NewConnectionManager(handler)
+
 	if oauthEnabled && authServer != nil {
 		go handler.startOAuthTokenCleanup()
 		// Register default OAuth clients
@@ -160,6 +167,9 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 
 	handler.startConnectionMaintenance()
 	handler.initializeNotificationSupport()
+
+	// Start connection monitoring
+	handler.connectionManager.StartMonitoring(2 * time.Minute)
 
 	return handler
 }
@@ -190,11 +200,25 @@ func (h *ProxyHandler) Shutdown() error {
 
 	// Close SSE connections
 	h.SSEMutex.Lock()
-	for name := range h.SSEConnections {
+	for name, conn := range h.SSEConnections {
 		h.logger.Debug("Cleaning up SSE connection to server %s", name)
+		if conn != nil {
+			h.closeSSEConnection(conn)
+		}
 	}
 	h.SSEConnections = make(map[string]*MCPSSEConnection)
 	h.SSEMutex.Unlock()
+
+	// Close Enhanced SSE connections
+	h.EnhancedSSEMutex.Lock()
+	for name, conn := range h.EnhancedSSEConnections {
+		h.logger.Debug("Cleaning up enhanced SSE connection to server %s", name)
+		if conn != nil {
+			h.closeEnhancedSSEConnection(conn)
+		}
+	}
+	h.EnhancedSSEConnections = make(map[string]*EnhancedMCPSSEConnection)
+	h.EnhancedSSEMutex.Unlock()
 
 	// Close STDIO connections
 	h.StdioMutex.Lock()
@@ -390,4 +414,81 @@ func isProxyStandardMethod(method string) bool {
 		"notifications/cancelled":   true,
 	}
 	return proxyMethods[method]
+}
+
+// useEnhancedSSE determines whether to use enhanced SSE connections for a server
+func (h *ProxyHandler) useEnhancedSSE(serverName string) bool {
+	// For now, enable enhanced SSE for all servers
+	// In the future, this could be configuration-driven
+	return true
+}
+
+// getOptimalSSEConnection returns the best available SSE connection
+func (h *ProxyHandler) getOptimalSSEConnection(serverName string) (interface{}, error) {
+	if h.useEnhancedSSE(serverName) {
+		h.logger.Debug("Using enhanced SSE connection for server %s", serverName)
+		return h.getEnhancedSSEConnection(serverName)
+	} else {
+		h.logger.Debug("Using standard SSE connection for server %s", serverName)
+		return h.getSSEConnection(serverName)
+	}
+}
+
+// sendOptimalSSERequest sends a request using the optimal SSE connection
+func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[string]interface{}) (map[string]interface{}, error) {
+	start := time.Now()
+	
+	conn, err := h.getOptimalSSEConnection(serverName)
+	if err != nil {
+		// Record failed connection attempt
+		if h.connectionManager != nil {
+			h.connectionManager.RecordRequest(serverName, false, time.Since(start))
+		}
+		return nil, err
+	}
+
+	var response map[string]interface{}
+	var requestErr error
+
+	if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
+		response, requestErr = h.sendEnhancedSSERequest(enhancedConn, request)
+	} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
+		response, requestErr = h.sendSSERequest(standardConn, request)
+	} else {
+		requestErr = fmt.Errorf("unknown SSE connection type for server %s", serverName)
+	}
+
+	// Record request metrics
+	responseTime := time.Since(start)
+	if h.connectionManager != nil {
+		h.connectionManager.RecordRequest(serverName, requestErr == nil, responseTime)
+	}
+
+	if requestErr != nil {
+		h.logger.Debug("Enhanced SSE request to %s failed in %v: %v", serverName, responseTime, requestErr)
+		return nil, requestErr
+	}
+
+	h.logger.Debug("Enhanced SSE request to %s completed successfully in %v", serverName, responseTime)
+	return response, nil
+}
+
+// maintainEnhancedSSEConnections maintains enhanced SSE connections
+func (h *ProxyHandler) maintainEnhancedSSEConnections() {
+	h.EnhancedSSEMutex.Lock()
+	defer h.EnhancedSSEMutex.Unlock()
+
+	for serverName, conn := range h.EnhancedSSEConnections {
+		if conn == nil {
+			continue
+		}
+
+		maxIdleTime := 15 * time.Minute
+		if time.Since(conn.LastUsed) > maxIdleTime {
+			h.logger.Info("Removing idle enhanced SSE connection to %s (idle for %v)",
+				serverName, time.Since(conn.LastUsed))
+			h.closeEnhancedSSEConnection(conn)
+			delete(h.EnhancedSSEConnections, serverName)
+		}
+	}
 }

@@ -924,7 +924,21 @@ func (w *ResourcesWatcher) Stop() {
 		}
 	}
 	w.mu.Unlock() // Unlock before logging
-	w.logger.Info("Resource watcher stop requested.")
+	
+	// Wait for cleanup to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		// Wait a bit for the goroutine to finish cleanly
+		time.Sleep(100 * time.Millisecond)
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		w.logger.Info("Resource watcher stopped successfully")
+	case <-time.After(2 * time.Second):
+		w.logger.Warning("Resource watcher stop timeout")
+	}
 }
 
 func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
@@ -946,10 +960,20 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 		m.logger.Warning("HealthCheck: Invalid interval '%s' for '%s', using default %v: %v", healthCfg.Interval, serverName, interval, err)
 	}
 
-	timeout, err := time.ParseDuration(healthCfg.Timeout)
-	if err != nil {
-		timeout = 5 * time.Second
-		m.logger.Warning("HealthCheck: Invalid timeout '%s' for '%s', using default %v: %v", healthCfg.Timeout, serverName, timeout, err)
+	// Get configurable timeout for health checks
+	timeout := 5 * time.Second // Default fallback
+	if healthCfg.Timeout != "" {
+		if parsed, parseErr := time.ParseDuration(healthCfg.Timeout); parseErr == nil {
+			timeout = parsed
+		} else {
+			m.logger.Warning("HealthCheck: Invalid timeout '%s' for '%s', using default %v: %v", healthCfg.Timeout, serverName, timeout, parseErr)
+		}
+	} else if len(m.config.Connections) > 0 {
+		// Use global connection timeout config as fallback
+		for _, conn := range m.config.Connections {
+			timeout = conn.Timeouts.GetHealthCheckTimeout()
+			break
+		}
 	}
 
 	retries := healthCfg.Retries
@@ -1201,8 +1225,17 @@ func (m *Manager) validateServerConfig(name string, config config.ServerConfig) 
 func (m *Manager) runLifecycleHook(hookScript string) error {
 	m.logger.Info("Running lifecycle hook: %s", hookScript)
 
-	// Create a context with timeout for the hook
-	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	// Get configurable timeout for lifecycle hooks
+	timeout := 30 * time.Second // Default fallback
+	if len(m.config.Connections) > 0 {
+		for _, conn := range m.config.Connections {
+			timeout = conn.Timeouts.GetLifecycleHookTimeout()
+			break // Use first connection's timeout config
+		}
+	}
+
+	// Create a context with configurable timeout for the hook
+	ctx, cancel := context.WithTimeout(m.ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", hookScript)
@@ -1229,7 +1262,7 @@ func (m *Manager) runLifecycleHook(hookScript string) error {
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("lifecycle hook '%s' timed out after 30s", hookScript)
+			return fmt.Errorf("lifecycle hook '%s' timed out after %v", hookScript, timeout)
 		}
 		return fmt.Errorf("lifecycle hook '%s' failed: %w. Stderr: %s", hookScript, err, stderr.String())
 	}

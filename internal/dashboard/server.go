@@ -84,7 +84,9 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templates, "templates/*.html")
 	if err != nil {
-		panic(fmt.Errorf("failed to parse templates: %w", err))
+		// Return error instead of panicking for better error handling
+		fmt.Printf("FATAL: Failed to parse dashboard templates: %v\n", err)
+		os.Exit(1)
 	}
 
 	server := &DashboardServer{
@@ -102,7 +104,15 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 			},
 		},
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: func() time.Duration {
+				// Get configurable timeout or use default
+				if len(cfg.Connections) > 0 {
+					for _, conn := range cfg.Connections {
+						return conn.Timeouts.GetConnectTimeout()
+					}
+				}
+				return 10 * time.Second // Default fallback
+			}(),
 		},
 	}
 
@@ -130,12 +140,13 @@ func (d *DashboardServer) startInspectorCleanup() {
 func (d *DashboardServer) Start(port int, host string) error {
 	mux := http.NewServeMux()
 
-	// Serve static files - CHOOSE ONE APPROACH
-	// Option 1: Use embedded static files (recommended)
+	// Add debug logging
+	d.logger.Info("=== REGISTERING ROUTES ===")
+
+	// Serve static files
 	staticFS, err := fs.Sub(static, "templates/static")
 	if err != nil {
 		d.logger.Warning("Failed to create embedded static file system: %v, using fallback", err)
-		// Fallback to basic static handler
 		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, ".css") {
 				w.Header().Set("Content-Type", "text/css")
@@ -148,89 +159,199 @@ func (d *DashboardServer) Start(port int, host string) error {
 			}
 		})
 	} else {
-		// Use embedded static files
 		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-		d.logger.Info("Serving embedded static files")
+		d.logger.Info("Registered: /static/")
 	}
 
 	// Main dashboard
 	mux.HandleFunc("/", d.handleIndex)
+	d.logger.Info("Registered: /")
 
-	// Existing API endpoints with proper method handling
+	// CRITICAL: CONTAINERS ROUTE MUST BE FIRST - Register with explicit logging
+	d.logger.Info("Registering containers route: /api/containers/")
+	mux.HandleFunc("/api/containers/", func(w http.ResponseWriter, r *http.Request) {
+		d.logger.Info("=== CONTAINERS ROUTE HIT ===")
+		d.logger.Info("Method: %s", r.Method)
+		d.logger.Info("URL.Path: %s", r.URL.Path)
+		d.logger.Info("URL.RawQuery: %s", r.URL.RawQuery)
+		d.logger.Info("Host: %s", r.Host)
+		d.handleContainers(w, r)
+	})
+
+	// Specific API endpoints - ALL MUST BE BEFORE CATCH-ALL
 	mux.HandleFunc("/api/servers", d.handleAPIRequest(d.handleServers))
-	mux.HandleFunc("/api/status", d.handleAPIRequest(d.handleStatus))
-	mux.HandleFunc("/api/connections", d.handleAPIRequest(d.handleConnections))
-	mux.HandleFunc("/api/containers/", d.handleContainers)
-	mux.HandleFunc("/api/logs/", d.handleLogs)
+	d.logger.Info("Registered: /api/servers")
 
-	// WebSocket endpoints
-	mux.HandleFunc("/ws/logs", d.handleLogWebSocket)
-	mux.HandleFunc("/ws/metrics", d.handleMetricsWebSocket)
-	mux.HandleFunc("/ws/activity", d.handleActivityWebSocket)
+	mux.HandleFunc("/api/status", d.handleAPIRequest(d.handleStatus))
+	d.logger.Info("Registered: /api/status")
+
+	mux.HandleFunc("/api/connections", d.handleAPIRequest(d.handleConnections))
+	d.logger.Info("Registered: /api/connections")
+
+	mux.HandleFunc("/api/logs/", d.handleLogs)
+	d.logger.Info("Registered: /api/logs/")
+
 	mux.HandleFunc("/api/activity", d.handleActivityReceive)
+	d.logger.Info("Registered: /api/activity")
 
 	// Server control endpoints
 	mux.HandleFunc("/api/servers/start", d.handleServerStart)
+	d.logger.Info("Registered: /api/servers/start")
+
 	mux.HandleFunc("/api/servers/stop", d.handleServerStop)
+	d.logger.Info("Registered: /api/servers/stop")
+
 	mux.HandleFunc("/api/servers/restart", d.handleServerRestart)
+	d.logger.Info("Registered: /api/servers/restart")
+
 	mux.HandleFunc("/api/proxy/reload", d.handleProxyReload)
+	d.logger.Info("Registered: /api/proxy/reload")
 
 	// Server documentation endpoints
 	mux.HandleFunc("/api/server-docs/", d.handleServerDocs)
+	d.logger.Info("Registered: /api/server-docs/")
+
 	mux.HandleFunc("/api/server-openapi/", d.handleServerOpenAPI)
+	d.logger.Info("Registered: /api/server-openapi/")
+
 	mux.HandleFunc("/api/server-direct/", d.handleServerDirect)
+	d.logger.Info("Registered: /api/server-direct/")
+
 	mux.HandleFunc("/api/server-logs/", d.handleServerLogs)
+	d.logger.Info("Registered: /api/server-logs/")
+
+	// OAuth and security endpoints
+	mux.HandleFunc("/api/oauth/status", d.handleOAuthStatus)
+	d.logger.Info("Registered: /api/oauth/status")
+
+	mux.HandleFunc("/api/oauth/clients/", d.handleOAuthClients)
+	d.logger.Info("Registered: /api/oauth/clients/")
+
+	mux.HandleFunc("/api/oauth/clients", d.handleOAuthClients)
+	d.logger.Info("Registered: /api/oauth/clients")
+
+	mux.HandleFunc("/api/oauth/scopes", d.handleOAuthScopes)
+	d.logger.Info("Registered: /api/oauth/scopes")
+
+	mux.HandleFunc("/oauth/register", d.handleOAuthRegister)
+	d.logger.Info("Registered: /oauth/register")
+
+	mux.HandleFunc("/oauth/token", d.handleOAuthToken)
+	d.logger.Info("Registered: /oauth/token")
+
+	mux.HandleFunc("/oauth/authorize", d.handleOAuthAuthorize)
+	d.logger.Info("Registered: /oauth/authorize")
+
+	mux.HandleFunc("/oauth/callback", d.handleOAuthCallback)
+	d.logger.Info("Registered: /oauth/callback")
+
+	// Audit endpoints
+	mux.HandleFunc("/api/audit/entries", d.handleAuditEntries)
+	d.logger.Info("Registered: /api/audit/entries")
+
+	mux.HandleFunc("/api/audit/stats", d.handleAuditStats)
+	d.logger.Info("Registered: /api/audit/stats")
+
+	// Activity endpoints
+	mux.HandleFunc("/ws/activity", d.handleActivityWebSocket)
+	d.logger.Info("Registered: /ws/activity")
+
+	mux.HandleFunc("/api/activity/history", d.handleActivityHistory)
+	d.logger.Info("Registered: /api/activity/history")
+
+	mux.HandleFunc("/api/activity/stats", d.handleActivityStats)
+	d.logger.Info("Registered: /api/activity/stats")
+
+	// WebSocket endpoints
+	mux.HandleFunc("/ws/logs", d.handleLogWebSocket)
+	d.logger.Info("Registered: /ws/logs")
+
+	mux.HandleFunc("/ws/metrics", d.handleMetricsWebSocket)
+	d.logger.Info("Registered: /ws/metrics")
 
 	// Inspector endpoints
 	mux.HandleFunc("/api/inspector/connect", d.handleInspectorConnect)
+	d.logger.Info("Registered: /api/inspector/connect")
+
 	mux.HandleFunc("/api/inspector/request", d.handleInspectorRequest)
+	d.logger.Info("Registered: /api/inspector/request")
+
 	mux.HandleFunc("/api/inspector/disconnect", d.handleInspectorDisconnect)
+	d.logger.Info("Registered: /api/inspector/disconnect")
 
-	// OAuth and Audit endpoints (proxy to main server)
-	mux.HandleFunc("/api/oauth/status", d.handleOAuthStatus)
-	mux.HandleFunc("/api/oauth/clients", d.handleOAuthClients)
-	mux.HandleFunc("/api/oauth/clients/", d.handleOAuthClients) // For DELETE with client ID
-	mux.HandleFunc("/api/oauth/scopes", d.handleOAuthScopes)
-	mux.HandleFunc("/oauth/register", d.handleOAuthRegister)
-	mux.HandleFunc("/api/audit/entries", d.handleAuditEntries)
-	mux.HandleFunc("/api/audit/stats", d.handleAuditStats)
-	mux.HandleFunc("/oauth/token", d.handleOAuthToken)
-	mux.HandleFunc("/oauth/authorize", d.handleOAuthAuthorize)
-	mux.HandleFunc("/oauth/callback", d.handleOAuthCallback)
-	mux.HandleFunc("/api/task-scheduler/health", d.handleTaskSchedulerHealth)
-	mux.HandleFunc("/api/task-scheduler/", d.handleTaskSchedulerProxy)
-	mux.HandleFunc("/api/activity/history", d.handleActivityHistory)
-	mux.HandleFunc("/api/activity/stats", d.handleActivityStats)
+	// Task scheduler endpoints (if available)
+	if d.inspectorService != nil {
+		mux.HandleFunc("/api/task-scheduler/health", d.handleTaskSchedulerHealth)
+		d.logger.Info("Registered: /api/task-scheduler/health")
 
-	// OAuth API proxying routes - NEW FOR SERVER-SPECIFIC OAUTH
+		mux.HandleFunc("/api/task-scheduler/", d.handleTaskSchedulerProxy)
+		d.logger.Info("Registered: /api/task-scheduler/")
+	} else {
+		d.logger.Info("Inspector service not available, skipping task scheduler routes")
+	}
+
+	// Server-specific OAuth endpoints - MUST be before catch-all /api/servers/
 	mux.HandleFunc("/api/servers/", func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is an OAuth-related server API call
+		d.logger.Info("=== SERVER-SPECIFIC ROUTE HIT ===")
+		d.logger.Info("Method: %s", r.Method)
+		d.logger.Info("URL.Path: %s", r.URL.Path)
+
 		if strings.Contains(r.URL.Path, "/oauth") ||
 			strings.Contains(r.URL.Path, "/test-oauth") ||
 			strings.Contains(r.URL.Path, "/tokens") {
+			d.logger.Info("Routing to OAuth API proxy")
 			d.handleOAuthAPIProxy(w, r)
 			return
 		}
-		// For other server API calls, use existing proxy logic
+		d.logger.Info("Routing to general API proxy")
+		d.handleAPIProxy(w, r)
+	})
+	d.logger.Info("Registered: /api/servers/ (with OAuth routing)")
+
+	// CATCH-ALL ROUTES - THESE MUST BE ABSOLUTELY LAST
+	d.logger.Info("Registering catch-all: /api/")
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		d.logger.Info("=== CATCH-ALL API ROUTE HIT ===")
+		d.logger.Info("Method: %s", r.Method)
+		d.logger.Info("URL.Path: %s", r.URL.Path)
+		d.logger.Info("WARNING: This should NOT happen for /api/containers/ requests!")
 		d.handleAPIProxy(w, r)
 	})
 
-	// General API proxying for other endpoints
-	mux.HandleFunc("/api/", d.handleAPIProxy)
+	d.logger.Info("=== ALL ROUTES REGISTERED ===")
+	d.logger.Info("Route registration order:")
+	d.logger.Info("1. /api/containers/ (SPECIFIC)")
+	d.logger.Info("2. Other specific /api/ routes")
+	d.logger.Info("3. /api/servers/ (SPECIFIC with OAuth routing)")
+	d.logger.Info("4. /api/ (CATCH-ALL - LAST)")
 
-	// REMOVED THE DUPLICATE STATIC FILE REGISTRATION HERE
-
-	// Start server...
+	// Start server
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
+
+	// Get configurable timeouts or use defaults
+	readTimeout := 15 * time.Second
+	writeTimeout := 15 * time.Second
+	idleTimeout := 60 * time.Second
+	
+	if len(d.config.Connections) > 0 {
+		for _, conn := range d.config.Connections {
+			readTimeout = conn.Timeouts.GetReadTimeout()
+			writeTimeout = conn.Timeouts.GetWriteTimeout()
+			idleTimeout = conn.Timeouts.GetIdleTimeout()
+			break
+		}
+	}
+
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
+	d.logger.Info("Dashboard server starting...")
 	return server.ListenAndServe()
 }
 

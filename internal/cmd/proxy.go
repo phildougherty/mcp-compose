@@ -232,13 +232,27 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 		os.Exit(0)
 	}()
 
-	// Create HTTP server with enhanced configuration
+	// Get configurable timeouts or use defaults
+	readTimeout := 5 * time.Minute  // Default for large file operations
+	writeTimeout := 5 * time.Minute // Default for long-running tools
+	idleTimeout := 2 * time.Minute  // Default for connection keepalive
+	
+	if len(cfg.Connections) > 0 {
+		for _, conn := range cfg.Connections {
+			readTimeout = conn.Timeouts.GetReadTimeout()
+			writeTimeout = conn.Timeouts.GetWriteTimeout()
+			idleTimeout = conn.Timeouts.GetIdleTimeout()
+			break // Use first connection's timeout config
+		}
+	}
+
+	// Create HTTP server with configurable timeouts
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      handler,
-		ReadTimeout:  5 * time.Minute, // For large file operations
-		WriteTimeout: 5 * time.Minute, // For long-running tools
-		IdleTimeout:  2 * time.Minute, // Keep connections alive
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
 	fmt.Printf("MCP Proxy (HTTP mode) is running at http://localhost:%d\n", port)
@@ -272,8 +286,16 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	// Wait for cancellation
 	<-ctx.Done()
 
-	// Graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Graceful shutdown with configurable timeout
+	shutdownTimeout := 30 * time.Second // Default fallback
+	if len(cfg.Connections) > 0 {
+		for _, conn := range cfg.Connections {
+			shutdownTimeout = conn.Timeouts.GetShutdownTimeout()
+			break
+		}
+	}
+	
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
 	return httpServer.Shutdown(shutdownCtx)

@@ -235,6 +235,12 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 		return true
 	}
 
+	// ADD CONTAINER ENDPOINTS HERE
+	if strings.HasPrefix(path, "/api/containers/") {
+		h.handleContainerAPI(w, r)
+		return true
+	}
+
 	// Handle server-specific OAuth endpoints
 	if strings.HasPrefix(path, "/api/servers/") {
 		pathParts := strings.Split(strings.Trim(path, "/"), "/")
@@ -243,7 +249,7 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 			case "oauth":
 				h.handleServerOAuthConfig(w, r)
 				return true
-			case "test-oauth": // Add this case
+			case "test-oauth":
 				h.handleServerOAuthTest(w, r)
 				return true
 			case "tokens":
@@ -512,7 +518,8 @@ func (h *ProxyHandler) handleHTTPServerRequestWithBody(w http.ResponseWriter, r 
 }
 
 func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Request, serverName string, _ *ServerInstance, requestPayload map[string]interface{}, reqIDVal interface{}, reqMethodVal string) {
-	conn, err := h.getSSEConnection(serverName)
+	// Use optimal SSE connection (enhanced if available)
+	conn, err := h.getOptimalSSEConnection(serverName)
 	if err != nil {
 		h.logger.Error("Failed to get/create SSE connection for %s: %v", serverName, err)
 		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s' via SSE", serverName))
@@ -521,17 +528,30 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 
 	// Forward client's Mcp-Session-Id to the backend if present
 	clientSessionID := r.Header.Get("Mcp-Session-Id")
-	conn.mu.Lock()
-	if clientSessionID != "" && conn.SessionID == "" {
-		h.logger.Info("Using client-provided Mcp-Session-Id '%s' for SSE backend request to %s", clientSessionID, serverName)
-		conn.SessionID = clientSessionID
-	} else if clientSessionID != "" && clientSessionID != conn.SessionID {
-		h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, conn.SessionID, serverName)
+	
+	// Handle session ID based on connection type
+	if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
+		enhancedConn.mu.Lock()
+		if clientSessionID != "" && enhancedConn.SessionID == "" {
+			h.logger.Info("Using client-provided Mcp-Session-Id '%s' for enhanced SSE backend request to %s", clientSessionID, serverName)
+			enhancedConn.SessionID = clientSessionID
+		} else if clientSessionID != "" && clientSessionID != enhancedConn.SessionID {
+			h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, enhancedConn.SessionID, serverName)
+		}
+		enhancedConn.mu.Unlock()
+	} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
+		standardConn.mu.Lock()
+		if clientSessionID != "" && standardConn.SessionID == "" {
+			h.logger.Info("Using client-provided Mcp-Session-Id '%s' for SSE backend request to %s", clientSessionID, serverName)
+			standardConn.SessionID = clientSessionID
+		} else if clientSessionID != "" && clientSessionID != standardConn.SessionID {
+			h.logger.Warning("Client Mcp-Session-Id '%s' differs from proxy's stored session '%s' for %s. Using proxy's.", clientSessionID, standardConn.SessionID, serverName)
+		}
+		standardConn.mu.Unlock()
 	}
-	conn.mu.Unlock()
 
-	// Send request via SSE
-	responsePayload, err := h.sendSSERequest(conn, requestPayload)
+	// Send request via optimal SSE connection
+	responsePayload, err := h.sendOptimalSSERequest(serverName, requestPayload)
 	if err != nil {
 		dashboard.BroadcastActivity("ERROR", "request", serverName, getClientIP(r),
 			fmt.Sprintf("Error: %s failed: %v", reqMethodVal, err),
@@ -540,20 +560,34 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 		h.logger.Error("SSE request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
 		if conn != nil {
-			conn.mu.Lock()
-			errData["targetEndpoint"] = conn.SSEEndpoint
-			conn.mu.Unlock()
+			if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
+				enhancedConn.mu.Lock()
+				errData["targetEndpoint"] = enhancedConn.SSEEndpoint
+				enhancedConn.mu.Unlock()
+			} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
+				standardConn.mu.Lock()
+				errData["targetEndpoint"] = standardConn.SSEEndpoint
+				standardConn.mu.Unlock()
+			}
 		}
 		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during SSE call to '%s'", serverName), errData)
 		return
 	}
 
 	// Relay Mcp-Session-Id from backend server's response
-	conn.mu.Lock()
-	if conn.SessionID != "" {
-		w.Header().Set("Mcp-Session-Id", conn.SessionID)
+	if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
+		enhancedConn.mu.Lock()
+		if enhancedConn.SessionID != "" {
+			w.Header().Set("Mcp-Session-Id", enhancedConn.SessionID)
+		}
+		enhancedConn.mu.Unlock()
+	} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
+		standardConn.mu.Lock()
+		if standardConn.SessionID != "" {
+			w.Header().Set("Mcp-Session-Id", standardConn.SessionID)
+		}
+		standardConn.mu.Unlock()
 	}
-	conn.mu.Unlock()
 
 	if err := json.NewEncoder(w).Encode(responsePayload); err != nil {
 		h.logger.Error("Failed to encode/send response for %s: %v", serverName, err)

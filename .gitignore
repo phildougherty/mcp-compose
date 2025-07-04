@@ -40,3 +40,25 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Security - Never commit secrets
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+*.crt
+*_secret.json
+client_secret.json
+credentials.json
+auth.json
+
+# Build artifacts
+build/
+dist/
+bin/
+
+# Custom development files
+custom_mcp/
+find_code.sh

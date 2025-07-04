@@ -75,14 +75,59 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 	}
 	containerName := parts[0]
 	action := parts[1]
+
 	switch action {
 	case "logs":
+		// Try proxying first, fall back to local if proxying fails
+		if d.tryProxyContainerLogs(w, r, containerName) {
+			return
+		}
+		// Fallback to local handling
 		d.handleContainerLogs(w, r, containerName)
 	case "stats":
+		// Try proxying first, fall back to local if proxying fails
+		if d.tryProxyContainerStats(w, r, containerName) {
+			return
+		}
+		// Fallback to local handling
 		d.handleContainerStats(w, r, containerName)
 	default:
 		http.Error(w, "Unknown action", http.StatusBadRequest)
 	}
+}
+
+func (d *DashboardServer) tryProxyContainerLogs(w http.ResponseWriter, r *http.Request, containerName string) bool {
+	endpoint := fmt.Sprintf("/api/containers/%s/logs", containerName)
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
+	}
+
+	resp, err := d.proxyRequest(endpoint)
+	if err != nil {
+		d.logger.Debug("Failed to proxy container logs, will try local: %v", err)
+		return false
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+	return true
+}
+
+func (d *DashboardServer) tryProxyContainerStats(w http.ResponseWriter, r *http.Request, containerName string) bool {
+	endpoint := fmt.Sprintf("/api/containers/%s/stats", containerName)
+	if r.URL.RawQuery != "" {
+		endpoint += "?" + r.URL.RawQuery
+	}
+
+	resp, err := d.proxyRequest(endpoint)
+	if err != nil {
+		d.logger.Debug("Failed to proxy container stats, will try local: %v", err)
+		return false
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+	return true
 }
 
 func (d *DashboardServer) handleServerStart(w http.ResponseWriter, r *http.Request) {
@@ -1386,13 +1431,13 @@ func (d *DashboardServer) handleContainerLogs(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// Replace the existing getContainerLogs function with these new functions
 func (d *DashboardServer) verifyContainerExists(containerName string) error {
 	runtime := d.detectContainerRuntime()
 
 	var cmd *exec.Cmd
 	switch runtime {
 	case "docker":
+		// Use docker inspect instead of ps with filters
 		cmd = exec.Command("docker", "inspect", containerName)
 	case "podman":
 		cmd = exec.Command("podman", "inspect", containerName)
@@ -1400,10 +1445,16 @@ func (d *DashboardServer) verifyContainerExists(containerName string) error {
 		return fmt.Errorf("unsupported container runtime: %s", runtime)
 	}
 
-	if err := cmd.Run(); err != nil {
+	d.logger.Info("Verifying container %s exists with: %s %v", containerName, cmd.Path, cmd.Args[1:])
+
+	// Run the command and check exit code
+	err := cmd.Run()
+	if err != nil {
+		d.logger.Debug("Container verification failed: %v", err)
 		return fmt.Errorf("container not found")
 	}
 
+	d.logger.Debug("Container %s verified successfully", containerName)
 	return nil
 }
 

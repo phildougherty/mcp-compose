@@ -1,0 +1,668 @@
+version: '1'
+# Proxy authentication - can work alongside OAuth
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"
+  oauth_fallback: true  # Allow OAuth as fallback
+# OAuth 2.1 Configuration
+oauth:
+  enabled: true
+  issuer: "http://192.168.86.201:9876"  # Your proxy URL
+  endpoints:
+    authorization: "/oauth/authorize"
+    token: "/oauth/token"
+    userinfo: "/oauth/userinfo"
+    revoke: "/oauth/revoke"
+    discovery: "/.well-known/oauth-authorization-server"
+  tokens:
+    access_token_ttl: "1h"
+    refresh_token_ttl: "168h"  # 7 days
+    authorization_code_ttl: "10m"
+    algorithm: "HS256"
+  security:
+    require_pkce: true
+  grant_types:
+    - "authorization_code"
+    - "client_credentials"
+    - "refresh_token"
+  response_types:
+    - "code"
+  scopes_supported:
+    - "mcp:*"
+    - "mcp:tools"
+    - "mcp:resources"
+    - "mcp:prompts"
+# Audit logging for OAuth events
+audit:
+  enabled: true
+  log_level: "info"
+  storage: "memory"
+  retention:
+    max_entries: 1000
+    max_age: "7d"
+  events:
+    - "oauth.token.issued"
+    - "oauth.token.revoked"
+    - "oauth.user.login"
+    - "server.access.granted"
+    - "server.access.denied"
+# RBAC Configuration
+rbac:
+  enabled: true
+  scopes:
+    - name: "mcp:*"
+      description: "Full access to all MCP resources"
+    - name: "mcp:tools"
+      description: "Access to MCP tools"
+    - name: "mcp:resources"
+      description: "Access to MCP resources"
+    - name: "mcp:prompts"
+      description: "Access to MCP prompts"
+  roles:
+    admin:
+      name: "admin"
+      description: "Full administrative access"
+      scopes: ["mcp:*"]
+    user:
+      name: "user"
+      description: "Standard user access"
+      scopes: ["mcp:tools", "mcp:resources"]
+    readonly:
+      name: "readonly"
+      description: "Read-only access"
+      scopes: ["mcp:resources"]
+# OAuth Clients (optional - for pre-registered clients)
+oauth_clients:
+  openwebui:
+    client_id: "openwebui-client"
+    name: "OpenWebUI Integration"
+    description: "OpenWebUI tools integration client"
+    redirect_uris:
+      - "http://192.168.86.201:3000/oauth/callback"
+      - "http://localhost:3000/oauth/callback"
+    scopes: ["mcp:tools", "mcp:resources"]
+    grant_types: ["authorization_code", "refresh_token"]
+    public_client: true  # No client secret required
+    auto_approve: true   # Skip consent screen
+  testing_client:
+    client_id: "HFakeCpMUQnRX_m5HJKamRjU_vufUnNbG4xWpmUyvzo"
+    client_secret: "${OAUTH_CLIENT_SECRET}"
+    name: "Testing"
+    description: "Test client for OAuth flows"
+    redirect_uris:
+      - "http://desk:3111/oauth/callback"
+    scopes: ["mcp:tools", "mcp:resources", "mcp:*"]
+    grant_types: ["authorization_code", "client_credentials", "refresh_token"]  # Include client_credentials
+    response_types: ["code"]
+    public_client: false  # Must be false for client credentials
+    auto_approve: true
+dashboard:
+  enabled: true
+  port: 3111
+  host: "0.0.0.0"  
+  proxy_url: "http://mcp-compose-http-proxy:9876"
+  postgres_url: "postgresql://postgres:${POSTGRES_PASSWORD}@mcp-compose-postgres-memory:5432/mcp_dashboard?sslmode=disable"  
+  theme: "dark"
+  log_streaming: true
+  config_editor: true
+  metrics: true
+  security:
+    enabled: true
+    oauth_config: true
+    client_management: true
+    user_management: true
+    audit_logs: true
+  admin_login:
+    enabled: true
+    session_timeout: "24h"
+memory:
+  enabled: true
+  port: 3001
+  host: "0.0.0.0"
+  database_url: "postgresql://postgres:${POSTGRES_PASSWORD}@mcp-compose-postgres-memory:5432/memory_graph?sslmode=disable"
+  postgres_enabled: true
+  postgres_port: 5432
+  postgres_db: "memory_graph"
+  postgres_user: "postgres"
+  postgres_password: "${POSTGRES_PASSWORD}"
+  cpus: "1.0"
+  memory: "1g"
+  postgres_cpus: "2.0"
+  postgres_memory: "2g"
+  volumes:
+    - "postgres-memory-data:/var/lib/postgresql/data"
+  authentication:
+    enabled: true
+    required_scope: "mcp:tools"
+    allow_api_key: true
+task_scheduler:
+  enabled: true
+  port: 8018
+  host: "0.0.0.0"
+  database_path: "/data/task-scheduler.db"
+  log_level: "debug"
+  openrouter_api_key: "${OPENROUTER_API_KEY}"
+  openrouter_model: "google/gemini-2.5-flash-lite-preview-06-17"
+  ollama_url: "192.168.86.201:11434"
+  ollama_model: "qwen3:14b"
+  mcp_proxy_url: "http://192.168.86.201:9876"
+  mcp_proxy_api_key: "${MCP_API_KEY}"
+  openwebui_enabled: false
+  workspace: "/home/phil"
+  cpus: "2.0"
+  memory: "1g"
+  volumes:
+    - "/home/phil:/workspace:rw"
+    - "/tmp:/tmp:rw"
+servers:
+  filesystem:
+    build:
+      context: ./custom_mcp/filesystem
+      dockerfile: Dockerfile
+    command: "node"
+    args: ["/app/dist/index.js", "--transport", "http", "--host", "0.0.0.0", "--port", "3000", "/projects"]
+    protocol: http
+    http_port: 3000
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_host_mounts: ["/home/phil", "/tmp"]
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      NODE_ENV: "production"
+    capabilities: [resources, tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:resources"
+      optional_auth: false
+      allow_api_key: true
+    volumes:
+      - "/home/phil:/projects:rw"
+      - "/tmp:/tmp:rw"
+    networks: [mcp-net]
+  postgres-memory:
+    image: postgres:15-alpine
+    user: "999:999"  # Postgres user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "2g"
+          pids: 200
+      restart_policy: "unless-stopped"
+    env:
+      POSTGRES_DB: memory_graph
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - "postgres-memory-data:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: "10s"
+      timeout: "5s"
+      retries: 5
+    networks: [mcp-net]
+
+  postgres-mcp:
+    image: crystaldba/postgres-mcp
+    command: "postgres-mcp"
+    args: ["--access-mode=unrestricted", "--transport=sse", "--sse-host=0.0.0.0", "--sse-port=8013"]
+    protocol: sse
+    http_port: 8013
+    sse_path: "/sse"
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      DATABASE_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@mcp-compose-postgres-memory:5432/memory_graph"
+      TZ: "America/New_York"
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:*"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+    depends_on:
+      - postgres-memory
+
+  sequential-thinking:
+    build:
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args:
+        BASE_IMAGE: node:22-slim
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "1g"
+          pids: 100
+    env:
+      MCP_SOCAT_INTERNAL_PORT: "12347"
+    stdio_hoster_port: 12347
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+
+  github:
+    build:
+      context: ./docker_utils/socat_stdio_hoster
+      dockerfile: Dockerfile.base_socat_hoster
+      args:
+        BASE_IMAGE: node:22-slim
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      MCP_SOCAT_INTERNAL_PORT: "12348"
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    stdio_hoster_port: 12348
+    capabilities: [tools, resources]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+
+  searxng:
+    build:
+      context: ./custom_mcp/searxng
+      dockerfile: Dockerfile
+    command: "node"
+    args: ["/app/server.js"]
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      MCP_SOCAT_INTERNAL_PORT: "8006"
+      SEARXNG_URL: "http://192.168.86.201:8484/search"
+      MAX_SEARCH_RESULTS: "5"
+    stdio_hoster_port: 8006
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+
+  dexcom:
+    image: dexcom-mcp-http:local
+    build:
+      context: ./custom_mcp/dexcom
+      dockerfile: Dockerfile
+    protocol: http
+    http_port: 8007
+    ports:
+      - "8007:8007"
+    user: "root"
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+    security:
+      allow_privileged_ops: true
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "256m"
+          pids: 100
+    env:
+      HTTP_PORT: "8007"
+      DEXCOM_REGION: "us"
+      DEXCOM_USERNAME: "+17186149288"
+      DEXCOM_PASSWORD: "Sharky123"
+    capabilities: [tools, resources]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+
+  playwright:
+    build:
+      context: ./custom_mcp/playwright
+      dockerfile: Dockerfile
+    command: "node"
+    args: ["server.js"]
+    protocol: http
+    http_port: 8008
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "seccomp:unconfined"  # Required for browser automation
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN  # Required for browser sandboxing
+    security:
+      allow_host_mounts: ["/home/phil"]
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: "4g"
+          pids: 500
+    tmpfs:
+      - "/tmp"
+      - "/dev/shm"
+    env:
+      HTTP_PORT: "8008"
+      TZ: "America/New_York"
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    volumes:
+      - "/home/phil:/projects:rw"
+    networks: [mcp-net]
+    
+  openrouter-gateway:
+    build:
+      context: ./custom_mcp/openrouter-gateway
+      dockerfile: Dockerfile
+    command: "/app/mcp-openrouter-gateway"
+    args: ["--transport", "http", "--host", "0.0.0.0", "--port", "8012"]
+    protocol: http
+    http_port: 8012
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      TZ: "America/New_York"
+      HTTP_PORT: "8012"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    networks: [mcp-net]
+
+  meal-log:
+    build:
+      context: ./custom_mcp/meal-log
+      dockerfile: Dockerfile
+    command: "/app/meal-log"
+    args: ["--transport", "http", "--host", "0.0.0.0", "--port", "8011", "--db-path", "/data/meal-log.db"]
+    protocol: http
+    http_port: 8011
+    user: "root"  # More lenient
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+    security:
+      allow_host_mounts: ["/home/phil", "/tmp", "/var"]
+      allow_privileged_ops: true
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+    env:
+      TZ: "America/New_York"
+      HTTP_PORT: "8011"
+      OPENROUTER_GATEWAY_SERVICE: "mcp-compose-openrouter-gateway"
+      OPENROUTER_GATEWAY_PORT: "8012"
+      MCP_PROXY_URL: "http://mcp-compose-http-proxy:9876"
+      MCP_PROXY_API_KEY: "${MCP_API_KEY}"
+      OPENROUTER_MODEL: "google/gemma-3-27b-it"
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    volumes:
+      - "/home/phil:/projects:rw"
+      - "meal-log-data:/data"
+      - "/tmp:/tmp:rw"
+    networks: [mcp-net]
+    depends_on:
+      - openrouter-gateway
+
+  hn-radio:
+    build:
+      context: ./custom_mcp/hn_radio
+      dockerfile: Dockerfile
+    command: "node"
+    args: ["server.js"]
+    protocol: http
+    http_port: 8009
+    user: "root"  # More lenient
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+    security:
+      allow_host_mounts: ["/home/phil", "/tmp", "/var"]
+      allow_privileged_ops: true
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "2g"
+          pids: 200
+    env:
+      HTTP_PORT: "8009"
+      OLLAMA_HOST: "100.82.120.44"
+      OLLAMA_MODEL: "qwen3:14b"
+      TTS_VOICE: "af_bella"
+      TTS_URL: "http://100.82.120.44:8000/v1/audio/speech"
+      EPISODES_DIR: "/projects/hn_radio_episodes"
+    capabilities: [tools]
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      optional_auth: false
+      allow_api_key: true
+    volumes:
+      - "/home/phil:/projects:rw"
+      - "/tmp:/tmp:rw"
+    networks: [mcp-net]
+
+  timezone:
+    build:
+      context: ./custom_mcp/timezone
+      dockerfile: Dockerfile
+    command: "python"  # Add this line
+    args: ["server.py"] 
+    protocol: http
+    http_port: 8010
+    ports:
+      - "8010:8010"
+    user: "1000:1000"  # Non-root user
+    read_only: false
+    privileged: false
+    security_opt:
+      - "no-new-privileges:true"
+      - "apparmor:unconfined"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security:
+      allow_privileged_ops: false
+      trusted_image: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "256m"
+          pids: 100
+    env:
+      HTTP_PORT: "8010"
+      TZ: "America/New_York"
+    capabilities: [tools]
+    authentication:
+      enabled: false  
+      optional_auth: true
+    networks: [mcp-net]
+
+networks:
+  mcp-net:
+    driver: bridge
+
+volumes:
+  gdrive-credentials:
+    driver: local
+  hn-radio-episodes:
+    driver: local
+  mcp-cron-data:     
+    driver: local
+  postgres-memory-data:
+    driver: local
+  meal-log-data:
+    driver: local

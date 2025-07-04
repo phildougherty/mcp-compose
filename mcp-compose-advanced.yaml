@@ -8,7 +8,7 @@ version: '1'  # REQUIRED
 # ============================================================================
 proxy_auth:
   enabled: true                    # OPTIONAL (default: false)
-  api_key: "your-secret-key"       # OPTIONAL (but required if enabled: true)
+  api_key: "${MCP_API_KEY}"       # REQUIRED ENV VAR - NEVER use hardcoded secrets
   oauth_fallback: true             # OPTIONAL (default: false)
 
 # ============================================================================
@@ -93,7 +93,7 @@ rbac:
 oauth_clients:
   client_name:                     # OPTIONAL (client identifier)
     client_id: "unique-client-id"  # REQUIRED for each client
-    client_secret: "secret"        # OPTIONAL (required for confidential clients)
+    client_secret: "${OAUTH_CLIENT_SECRET}"        # REQUIRED ENV VAR - NEVER use hardcoded secrets
     name: "Client Display Name"    # REQUIRED for each client
     description: "Client description" # OPTIONAL
     redirect_uris:                 # REQUIRED for each client
@@ -124,6 +124,24 @@ dashboard:
   admin_login:                    # OPTIONAL (admin access)
     enabled: true                 # OPTIONAL (default: false)
     session_timeout: "24h"        # OPTIONAL (default: "1h")
+
+# ============================================================================
+# GLOBAL CONNECTIONS & TIMEOUTS - OPTIONAL (advanced configuration)
+# ============================================================================
+connections:
+  default:
+    transport: http                    # OPTIONAL (default transport)
+    port: 9876                        # OPTIONAL (default proxy port)
+    expose: true                      # OPTIONAL (expose to host)
+    tls: false                        # OPTIONAL (enable TLS)
+    timeouts:                         # OPTIONAL (configurable timeouts)
+      connect: "10s"                  # Connection timeout (default: 10s)
+      read: "30s"                     # Read timeout (default: 30s)
+      write: "30s"                    # Write timeout (default: 30s)
+      idle: "60s"                     # Idle timeout (default: 60s)
+      health_check: "5s"              # Health check timeout (default: 5s)
+      shutdown: "30s"                 # Graceful shutdown timeout (default: 30s)
+      lifecycle_hook: "30s"           # Lifecycle hook timeout (default: 30s)
 
 # ============================================================================
 # SERVERS CONFIGURATION - REQUIRED (at least one server)
@@ -254,7 +272,7 @@ servers:
     # ========================================================================
     env:                           # OPTIONAL (environment variables)
       NODE_ENV: "production"
-      API_KEY: "${SECRET_KEY}"     # Environment variable expansion
+      API_KEY: "${SECRET_KEY}"     # REQUIRED ENV VAR - Environment variable expansion
       DEBUG: "false"
     pull: true                     # OPTIONAL (pull image before start)
 
@@ -355,6 +373,30 @@ volumes:
     labels:                        # OPTIONAL (volume labels)
       backup: "daily"
 
+# ============================================================================
+# SECURITY WARNINGS & REQUIREMENTS
+# ============================================================================
+# CRITICAL SECURITY REQUIREMENTS:
+# - NEVER commit hardcoded API keys, passwords, or secrets to version control
+# - Use environment variables for ALL sensitive configuration
+# - Required environment variables:
+#   - MCP_API_KEY: API key for proxy authentication
+#   - OAUTH_CLIENT_SECRET: OAuth client secret (if using OAuth)
+#   - POSTGRES_PASSWORD: Database password (if using PostgreSQL)
+#   - GITHUB_TOKEN: GitHub token (if using GitHub integration)
+#   - OPENROUTER_API_KEY: OpenRouter API key (if using OpenRouter)
+#   - Any other API keys or secrets used by your servers
+#
+# CONTAINER SECURITY BEST PRACTICES:
+# - Run containers as non-root users whenever possible
+# - Use cap_drop: ["ALL"] and add only required capabilities
+# - Set read_only: true when containers don't need write access
+# - Use security_opt: ["no-new-privileges:true"]
+# - Limit resources with deploy.resources.limits
+# - Restrict volume mounts to only necessary paths
+# - NEVER use privileged: true unless absolutely required
+# - NEVER expose Docker socket unless essential
+#
 # ============================================================================
 # FIELD REQUIREMENTS SUMMARY
 # ============================================================================

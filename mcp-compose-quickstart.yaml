@@ -1,0 +1,10 @@
+# MCP-Compose Quick Start
+# The minimal configuration to try MCP-Compose
+
+version: '1'
+
+servers:
+  # A simple filesystem server
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]

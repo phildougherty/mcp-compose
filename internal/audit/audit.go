@@ -18,6 +18,8 @@ type AuditLogger struct {
 	entries    []AuditEntry
 	mu         sync.RWMutex
 	logger     *logging.Logger
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
 }
 
 type AuditEntry struct {
@@ -52,9 +54,11 @@ func NewAuditLogger(auditConfig config.AuditConfig, logger *logging.Logger) *Aud
 		events:     events,
 		entries:    make([]AuditEntry, 0),
 		logger:     logger,
+		stopCh:     make(chan struct{}),
 	}
 
-	// Start cleanup routine
+	// Start cleanup routine with proper resource management
+	al.wg.Add(1)
 	go al.cleanupOldEntries()
 
 	return al
@@ -114,9 +118,19 @@ func (al *AuditLogger) storeEntry(entry AuditEntry) {
 			al.entries = al.entries[len(al.entries)-al.maxEntries:]
 		}
 	case "file":
-		// TODO: Implement file storage
+		// File storage not implemented - using memory fallback
+		al.logger.Warning("File storage not implemented, using memory storage as fallback")
+		al.entries = append(al.entries, entry)
+		if len(al.entries) > al.maxEntries {
+			al.entries = al.entries[len(al.entries)-al.maxEntries:]
+		}
 	case "database":
-		// TODO: Implement database storage
+		// Database storage not implemented - using memory fallback
+		al.logger.Warning("Database storage not implemented, using memory storage as fallback")
+		al.entries = append(al.entries, entry)
+		if len(al.entries) > al.maxEntries {
+			al.entries = al.entries[len(al.entries)-al.maxEntries:]
+		}
 	}
 }
 
@@ -179,22 +193,56 @@ func (al *AuditLogger) matchesFilter(entry AuditEntry, filter AuditFilter) bool 
 }
 
 func (al *AuditLogger) cleanupOldEntries() {
+	defer al.wg.Done()
+	
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		al.mu.Lock()
-		cutoff := time.Now().Add(-al.maxAge)
-		var kept []AuditEntry
+	for {
+		select {
+		case <-al.stopCh:
+			al.logger.Debug("Audit logger cleanup goroutine stopping")
+			return
+		case <-ticker.C:
+			al.mu.Lock()
+			cutoff := time.Now().Add(-al.maxAge)
+			var kept []AuditEntry
 
-		for _, entry := range al.entries {
-			if entry.Timestamp.After(cutoff) {
-				kept = append(kept, entry)
+			for _, entry := range al.entries {
+				if entry.Timestamp.After(cutoff) {
+					kept = append(kept, entry)
+				}
 			}
-		}
 
-		al.entries = kept
-		al.mu.Unlock()
+			if len(kept) != len(al.entries) {
+				al.logger.Debug("Cleaned up %d old audit entries", len(al.entries)-len(kept))
+			}
+			al.entries = kept
+			al.mu.Unlock()
+		}
+	}
+}
+
+// Shutdown gracefully stops the audit logger
+func (al *AuditLogger) Shutdown() error {
+	if al.stopCh != nil {
+		close(al.stopCh)
+	}
+	
+	// Wait for cleanup goroutine to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		al.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		al.logger.Debug("Audit logger shutdown completed")
+		return nil
+	case <-time.After(5 * time.Second):
+		al.logger.Warning("Audit logger shutdown timeout")
+		return fmt.Errorf("audit logger shutdown timeout")
 	}
 }
 

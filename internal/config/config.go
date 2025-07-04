@@ -287,15 +287,27 @@ type VolumeConfig struct {
 
 // ConnectionConfig represents connection settings for MCP communication
 type ConnectionConfig struct {
-	Transport      string `yaml:"transport"` // stdio, http+sse, tcp, websocket
-	Port           int    `yaml:"port,omitempty"`
-	Host           string `yaml:"host,omitempty"`
-	Path           string `yaml:"path,omitempty"`
-	Expose         bool   `yaml:"expose,omitempty"`
-	TLS            bool   `yaml:"tls,omitempty"`
-	CertFile       string `yaml:"cert_file,omitempty"`
-	KeyFile        string `yaml:"key_file,omitempty"`
-	Authentication string `yaml:"auth,omitempty"` // none, basic, token
+	Transport      string         `yaml:"transport"` // stdio, http+sse, tcp, websocket
+	Port           int            `yaml:"port,omitempty"`
+	Host           string         `yaml:"host,omitempty"`
+	Path           string         `yaml:"path,omitempty"`
+	Expose         bool           `yaml:"expose,omitempty"`
+	TLS            bool           `yaml:"tls,omitempty"`
+	CertFile       string         `yaml:"cert_file,omitempty"`
+	KeyFile        string         `yaml:"key_file,omitempty"`
+	Authentication string         `yaml:"auth,omitempty"` // none, basic, token
+	Timeouts       TimeoutConfig  `yaml:"timeouts,omitempty"`
+}
+
+// TimeoutConfig defines configurable timeout values
+type TimeoutConfig struct {
+	Connect        string `yaml:"connect,omitempty"`         // Default: "10s"
+	Read           string `yaml:"read,omitempty"`            // Default: "30s"
+	Write          string `yaml:"write,omitempty"`           // Default: "30s"
+	Idle           string `yaml:"idle,omitempty"`            // Default: "60s"
+	HealthCheck    string `yaml:"health_check,omitempty"`    // Default: "5s"
+	Shutdown       string `yaml:"shutdown,omitempty"`        // Default: "30s"
+	LifecycleHook  string `yaml:"lifecycle_hook,omitempty"`  // Default: "30s"
 }
 
 // ResourcesConfig defines resource-related configuration for a server
@@ -718,6 +730,70 @@ func ValidateConfig(config *ComposeConfig) error {
 		return err
 	}
 	return nil
+}
+
+// GetTimeoutDuration returns a timeout duration with fallback to default
+func (tc TimeoutConfig) GetConnectTimeout() time.Duration {
+	if tc.Connect != "" {
+		if d, err := time.ParseDuration(tc.Connect); err == nil {
+			return d
+		}
+	}
+	return 10 * time.Second
+}
+
+func (tc TimeoutConfig) GetReadTimeout() time.Duration {
+	if tc.Read != "" {
+		if d, err := time.ParseDuration(tc.Read); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
+func (tc TimeoutConfig) GetWriteTimeout() time.Duration {
+	if tc.Write != "" {
+		if d, err := time.ParseDuration(tc.Write); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
+func (tc TimeoutConfig) GetIdleTimeout() time.Duration {
+	if tc.Idle != "" {
+		if d, err := time.ParseDuration(tc.Idle); err == nil {
+			return d
+		}
+	}
+	return 60 * time.Second
+}
+
+func (tc TimeoutConfig) GetHealthCheckTimeout() time.Duration {
+	if tc.HealthCheck != "" {
+		if d, err := time.ParseDuration(tc.HealthCheck); err == nil {
+			return d
+		}
+	}
+	return 5 * time.Second
+}
+
+func (tc TimeoutConfig) GetShutdownTimeout() time.Duration {
+	if tc.Shutdown != "" {
+		if d, err := time.ParseDuration(tc.Shutdown); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
+func (tc TimeoutConfig) GetLifecycleHookTimeout() time.Duration {
+	if tc.LifecycleHook != "" {
+		if d, err := time.ParseDuration(tc.LifecycleHook); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
 }
 
 func validateServerConfig(name string, server ServerConfig) error {

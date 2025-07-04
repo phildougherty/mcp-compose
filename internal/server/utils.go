@@ -27,6 +27,7 @@ func (h *ProxyHandler) startConnectionMaintenance() {
 				h.maintainStdioConnections()
 				h.maintainHttpConnections()
 				h.maintainSSEConnections()
+				h.maintainEnhancedSSEConnections()
 			case <-h.ctx.Done():
 				return
 			}
