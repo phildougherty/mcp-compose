@@ -107,10 +107,16 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 		// Format as JSON
 		jsonLog := fmt.Sprintf(`{"timestamp":"%s","level":"%s","message":%q}`,
 			timestamp, level.String(), message)
-		fmt.Fprintln(l.writer, jsonLog)
+		if _, err := fmt.Fprintln(l.writer, jsonLog); err != nil {
+			// If we can't log, there's not much we can do. Print to stderr as fallback.
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
+		}
 	} else {
 		// Format as text
-		fmt.Fprintf(l.writer, "[%s] %s: %s\n", timestamp, level.String(), message)
+		if _, err := fmt.Fprintf(l.writer, "[%s] %s: %s\n", timestamp, level.String(), message); err != nil {
+			// If we can't log, there's not much we can do. Print to stderr as fallback.
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
+		}
 	}
 
 	// If this is a fatal message, exit after logging
@@ -224,14 +230,18 @@ func (fl *FieldLogger) logWithFields(level LogLevel, format string, args ...inte
 
 		// Combine into a JSON object
 		jsonLog := "{" + strings.Join(jsonParts, ",") + "}"
-		fmt.Fprintln(fl.logger.writer, jsonLog)
+		if _, err := fmt.Fprintln(fl.logger.writer, jsonLog); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write structured log: %v\n", err)
+		}
 	} else {
 		// Format as text with fields
 		fieldStr := ""
 		for k, v := range fl.fields {
 			fieldStr += fmt.Sprintf(" %s=%v", k, v)
 		}
-		fmt.Fprintf(fl.logger.writer, "[%s] %s: %s%s\n", timestamp, level.String(), message, fieldStr)
+		if _, err := fmt.Fprintf(fl.logger.writer, "[%s] %s: %s%s\n", timestamp, level.String(), message, fieldStr); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write structured log: %v\n", err)
+		}
 	}
 
 	// If this is a fatal message, exit after logging (handled by the caller)

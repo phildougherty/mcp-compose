@@ -95,11 +95,15 @@ func (p *Process) Start() error {
 
 	// Close the file handles in the parent process since child has its own copy
 	if closer, ok := p.cmd.Stdout.(interface{ Close() error }); ok {
-		closer.Close()
+		if err := closer.Close(); err != nil {
+			return fmt.Errorf("failed to close stdout handle: %w", err)
+		}
 	}
 
 	// Detach process from parent
-	p.cmd.Process.Release()
+	if err := p.cmd.Process.Release(); err != nil {
+		return fmt.Errorf("failed to release process: %w", err)
+	}
 
 	return nil
 }
@@ -121,7 +125,9 @@ func (p *Process) Stop() error {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		// Process doesn't exist, clean up PID file
-		os.Remove(p.pidFile)
+		if removeErr := os.Remove(p.pidFile); removeErr != nil {
+			return fmt.Errorf("process not found and failed to remove PID file: %w, %w", err, removeErr)
+		}
 		return nil
 	}
 
@@ -129,7 +135,9 @@ func (p *Process) Stop() error {
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		// If process doesn't exist, clean up PID file
 		if err.Error() == "os: process already finished" {
-			os.Remove(p.pidFile)
+			if removeErr := os.Remove(p.pidFile); removeErr != nil {
+				return fmt.Errorf("process already finished and failed to remove PID file: %w", removeErr)
+			}
 			return nil
 		}
 
@@ -137,7 +145,9 @@ func (p *Process) Stop() error {
 	}
 
 	// Clean up PID file
-	os.Remove(p.pidFile)
+	if err := os.Remove(p.pidFile); err != nil {
+		return fmt.Errorf("failed to remove PID file: %w", err)
+	}
 
 	return nil
 }
