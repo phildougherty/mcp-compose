@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"net/http"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -12,107 +12,124 @@ func TestMemoryTokenStore(t *testing.T) {
 
 	// Test storing and retrieving tokens
 	t.Run("store_and_retrieve", func(t *testing.T) {
-		token := "test-token-123"
-		userID := "user123"
+		token := &AccessToken{
+			Token:     "test-token-123",
+			Type:      "Bearer",
+			ClientID:  "test-client",
+			UserID:    "user123",
+			Scope:     "read write",
+			ExpiresAt: time.Now().Add(time.Hour),
+			CreatedAt: time.Now(),
+		}
 		
-		err := store.StoreToken(token, userID, time.Hour)
+		err := store.StoreAccessToken(token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
-		retrievedUserID, err := store.GetUserID(token)
+		retrievedToken, err := store.GetAccessToken("test-token-123")
 		if err != nil {
-			t.Fatalf("Failed to retrieve user ID: %v", err)
+			t.Fatalf("Failed to retrieve token: %v", err)
 		}
 
-		if retrievedUserID != userID {
-			t.Errorf("Expected user ID %s, got %s", userID, retrievedUserID)
+		if retrievedToken.UserID != "user123" {
+			t.Errorf("Expected user ID user123, got %s", retrievedToken.UserID)
 		}
 	})
 
 	t.Run("token_expiration", func(t *testing.T) {
-		token := "short-lived-token"
-		userID := "user456"
+		token := &AccessToken{
+			Token:     "short-lived-token",
+			Type:      "Bearer",
+			ClientID:  "test-client",
+			UserID:    "user456",
+			Scope:     "read write",
+			ExpiresAt: time.Now().Add(-time.Hour), // Already expired
+			CreatedAt: time.Now().Add(-2 * time.Hour),
+		}
 		
-		// Store token with very short expiration
-		err := store.StoreToken(token, userID, time.Millisecond)
+		// Store expired token
+		err := store.StoreAccessToken(token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
-		// Wait for expiration
-		time.Sleep(10 * time.Millisecond)
-
-		_, err = store.GetUserID(token)
+		_, err = store.GetAccessToken("short-lived-token")
 		if err == nil {
 			t.Error("Expected error for expired token")
 		}
 	})
 
 	t.Run("invalid_token", func(t *testing.T) {
-		_, err := store.GetUserID("nonexistent-token")
+		_, err := store.GetAccessToken("nonexistent-token")
 		if err == nil {
 			t.Error("Expected error for nonexistent token")
 		}
 	})
 
 	t.Run("revoke_token", func(t *testing.T) {
-		token := "revoke-test-token"
-		userID := "user789"
+		token := &AccessToken{
+			Token:     "revoke-test-token",
+			Type:      "Bearer",
+			ClientID:  "test-client",
+			UserID:    "user789",
+			Scope:     "read write",
+			ExpiresAt: time.Now().Add(time.Hour),
+			CreatedAt: time.Now(),
+		}
 		
-		err := store.StoreToken(token, userID, time.Hour)
+		err := store.StoreAccessToken(token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
-		err = store.RevokeToken(token)
+		err = store.RevokeAccessToken("revoke-test-token")
 		if err != nil {
 			t.Fatalf("Failed to revoke token: %v", err)
 		}
 
-		_, err = store.GetUserID(token)
+		_, err = store.GetAccessToken("revoke-test-token")
 		if err == nil {
 			t.Error("Expected error for revoked token")
 		}
 	})
 }
 
-func TestMemoryStore(t *testing.T) {
-	store := NewMemoryStore()
+func TestTokenStoreStats(t *testing.T) {
+	store := NewMemoryTokenStore()
 
-	t.Run("store_and_get", func(t *testing.T) {
-		key := "test-key"
-		value := "test-value"
-
-		store.Set(key, value)
+	t.Run("empty_store_stats", func(t *testing.T) {
+		activeAccess, activeRefresh, activeCodes := store.GetStats()
 		
-		retrieved, exists := store.Get(key)
-		if !exists {
-			t.Error("Expected key to exist")
+		if activeAccess != 0 {
+			t.Errorf("Expected 0 active access tokens, got %d", activeAccess)
 		}
-
-		if retrieved != value {
-			t.Errorf("Expected value %s, got %s", value, retrieved)
+		
+		if activeRefresh != 0 {
+			t.Errorf("Expected 0 active refresh tokens, got %d", activeRefresh)
 		}
-	})
-
-	t.Run("delete", func(t *testing.T) {
-		key := "delete-test"
-		value := "delete-value"
-
-		store.Set(key, value)
-		store.Delete(key)
-
-		_, exists := store.Get(key)
-		if exists {
-			t.Error("Expected key to be deleted")
+		
+		if activeCodes != 0 {
+			t.Errorf("Expected 0 active codes, got %d", activeCodes)
 		}
 	})
 
-	t.Run("nonexistent_key", func(t *testing.T) {
-		_, exists := store.Get("nonexistent")
-		if exists {
-			t.Error("Expected nonexistent key to return false")
+	t.Run("store_stats_after_adding", func(t *testing.T) {
+		token := &AccessToken{
+			Token:     "stats-test-token",
+			Type:      "Bearer",
+			ClientID:  "test-client",
+			UserID:    "user123",
+			Scope:     "read write",
+			ExpiresAt: time.Now().Add(time.Hour),
+			CreatedAt: time.Now(),
+		}
+		
+		store.StoreAccessToken(token)
+		
+		activeAccess, _, _ := store.GetStats()
+		if activeAccess != 1 {
+			t.Errorf("Expected 1 active access token, got %d", activeAccess)
 		}
 	})
 }
@@ -139,37 +156,31 @@ func TestAPIKeyAuthentication(t *testing.T) {
 	}
 }
 
-func TestResourceMetadata(t *testing.T) {
-	metadata := &ResourceMetadata{
-		ResourceID:   "resource-123",
-		ResourceType: "server",
-		Owner:        "user123",
-		Scopes:       []string{"read", "write"},
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
+func TestProtectedResourceMetadata(t *testing.T) {
+	handler := NewResourceMetadataHandler(
+		[]string{"https://auth.example.com"},
+		[]string{"read", "write"},
+	)
+
+	metadata := handler.GetMetadata()
 
 	// Test metadata validation
-	if metadata.ResourceID == "" {
-		t.Error("Resource ID should not be empty")
+	if metadata.Resource == "" {
+		t.Error("Resource should not be empty")
 	}
 
-	if metadata.ResourceType == "" {
-		t.Error("Resource type should not be empty")
+	if len(metadata.AuthorizationServers) == 0 {
+		t.Error("Authorization servers should not be empty")
 	}
 
-	if metadata.Owner == "" {
-		t.Error("Owner should not be empty")
-	}
-
-	if len(metadata.Scopes) == 0 {
+	if len(metadata.ScopesSupported) == 0 {
 		t.Error("Scopes should not be empty")
 	}
 
 	// Test scope checking
 	hasReadScope := false
 	hasWriteScope := false
-	for _, scope := range metadata.Scopes {
+	for _, scope := range metadata.ScopesSupported {
 		if scope == "read" {
 			hasReadScope = true
 		}
@@ -194,23 +205,33 @@ func TestConcurrentTokenOperations(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			token := fmt.Sprintf("concurrent-token-%d", id)
+			tokenStr := fmt.Sprintf("concurrent-token-%d", id)
 			userID := fmt.Sprintf("user-%d", id)
 
+			token := &AccessToken{
+				Token:     tokenStr,
+				Type:      "Bearer",
+				ClientID:  "test-client",
+				UserID:    userID,
+				Scope:     "read write",
+				ExpiresAt: time.Now().Add(time.Hour),
+				CreatedAt: time.Now(),
+			}
+
 			// Store token
-			err := store.StoreToken(token, userID, time.Hour)
+			err := store.StoreAccessToken(token)
 			if err != nil {
 				t.Errorf("Failed to store token %d: %v", id, err)
 			}
 
 			// Retrieve token
-			retrievedUserID, err := store.GetUserID(token)
+			retrievedToken, err := store.GetAccessToken(tokenStr)
 			if err != nil {
 				t.Errorf("Failed to retrieve token %d: %v", id, err)
 			}
 
-			if retrievedUserID != userID {
-				t.Errorf("Token %d: expected user ID %s, got %s", id, userID, retrievedUserID)
+			if retrievedToken.UserID != userID {
+				t.Errorf("Token %d: expected user ID %s, got %s", id, userID, retrievedToken.UserID)
 			}
 
 			done <- true
@@ -228,7 +249,7 @@ func TestConcurrentTokenOperations(t *testing.T) {
 	}
 }
 
-func TestAuthenticationMiddleware(t *testing.T) {
+func TestBasicAuthenticationFlow(t *testing.T) {
 	// This would test actual middleware if it existed
 	// For now, test the basic authentication flow
 
