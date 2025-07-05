@@ -82,16 +82,16 @@ func TestMCPError(t *testing.T) {
 				Code:    -32600,
 				Message: "Invalid Request",
 			},
-			expected: "Invalid Request",
+			expected: "MCP Error -32600: Invalid Request",
 		},
 		{
 			name: "error with data",
 			err: MCPError{
 				Code:    -32602,
 				Message: "Invalid params",
-				Data:    json.RawMessage(`{"param": "invalid"}`),
+				Data:    map[string]interface{}{"param": "invalid"},
 			},
-			expected: "Invalid params",
+			expected: "MCP Error -32602: Invalid params (data: {\"param\":\"invalid\"})",
 		},
 	}
 

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 
 func TestNewManager(t *testing.T) {
 	cfg := &config.ComposeConfig{
-		Version: "1.0",
+		Version: "1",
 		Servers: map[string]config.ServerConfig{
 			"test-server": {
 				Protocol: "stdio",
@@ -20,8 +19,11 @@ func TestNewManager(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(cfg, &container.NullRuntime{})
+	manager, err := NewManager(cfg, &container.NullRuntime{})
 
+	if err != nil {
+		t.Fatalf("Expected no error creating manager, got: %v", err)
+	}
 	if manager == nil {
 		t.Fatal("Expected manager to be created")
 	}
@@ -30,12 +32,8 @@ func TestNewManager(t *testing.T) {
 		t.Error("Expected config to be set")
 	}
 
-	if manager.instances == nil {
-		t.Error("Expected instances map to be initialized")
-	}
-
-	if manager.connections == nil {
-		t.Error("Expected connections map to be initialized")
+	if manager.servers == nil {
+		t.Error("Expected servers map to be initialized")
 	}
 }
 
@@ -70,7 +68,7 @@ func TestServerInstance(t *testing.T) {
 
 func TestManagerGetInstance(t *testing.T) {
 	cfg := &config.ComposeConfig{
-		Version: "1.0",
+		Version: "1",
 		Servers: map[string]config.ServerConfig{
 			"test-server": {
 				Protocol: "stdio",
@@ -79,10 +77,13 @@ func TestManagerGetInstance(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(cfg, &container.NullRuntime{})
+	manager, err := NewManager(cfg, &container.NullRuntime{})
+	if err != nil {
+		t.Fatalf("Expected no error creating manager, got: %v", err)
+	}
 
 	// Test getting non-existent instance
-	instance, exists := manager.GetInstance("non-existent")
+	instance, exists := manager.GetServerInstance("non-existent")
 	if exists {
 		t.Error("Expected instance to not exist")
 	}
@@ -95,10 +96,10 @@ func TestManagerGetInstance(t *testing.T) {
 		Name:   "test-server",
 		Status: "running",
 	}
-	manager.instances["test-server"] = testInstance
+	manager.servers["test-server"] = testInstance
 
 	// Test getting existing instance
-	instance, exists = manager.GetInstance("test-server")
+	instance, exists = manager.GetServerInstance("test-server")
 	if !exists {
 		t.Error("Expected instance to exist")
 	}
@@ -107,46 +108,35 @@ func TestManagerGetInstance(t *testing.T) {
 	}
 }
 
-func TestManagerListInstances(t *testing.T) {
+func TestManagerGetServerStatus(t *testing.T) {
 	cfg := &config.ComposeConfig{
-		Version: "1.0",
+		Version: "1",
 		Servers: map[string]config.ServerConfig{
-			"server1": {
+			"test-server": {
 				Protocol: "stdio",
 				Command:  "echo hello",
-			},
-			"server2": {
-				Protocol: "http",
-				HttpPort: 8080,
 			},
 		},
 	}
 
-	manager := NewManager(cfg, &container.NullRuntime{})
-
-	// Add instances
-	manager.instances["server1"] = &ServerInstance{
-		Name:   "server1",
-		Status: "running",
-	}
-	manager.instances["server2"] = &ServerInstance{
-		Name:   "server2",
-		Status: "stopped",
+	manager, err := NewManager(cfg, &container.NullRuntime{})
+	if err != nil {
+		t.Fatalf("Expected no error creating manager, got: %v", err)
 	}
 
-	instances := manager.ListInstances()
-	if len(instances) != 2 {
-		t.Errorf("Expected 2 instances, got %d", len(instances))
+	// Test getting status of non-existent server
+	status, err := manager.GetServerStatus("non-existent")
+	if err == nil {
+		t.Error("Expected error for non-existent server")
 	}
 
-	// Check that both instances are present
-	found := make(map[string]bool)
-	for _, instance := range instances {
-		found[instance.Name] = true
+	// Test getting status of existing server config
+	status, err = manager.GetServerStatus("test-server")
+	if err != nil {
+		t.Errorf("Expected no error getting server status, got: %v", err)
 	}
-
-	if !found["server1"] || !found["server2"] {
-		t.Error("Expected both server1 and server2 to be in the list")
+	if status == "" {
+		t.Error("Expected non-empty status")
 	}
 }
 
@@ -208,7 +198,7 @@ func TestManagerValidateServerConfig(t *testing.T) {
 
 func TestManagerShutdown(t *testing.T) {
 	cfg := &config.ComposeConfig{
-		Version: "1.0",
+		Version: "1",
 		Servers: map[string]config.ServerConfig{
 			"test-server": {
 				Protocol: "stdio",
@@ -217,14 +207,13 @@ func TestManagerShutdown(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(cfg, &container.NullRuntime{})
-
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	manager, err := NewManager(cfg, &container.NullRuntime{})
+	if err != nil {
+		t.Fatalf("Expected no error creating manager, got: %v", err)
+	}
 
 	// Test shutdown
-	err := manager.Shutdown(ctx)
+	err = manager.Shutdown()
 	if err != nil {
 		t.Errorf("Expected no error during shutdown, got: %v", err)
 	}
@@ -251,7 +240,7 @@ func TestServerInstanceHealthCheck(t *testing.T) {
 
 func TestManagerConcurrentAccess(t *testing.T) {
 	cfg := &config.ComposeConfig{
-		Version: "1.0",
+		Version: "1",
 		Servers: map[string]config.ServerConfig{
 			"test-server": {
 				Protocol: "stdio",
@@ -260,7 +249,10 @@ func TestManagerConcurrentAccess(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(cfg, &container.NullRuntime{})
+	manager, err := NewManager(cfg, &container.NullRuntime{})
+	if err != nil {
+		t.Fatalf("Expected no error creating manager, got: %v", err)
+	}
 
 	// Test concurrent access to instances
 	done := make(chan bool, 2)
@@ -271,14 +263,14 @@ func TestManagerConcurrentAccess(t *testing.T) {
 				Name:   "test-server",
 				Status: "running",
 			}
-			manager.instances["test-server"] = instance
+			manager.servers["test-server"] = instance
 		}
 		done <- true
 	}()
 
 	go func() {
 		for i := 0; i < 100; i++ {
-			_, _ = manager.GetInstance("test-server")
+			_, _ = manager.GetServerInstance("test-server")
 		}
 		done <- true
 	}()
@@ -288,7 +280,7 @@ func TestManagerConcurrentAccess(t *testing.T) {
 	<-done
 
 	// Verify final state
-	instance, exists := manager.GetInstance("test-server")
+	instance, exists := manager.GetServerInstance("test-server")
 	if !exists {
 		t.Error("Expected instance to exist after concurrent access")
 	}

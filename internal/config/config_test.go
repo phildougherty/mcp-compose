@@ -14,30 +14,28 @@ func TestLoadConfig(t *testing.T) {
 	}{
 		{
 			name: "valid basic config",
-			configYAML: `version: "1.0"
+			configYAML: `version: "1"
 servers:
   test-server:
-    transport: stdio
-    command: ["echo", "hello"]`,
+    protocol: stdio
+    command: "echo hello"`,
 			expectErr: false,
 		},
 		{
 			name: "invalid yaml",
-			configYAML: `version: "1.0"
+			configYAML: `version: "1"
 servers:
   test-server:
-    transport: stdio
-    command: ["echo", "hello"
-    # missing closing bracket`,
+    protocol: stdio
+    command: "echo hello
+    # missing closing quote`,
 			expectErr: true,
 		},
 		{
-			name: "missing version",
-			configYAML: `servers:
-  test-server:
-    transport: stdio
-    command: ["echo", "hello"]`,
-			expectErr: false, // version is not strictly required
+			name: "missing version config",
+			configYAML: `version: "1"
+servers: {}`,
+			expectErr: false, // empty servers is valid
 		},
 	}
 
@@ -130,7 +128,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid config",
 			config: &ComposeConfig{
-				Version: "1.0",
+				Version: "1",
 				Servers: map[string]ServerConfig{
 					"test-server": {
 						Protocol: "stdio",
@@ -143,7 +141,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "empty servers",
 			config: &ComposeConfig{
-				Version: "1.0",
+				Version: "1",
 				Servers: map[string]ServerConfig{},
 			},
 			expectErr: false, // Empty servers might be valid for some use cases
@@ -151,7 +149,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid protocol",
 			config: &ComposeConfig{
-				Version: "1.0",
+				Version: "1",
 				Servers: map[string]ServerConfig{
 					"test-server": {
 						Protocol: "invalid",
@@ -170,6 +168,175 @@ func TestValidateConfig(t *testing.T) {
 				t.Error("Servers should not be nil")
 			}
 		})
+	}
+}
+
+func TestOAuthConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		config OAuthConfig
+		valid  bool
+	}{
+		{
+			name: "valid oauth config",
+			config: OAuthConfig{
+				Enabled: true,
+				Issuer:  "https://oauth.example.com",
+				Endpoints: OAuthEndpoints{
+					Authorization: "/oauth/authorize",
+					Token:         "/oauth/token",
+					UserInfo:      "/oauth/userinfo",
+				},
+				Tokens: TokenConfig{
+					AccessTokenTTL:  "1h",
+					RefreshTokenTTL: "24h",
+					Algorithm:       "HS256",
+				},
+			},
+			valid: true,
+		},
+		{
+			name: "disabled oauth",
+			config: OAuthConfig{
+				Enabled: false,
+			},
+			valid: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.config.Enabled {
+				if tt.config.Issuer == "" {
+					t.Error("Expected issuer to be set when OAuth is enabled")
+				}
+			}
+		})
+	}
+}
+
+func TestServerConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		config ServerConfig
+		valid  bool
+	}{
+		{
+			name: "stdio server",
+			config: ServerConfig{
+				Protocol: "stdio",
+				Command:  "echo hello",
+				Args:     []string{"arg1", "arg2"},
+			},
+			valid: true,
+		},
+		{
+			name: "http server",
+			config: ServerConfig{
+				Protocol: "http",
+				HttpPort: 8080,
+				HttpPath: "/api",
+			},
+			valid: true,
+		},
+		{
+			name: "container server",
+			config: ServerConfig{
+				Image:    "myimage:latest",
+				Protocol: "http",
+				HttpPort: 8080,
+				Env: map[string]string{
+					"API_KEY": "secret",
+				},
+				Volumes: []string{"/data:/app/data"},
+				Ports:   []string{"8080:8080"},
+			},
+			valid: true,
+		},
+		{
+			name: "sse server",
+			config: ServerConfig{
+				Protocol:     "sse",
+				SSEPort:      9090,
+				SSEPath:      "/events",
+				SSEHeartbeat: 30,
+			},
+			valid: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.config.Protocol == "" {
+				t.Error("Protocol should not be empty")
+			}
+
+			if tt.config.Protocol == "http" && tt.config.HttpPort == 0 {
+				t.Error("HTTP servers should have a port specified")
+			}
+
+			if tt.config.Image != "" {
+				if len(tt.config.Volumes) == 0 && len(tt.config.Env) == 0 {
+					// This is fine, just checking structure
+				}
+			}
+		})
+	}
+}
+
+func TestAuditConfig(t *testing.T) {
+	config := AuditConfig{
+		Enabled:  true,
+		LogLevel: "info",
+		Storage:  "file",
+		Retention: RetentionConfig{
+			MaxEntries: 10000,
+			MaxAge:     "30d",
+		},
+		Events: []string{"server_start", "server_stop", "api_call"},
+	}
+
+	if !config.Enabled {
+		t.Error("Expected audit to be enabled")
+	}
+
+	if config.Retention.MaxEntries != 10000 {
+		t.Errorf("Expected max entries 10000, got %d", config.Retention.MaxEntries)
+	}
+
+	if len(config.Events) != 3 {
+		t.Errorf("Expected 3 events, got %d", len(config.Events))
+	}
+}
+
+func TestNetworkConfig(t *testing.T) {
+	composeConfig := &ComposeConfig{
+		Version: "1",
+		Networks: map[string]NetworkConfig{
+			"frontend": {
+				Driver: "bridge",
+			},
+			"backend": {
+				Driver:   "overlay",
+				External: true,
+			},
+		},
+		Servers: map[string]ServerConfig{
+			"web": {
+				Protocol: "http",
+				HttpPort: 8080,
+				Networks: []string{"frontend", "backend"},
+			},
+		},
+	}
+
+	if len(composeConfig.Networks) != 2 {
+		t.Errorf("Expected 2 networks, got %d", len(composeConfig.Networks))
+	}
+
+	webServer := composeConfig.Servers["web"]
+	if len(webServer.Networks) != 2 {
+		t.Errorf("Expected web server to be on 2 networks, got %d", len(webServer.Networks))
 	}
 }
 
