@@ -333,7 +333,7 @@ func (d *DashboardServer) Start(port int, host string) error {
 	readTimeout := 15 * time.Second
 	writeTimeout := 15 * time.Second
 	idleTimeout := 60 * time.Second
-	
+
 	if len(d.config.Connections) > 0 {
 		for _, conn := range d.config.Connections {
 			readTimeout = conn.Timeouts.GetReadTimeout()

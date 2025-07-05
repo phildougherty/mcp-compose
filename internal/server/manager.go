@@ -924,7 +924,7 @@ func (w *ResourcesWatcher) Stop() {
 		}
 	}
 	w.mu.Unlock() // Unlock before logging
-	
+
 	// Wait for cleanup to complete with timeout
 	done := make(chan struct{})
 	go func() {
@@ -932,7 +932,7 @@ func (w *ResourcesWatcher) Stop() {
 		time.Sleep(100 * time.Millisecond)
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		w.logger.Info("Resource watcher stopped successfully")

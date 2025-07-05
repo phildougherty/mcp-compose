@@ -17,14 +17,14 @@ import (
 // Test OAuth 2.1 Authorization Server Implementation
 func TestOAuthAuthorizationServer(t *testing.T) {
 	logger := logging.NewLogger("debug")
-	
+
 	serverConfig := &AuthorizationServerConfig{
-		Issuer:            "https://auth.mcp-compose.local",
-		TokenEndpoint:     "/oauth/token",
+		Issuer:                "https://auth.mcp-compose.local",
+		TokenEndpoint:         "/oauth/token",
 		AuthorizationEndpoint: "/oauth/authorize",
-		UserinfoEndpoint:  "/oauth/userinfo",
-		RevocationEndpoint: "/oauth/revoke",
-		JWKSUri:           "/.well-known/jwks.json",
+		UserinfoEndpoint:      "/oauth/userinfo",
+		RevocationEndpoint:    "/oauth/revoke",
+		JWKSUri:               "/.well-known/jwks.json",
 	}
 
 	authServer := NewAuthorizationServer(serverConfig, logger)
@@ -134,11 +134,11 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 
 	// Register a client
 	clientConfig := &OAuthConfig{
-		ClientID:          "auth-code-client",
-		ClientSecret:      "secret",
-		RedirectURIs:      []string{"http://localhost:3000/callback"},
-		GrantTypes:        []string{"authorization_code"},
-		ResponseTypes:     []string{"code"},
+		ClientID:            "auth-code-client",
+		ClientSecret:        "secret",
+		RedirectURIs:        []string{"http://localhost:3000/callback"},
+		GrantTypes:          []string{"authorization_code"},
+		ResponseTypes:       []string{"code"},
 		CodeChallengeMethod: "S256",
 	}
 
@@ -150,7 +150,7 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 	t.Run("authorization_code_validation", func(t *testing.T) {
 		// Test access token validation
 		testToken := "test-access-token"
-		
+
 		// Create a test access token
 		accessToken := &AccessToken{
 			Token:     testToken,
@@ -185,7 +185,7 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 	t.Run("expired_token_validation", func(t *testing.T) {
 		// Test expired token
 		expiredToken := "expired-token"
-		
+
 		accessToken := &AccessToken{
 			Token:     expiredToken,
 			Type:      "Bearer",
@@ -218,7 +218,7 @@ func TestJWTTokenGeneration(t *testing.T) {
 	t.Run("token_generation", func(t *testing.T) {
 		// Test token generation through the generator
 		generator := &DefaultTokenGenerator{}
-		
+
 		accessToken, err := generator.GenerateAccessToken()
 		if err != nil {
 			t.Fatalf("Failed to generate access token: %v", err)
@@ -244,7 +244,7 @@ func TestJWTTokenGeneration(t *testing.T) {
 
 	t.Run("pkce_code_challenge", func(t *testing.T) {
 		verifier := &DefaultCodeVerifier{}
-		
+
 		codeVerifier, err := verifier.GenerateCodeVerifier()
 		if err != nil {
 			t.Fatalf("Failed to generate code verifier: %v", err)
@@ -386,6 +386,17 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		middleware := NewAuthenticationMiddleware(authServer)
 		middleware.SetAPIKey("test-api-key")
 
+		// Register a test client
+		clientConfig := &OAuthConfig{
+			ClientID:     "test-client",
+			ClientSecret: "test-secret",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+		}
+		_, err := authServer.RegisterClient(clientConfig)
+		if err != nil {
+			t.Fatalf("Failed to register client: %v", err)
+		}
+
 		// Create a test access token
 		testToken := "oauth-test-token"
 		accessToken := &AccessToken{
@@ -475,12 +486,23 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	t.Run("scope_validation", func(t *testing.T) {
 		middleware := NewAuthenticationMiddleware(authServer)
 
+		// Register a test client
+		clientConfig := &OAuthConfig{
+			ClientID:     "test-client-scope",
+			ClientSecret: "test-secret",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+		}
+		_, err := authServer.RegisterClient(clientConfig)
+		if err != nil {
+			t.Fatalf("Failed to register client: %v", err)
+		}
+
 		// Create token with specific scope
 		testToken := "scoped-token"
 		accessToken := &AccessToken{
 			Token:     testToken,
 			Type:      "Bearer",
-			ClientID:  "test-client",
+			ClientID:  "test-client-scope",
 			UserID:    "test-user",
 			Scope:     "read write",
 			ExpiresAt: time.Now().Add(time.Hour),
@@ -500,7 +522,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 		// Test with required scope that exists
 		w := httptest.NewRecorder()
-		handler := middleware.RequireScope("read")(middleware.RequireAuthentication(testHandler))
+		handler := middleware.RequireAuthentication(middleware.RequireScope("read")(testHandler))
 		handler.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -509,7 +531,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 		// Test with required scope that doesn't exist
 		w = httptest.NewRecorder()
-		handler = middleware.RequireScope("admin")(middleware.RequireAuthentication(testHandler))
+		handler = middleware.RequireAuthentication(middleware.RequireScope("admin")(testHandler))
 		handler.ServeHTTP(w, req)
 
 		if w.Code != http.StatusForbidden {

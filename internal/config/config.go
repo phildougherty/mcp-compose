@@ -287,27 +287,27 @@ type VolumeConfig struct {
 
 // ConnectionConfig represents connection settings for MCP communication
 type ConnectionConfig struct {
-	Transport      string         `yaml:"transport"` // stdio, http+sse, tcp, websocket
-	Port           int            `yaml:"port,omitempty"`
-	Host           string         `yaml:"host,omitempty"`
-	Path           string         `yaml:"path,omitempty"`
-	Expose         bool           `yaml:"expose,omitempty"`
-	TLS            bool           `yaml:"tls,omitempty"`
-	CertFile       string         `yaml:"cert_file,omitempty"`
-	KeyFile        string         `yaml:"key_file,omitempty"`
-	Authentication string         `yaml:"auth,omitempty"` // none, basic, token
-	Timeouts       TimeoutConfig  `yaml:"timeouts,omitempty"`
+	Transport      string        `yaml:"transport"` // stdio, http+sse, tcp, websocket
+	Port           int           `yaml:"port,omitempty"`
+	Host           string        `yaml:"host,omitempty"`
+	Path           string        `yaml:"path,omitempty"`
+	Expose         bool          `yaml:"expose,omitempty"`
+	TLS            bool          `yaml:"tls,omitempty"`
+	CertFile       string        `yaml:"cert_file,omitempty"`
+	KeyFile        string        `yaml:"key_file,omitempty"`
+	Authentication string        `yaml:"auth,omitempty"` // none, basic, token
+	Timeouts       TimeoutConfig `yaml:"timeouts,omitempty"`
 }
 
 // TimeoutConfig defines configurable timeout values
 type TimeoutConfig struct {
-	Connect        string `yaml:"connect,omitempty"`         // Default: "10s"
-	Read           string `yaml:"read,omitempty"`            // Default: "30s"
-	Write          string `yaml:"write,omitempty"`           // Default: "30s"
-	Idle           string `yaml:"idle,omitempty"`            // Default: "60s"
-	HealthCheck    string `yaml:"health_check,omitempty"`    // Default: "5s"
-	Shutdown       string `yaml:"shutdown,omitempty"`        // Default: "30s"
-	LifecycleHook  string `yaml:"lifecycle_hook,omitempty"`  // Default: "30s"
+	Connect       string `yaml:"connect,omitempty"`        // Default: "10s"
+	Read          string `yaml:"read,omitempty"`           // Default: "30s"
+	Write         string `yaml:"write,omitempty"`          // Default: "30s"
+	Idle          string `yaml:"idle,omitempty"`           // Default: "60s"
+	HealthCheck   string `yaml:"health_check,omitempty"`   // Default: "5s"
+	Shutdown      string `yaml:"shutdown,omitempty"`       // Default: "30s"
+	LifecycleHook string `yaml:"lifecycle_hook,omitempty"` // Default: "30s"
 }
 
 // ResourcesConfig defines resource-related configuration for a server

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -347,6 +348,17 @@ func (s *AuthorizationServer) RegisterClient(config *OAuthConfig) (*OAuthClient,
 		return nil, fmt.Errorf("client with ID %s already exists", clientID)
 	}
 
+	// Validate redirect URIs
+	for _, uri := range config.RedirectURIs {
+		if uri == "" {
+			return nil, fmt.Errorf("redirect URI cannot be empty")
+		}
+		parsed, err := url.Parse(uri)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return nil, fmt.Errorf("invalid redirect URI: %s", uri)
+		}
+	}
+
 	// Determine if this is a public client (no secret)
 	isPublic := config.ClientSecret == "" &&
 		(config.TokenEndpointAuth == "none" || config.TokenEndpointAuth == "")
@@ -438,7 +450,7 @@ func (s *AuthorizationServer) ValidateAccessToken(token string) (*AccessToken, e
 	}
 
 	// Check expiration
-	if time.Now().After(accessToken.ExpiresAt) {
+	if accessToken.ExpiresAt.IsZero() || time.Now().After(accessToken.ExpiresAt) {
 		// Remove expired token in a goroutine to avoid blocking
 		go func() {
 			s.mu.Lock()

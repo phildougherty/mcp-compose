@@ -331,7 +331,7 @@ func (m *AuthenticationMiddleware) validateOAuthToken(token string) (*AccessToke
 	}
 
 	// Check expiration
-	if time.Now().After(accessToken.ExpiresAt) {
+	if accessToken.ExpiresAt.IsZero() || time.Now().After(accessToken.ExpiresAt) {
 		// Remove expired token
 		go func() {
 			m.server.mu.Lock()

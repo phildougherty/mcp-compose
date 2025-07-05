@@ -39,7 +39,7 @@ func TestNewManager(t *testing.T) {
 
 func TestServerInstance(t *testing.T) {
 	instance := &ServerInstance{
-		Name:   "test-server",
+		Name: "test-server",
 		Config: config.ServerConfig{
 			Protocol: "stdio",
 			Command:  "echo hello",
@@ -263,7 +263,9 @@ func TestManagerConcurrentAccess(t *testing.T) {
 				Name:   "test-server",
 				Status: "running",
 			}
+			manager.mu.Lock()
 			manager.servers["test-server"] = instance
+			manager.mu.Unlock()
 		}
 		done <- true
 	}()

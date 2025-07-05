@@ -194,7 +194,7 @@ func (al *AuditLogger) matchesFilter(entry AuditEntry, filter AuditFilter) bool 
 
 func (al *AuditLogger) cleanupOldEntries() {
 	defer al.wg.Done()
-	
+
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
@@ -228,14 +228,14 @@ func (al *AuditLogger) Shutdown() error {
 	if al.stopCh != nil {
 		close(al.stopCh)
 	}
-	
+
 	// Wait for cleanup goroutine to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		al.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		al.logger.Debug("Audit logger shutdown completed")

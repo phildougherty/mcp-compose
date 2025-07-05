@@ -21,7 +21,7 @@ func TestMemoryTokenStore(t *testing.T) {
 			ExpiresAt: time.Now().Add(time.Hour),
 			CreatedAt: time.Now(),
 		}
-		
+
 		err := store.StoreAccessToken(token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
@@ -47,7 +47,7 @@ func TestMemoryTokenStore(t *testing.T) {
 			ExpiresAt: time.Now().Add(-time.Hour), // Already expired
 			CreatedAt: time.Now().Add(-2 * time.Hour),
 		}
-		
+
 		// Store expired token
 		err := store.StoreAccessToken(token)
 		if err != nil {
@@ -77,7 +77,7 @@ func TestMemoryTokenStore(t *testing.T) {
 			ExpiresAt: time.Now().Add(time.Hour),
 			CreatedAt: time.Now(),
 		}
-		
+
 		err := store.StoreAccessToken(token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
@@ -100,15 +100,15 @@ func TestTokenStoreStats(t *testing.T) {
 
 	t.Run("empty_store_stats", func(t *testing.T) {
 		activeAccess, activeRefresh, activeCodes := store.GetStats()
-		
+
 		if activeAccess != 0 {
 			t.Errorf("Expected 0 active access tokens, got %d", activeAccess)
 		}
-		
+
 		if activeRefresh != 0 {
 			t.Errorf("Expected 0 active refresh tokens, got %d", activeRefresh)
 		}
-		
+
 		if activeCodes != 0 {
 			t.Errorf("Expected 0 active codes, got %d", activeCodes)
 		}
@@ -124,9 +124,9 @@ func TestTokenStoreStats(t *testing.T) {
 			ExpiresAt: time.Now().Add(time.Hour),
 			CreatedAt: time.Now(),
 		}
-		
+
 		store.StoreAccessToken(token)
-		
+
 		activeAccess, _, _ := store.GetStats()
 		if activeAccess != 1 {
 			t.Errorf("Expected 1 active access token, got %d", activeAccess)
@@ -199,7 +199,7 @@ func TestProtectedResourceMetadata(t *testing.T) {
 
 func TestConcurrentTokenOperations(t *testing.T) {
 	store := NewMemoryTokenStore()
-	
+
 	// Test concurrent token storage and retrieval
 	done := make(chan bool, 10)
 
