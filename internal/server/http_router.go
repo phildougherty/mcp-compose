@@ -528,7 +528,7 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 
 	// Forward client's Mcp-Session-Id to the backend if present
 	clientSessionID := r.Header.Get("Mcp-Session-Id")
-	
+
 	// Handle session ID based on connection type
 	if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
 		enhancedConn.mu.Lock()

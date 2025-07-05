@@ -28,30 +28,30 @@ type EnhancedMCPSSEConnection struct {
 	Capabilities    map[string]interface{}
 	ServerInfo      map[string]interface{}
 	SessionID       string
-	
+
 	// Enhanced connection management
-	sseResponse     *http.Response
-	sseBody         io.ReadCloser
-	sseCancel       context.CancelFunc
-	sseReader       *bufio.Scanner
-	
+	sseResponse *http.Response
+	sseBody     io.ReadCloser
+	sseCancel   context.CancelFunc
+	sseReader   *bufio.Scanner
+
 	// PERFORMANCE: Use string-keyed map for direct lookups, no type conversion needed
 	pendingRequests map[string]chan map[string]interface{}
 	reqMutex        sync.RWMutex
-	
+
 	// Stream management
-	streamChan      chan map[string]interface{}
-	streamMutex     sync.RWMutex
-	streamActive    bool
-	
+	streamChan   chan map[string]interface{}
+	streamMutex  sync.RWMutex
+	streamActive bool
+
 	// Connection state
-	mu              sync.RWMutex
-	nextRequestID   int64
-	
+	mu            sync.RWMutex
+	nextRequestID int64
+
 	// Metrics
-	requestCount    int64
-	responseCount   int64
-	errorCount      int64
+	requestCount  int64
+	responseCount int64
+	errorCount    int64
 }
 
 // getNextRequestID generates a unique string ID for requests
@@ -328,16 +328,16 @@ func (h *ProxyHandler) processEnhancedSSEMessage(conn *EnhancedMCPSSEConnection,
 	if responseIDInterface := response["id"]; responseIDInterface != nil {
 		// Convert response ID to string for consistent lookup
 		responseID := fmt.Sprintf("%v", responseIDInterface)
-		
+
 		conn.reqMutex.RLock()
 		responseChan, exists := conn.pendingRequests[responseID]
 		conn.reqMutex.RUnlock()
-		
+
 		if exists {
 			conn.reqMutex.Lock()
 			delete(conn.pendingRequests, responseID)
 			conn.reqMutex.Unlock()
-			
+
 			// Send response to waiting goroutine
 			select {
 			case responseChan <- response:
@@ -386,7 +386,7 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 	if requestID != "" {
 		// Create response channel
 		respCh := make(chan map[string]interface{}, 1)
-		
+
 		// PERFORMANCE: Direct string-keyed map insertion, no type conversion
 		conn.reqMutex.Lock()
 		conn.pendingRequests[requestID] = respCh
@@ -576,13 +576,13 @@ func (conn *EnhancedMCPSSEConnection) GetConnectionStats() map[string]interface{
 	conn.reqMutex.RUnlock()
 
 	return map[string]interface{}{
-		"server_name":     conn.ServerName,
-		"healthy":         conn.Healthy,
-		"initialized":     conn.Initialized,
-		"last_used":       conn.LastUsed,
-		"request_count":   conn.requestCount,
-		"response_count":  conn.responseCount,
-		"error_count":     conn.errorCount,
+		"server_name":      conn.ServerName,
+		"healthy":          conn.Healthy,
+		"initialized":      conn.Initialized,
+		"last_used":        conn.LastUsed,
+		"request_count":    conn.requestCount,
+		"response_count":   conn.responseCount,
+		"error_count":      conn.errorCount,
 		"pending_requests": pendingCount,
 	}
 }

@@ -236,7 +236,7 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	readTimeout := 5 * time.Minute  // Default for large file operations
 	writeTimeout := 5 * time.Minute // Default for long-running tools
 	idleTimeout := 2 * time.Minute  // Default for connection keepalive
-	
+
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
 			readTimeout = conn.Timeouts.GetReadTimeout()
@@ -294,7 +294,7 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 			break
 		}
 	}
-	
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 

@@ -16,18 +16,18 @@ type ConnectionManager struct {
 
 // ConnectionMetrics tracks detailed connection performance
 type ConnectionMetrics struct {
-	ServerName           string
-	ConnectionType       string
-	TotalRequests        int64
-	SuccessfulRequests   int64
-	FailedRequests       int64
-	AverageResponseTime  time.Duration
-	LastResponseTime     time.Duration
-	ConnectionUptime     time.Duration
-	CreatedAt            time.Time
-	LastUsed             time.Time
-	ErrorRate            float64
-	mu                   sync.RWMutex
+	ServerName          string
+	ConnectionType      string
+	TotalRequests       int64
+	SuccessfulRequests  int64
+	FailedRequests      int64
+	AverageResponseTime time.Duration
+	LastResponseTime    time.Duration
+	ConnectionUptime    time.Duration
+	CreatedAt           time.Time
+	LastUsed            time.Time
+	ErrorRate           float64
+	mu                  sync.RWMutex
 }
 
 // HealthCheckResult represents the result of a connection health check
@@ -79,8 +79,8 @@ func (cm *ConnectionManager) RecordRequest(serverName string, success bool, resp
 	// Update average response time (simple moving average)
 	if connMetrics.TotalRequests > 1 {
 		connMetrics.AverageResponseTime = time.Duration(
-			(int64(connMetrics.AverageResponseTime)*((connMetrics.TotalRequests-1)) + int64(responseTime)) / 
-			connMetrics.TotalRequests,
+			(int64(connMetrics.AverageResponseTime)*(connMetrics.TotalRequests-1) + int64(responseTime)) /
+				connMetrics.TotalRequests,
 		)
 	} else {
 		connMetrics.AverageResponseTime = responseTime
@@ -103,7 +103,7 @@ func (cm *ConnectionManager) GetConnectionStats(serverName string) *ConnectionMe
 	if metrics, exists := cm.metrics[serverName]; exists {
 		metrics.mu.RLock()
 		defer metrics.mu.RUnlock()
-		
+
 		// Return a copy to avoid race conditions
 		return &ConnectionMetrics{
 			ServerName:          metrics.ServerName,
@@ -137,7 +137,7 @@ func (cm *ConnectionManager) GetAllConnectionStats() map[string]*ConnectionMetri
 // HealthCheck performs a health check on a specific connection
 func (cm *ConnectionManager) HealthCheck(serverName string) HealthCheckResult {
 	start := time.Now()
-	
+
 	// Create a simple ping request to test the connection
 	pingRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -190,7 +190,7 @@ func (cm *ConnectionManager) PerformHealthChecks() {
 // CleanupStaleConnections removes connections that haven't been used recently
 func (cm *ConnectionManager) CleanupStaleConnections(maxIdleTime time.Duration) int {
 	cleanedCount := 0
-	
+
 	cm.handler.EnhancedSSEMutex.Lock()
 	defer cm.handler.EnhancedSSEMutex.Unlock()
 
@@ -204,17 +204,17 @@ func (cm *ConnectionManager) CleanupStaleConnections(maxIdleTime time.Duration) 
 		conn.mu.RUnlock()
 
 		if timeSinceLastUsed > maxIdleTime {
-			cm.handler.logger.Info("Cleaning up stale enhanced SSE connection to %s (idle for %v)", 
+			cm.handler.logger.Info("Cleaning up stale enhanced SSE connection to %s (idle for %v)",
 				serverName, timeSinceLastUsed)
-			
+
 			cm.handler.closeEnhancedSSEConnection(conn)
 			delete(cm.handler.EnhancedSSEConnections, serverName)
-			
+
 			// Remove from metrics as well
 			cm.mu.Lock()
 			delete(cm.metrics, serverName)
 			cm.mu.Unlock()
-			
+
 			cleanedCount++
 		}
 	}
@@ -225,7 +225,7 @@ func (cm *ConnectionManager) CleanupStaleConnections(maxIdleTime time.Duration) 
 // GetHealthCheckResults returns recent health check results
 func (cm *ConnectionManager) GetHealthCheckResults(maxResults int) []HealthCheckResult {
 	results := make([]HealthCheckResult, 0, maxResults)
-	
+
 	// Drain the channel up to maxResults
 	for i := 0; i < maxResults; i++ {
 		select {
@@ -235,54 +235,54 @@ func (cm *ConnectionManager) GetHealthCheckResults(maxResults int) []HealthCheck
 			break
 		}
 	}
-	
+
 	return results
 }
 
 // GetConnectionSummary returns a summary of all connection statuses
 func (cm *ConnectionManager) GetConnectionSummary() map[string]interface{} {
 	allStats := cm.GetAllConnectionStats()
-	
+
 	summary := map[string]interface{}{
 		"total_connections": len(allStats),
 		"connections":       make(map[string]interface{}),
 		"overall_stats": map[string]interface{}{
-			"total_requests":   int64(0),
-			"total_errors":     int64(0),
-			"average_uptime":   time.Duration(0),
+			"total_requests":     int64(0),
+			"total_errors":       int64(0),
+			"average_uptime":     time.Duration(0),
 			"average_error_rate": 0.0,
 		},
 	}
-	
+
 	var totalRequests, totalErrors int64
 	var totalUptime time.Duration
 	var totalErrorRate float64
-	
+
 	for serverName, stats := range allStats {
 		summary["connections"].(map[string]interface{})[serverName] = map[string]interface{}{
-			"total_requests":       stats.TotalRequests,
-			"successful_requests":  stats.SuccessfulRequests,
-			"failed_requests":      stats.FailedRequests,
-			"error_rate":          stats.ErrorRate,
+			"total_requests":        stats.TotalRequests,
+			"successful_requests":   stats.SuccessfulRequests,
+			"failed_requests":       stats.FailedRequests,
+			"error_rate":            stats.ErrorRate,
 			"average_response_time": stats.AverageResponseTime.String(),
-			"last_response_time":   stats.LastResponseTime.String(),
-			"connection_uptime":    stats.ConnectionUptime.String(),
-			"last_used":           stats.LastUsed.Format(time.RFC3339),
+			"last_response_time":    stats.LastResponseTime.String(),
+			"connection_uptime":     stats.ConnectionUptime.String(),
+			"last_used":             stats.LastUsed.Format(time.RFC3339),
 		}
-		
+
 		totalRequests += stats.TotalRequests
 		totalErrors += stats.FailedRequests
 		totalUptime += stats.ConnectionUptime
 		totalErrorRate += stats.ErrorRate
 	}
-	
+
 	if len(allStats) > 0 {
 		summary["overall_stats"].(map[string]interface{})["total_requests"] = totalRequests
 		summary["overall_stats"].(map[string]interface{})["total_errors"] = totalErrors
 		summary["overall_stats"].(map[string]interface{})["average_uptime"] = (totalUptime / time.Duration(len(allStats))).String()
 		summary["overall_stats"].(map[string]interface{})["average_error_rate"] = totalErrorRate / float64(len(allStats))
 	}
-	
+
 	return summary
 }
 
@@ -291,19 +291,19 @@ func (cm *ConnectionManager) StartMonitoring(interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
 				// Perform health checks
 				cm.PerformHealthChecks()
-				
+
 				// Clean up stale connections (15 minute idle time)
 				cleanedCount := cm.CleanupStaleConnections(15 * time.Minute)
 				if cleanedCount > 0 {
 					cm.handler.logger.Info("Cleaned up %d stale enhanced SSE connections", cleanedCount)
 				}
-				
+
 			case <-cm.handler.ctx.Done():
 				return
 			}

@@ -58,6 +58,7 @@ auth.json
 build/
 dist/
 bin/
+mcp-compose
 
 # Custom development files
 custom_mcp/

@@ -1,0 +1,35 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 5%
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+
+ignore:
+  - "cmd/**/*"
+  - "custom_mcp/**/*"
+  - "internal/dashboard/templates/**/*"
+  - "**/*_test.go"
+  - "pkg/**/*"
+  - "scripts/**/*"
+  - "client-config/**/*"
+  - "client-configs/**/*"
+  - "docs/**/*"
+  - "prompts/**/*"
+  - "data/**/*"
+  - "bin/**/*"
+  - "build/**/*"
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+github_checks:
+  annotations: true

@@ -125,11 +125,11 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	}
 
 	handler := &ProxyHandler{
-		Manager:           mgr,
-		ConfigFile:        configFile,
-		APIKey:            apiKey,
-		EnableAPI:         true,
-		ProxyStarted:      time.Now(),
+		Manager:                mgr,
+		ConfigFile:             configFile,
+		APIKey:                 apiKey,
+		EnableAPI:              true,
+		ProxyStarted:           time.Now(),
 		ServerConnections:      make(map[string]*MCPHTTPConnection),
 		SSEConnections:         make(map[string]*MCPSSEConnection),
 		EnhancedSSEConnections: make(map[string]*EnhancedMCPSSEConnection),
@@ -437,7 +437,7 @@ func (h *ProxyHandler) getOptimalSSEConnection(serverName string) (interface{}, 
 // sendOptimalSSERequest sends a request using the optimal SSE connection
 func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[string]interface{}) (map[string]interface{}, error) {
 	start := time.Now()
-	
+
 	conn, err := h.getOptimalSSEConnection(serverName)
 	if err != nil {
 		// Record failed connection attempt
