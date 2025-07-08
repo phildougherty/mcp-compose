@@ -136,7 +136,9 @@ func (s *AuthorizationServer) showAutoApprovalPage(w http.ResponseWriter, _ *htt
 	)
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		s.logger.Error("Failed to write authorization form: %v", err)
+	}
 }
 
 func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
@@ -767,7 +769,9 @@ func (s *AuthorizationServer) sendTokenError(w http.ResponseWriter, errorCode, d
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (s *AuthorizationServer) redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, errorCode, description, state string) {
@@ -968,7 +972,9 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Return empty JSON object as per RFC 7009
-	w.Write([]byte("{}"))
+	if _, err := w.Write([]byte("{}")); err != nil {
+		s.logger.Error("Failed to write revocation response: %v", err)
+	}
 }
 
 // Helper method to extract bearer token for userinfo
@@ -997,7 +1003,9 @@ func (s *AuthorizationServer) sendUserInfoError(w http.ResponseWriter, errorCode
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 // Helper method to send revoke errors
@@ -1022,5 +1030,7 @@ func (s *AuthorizationServer) sendRevokeError(w http.ResponseWriter, errorCode, 
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }

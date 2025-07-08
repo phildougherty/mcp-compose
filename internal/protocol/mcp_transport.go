@@ -95,7 +95,11 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 		h.healthy = false
 		return NewTransportError("http", fmt.Sprintf("request failed: %v", err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
+	}()
 
 	// Update session ID if provided
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -130,7 +134,12 @@ func (h *HTTPTransport) Close() error {
 		req, err := http.NewRequest("DELETE", h.baseURL, nil)
 		if err == nil {
 			req.Header.Set("Mcp-Session-Id", h.sessionID)
-			h.client.Do(req) // Ignore errors on cleanup
+			if resp, err := h.client.Do(req); err == nil && resp != nil {
+				// Close response body to prevent resource leaks
+				if err := resp.Body.Close(); err != nil {
+					fmt.Printf("Warning: failed to close cleanup response body: %v\n", err)
+				}
+			}
 		}
 		h.sessionID = ""
 	}
@@ -239,7 +248,11 @@ func (s *SSETransport) Send(msg MCPMessage) error {
 		s.healthy = false
 		return NewTransportError("sse", fmt.Sprintf("request failed: %v", err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
+	}()
 
 	// Update session ID if provided
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -315,7 +328,9 @@ func (s *SSETransport) Close() error {
 	}
 
 	if s.sseResponse != nil {
-		s.sseResponse.Body.Close()
+		if err := s.sseResponse.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close SSE response body: %v\n", err)
+		}
 		s.sseResponse = nil
 	}
 
@@ -364,7 +379,9 @@ func (s *SSETransport) Initialize() error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
 		s.healthy = false
 		return NewTransportError("sse", fmt.Sprintf("SSE bad status: %d", resp.StatusCode))
 	}

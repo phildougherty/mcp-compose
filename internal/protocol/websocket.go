@@ -217,7 +217,16 @@ func (wst *WebSocketTransport) SendProgress(notification *ProgressNotification) 
 
 // readLoop reads messages from the WebSocket connection
 func (wst *WebSocketTransport) readLoop() {
-	defer wst.Close()
+	defer func() {
+		if err := wst.Close(); err != nil {
+			// Log the error but don't prevent cleanup
+			select {
+			case wst.errorChan <- fmt.Errorf("failed to close websocket: %w", err):
+			default:
+				// Channel might be closed, ignore
+			}
+		}
+	}()
 	for {
 		select {
 		case <-wst.ctx.Done():
@@ -225,7 +234,10 @@ func (wst *WebSocketTransport) readLoop() {
 		default:
 		}
 
-		wst.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := wst.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			wst.errorChan <- fmt.Errorf("failed to set read deadline: %w", err)
+			return
+		}
 		var msg MCPMessage
 		err := wst.conn.ReadJSON(&msg)
 		if err != nil {
@@ -257,14 +269,18 @@ func (wst *WebSocketTransport) writeLoop() {
 	for {
 		select {
 		case msg := <-wst.writeChan:
-			wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				return
+			}
 			if err := wst.conn.WriteJSON(msg); err != nil {
 				wst.errorChan <- fmt.Errorf("websocket write error: %w", err)
 				return
 			}
 		case <-ticker.C:
 			// Send ping
-			wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				return
+			}
 			if err := wst.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

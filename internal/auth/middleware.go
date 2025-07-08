@@ -370,7 +370,9 @@ func (m *AuthenticationMiddleware) sendUnauthorized(w http.ResponseWriter, error
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.server.logger.Error("Failed to encode unauthorized response: %v", err)
+	}
 }
 
 // sendForbidden sends forbidden response
@@ -383,7 +385,9 @@ func (m *AuthenticationMiddleware) sendForbidden(w http.ResponseWriter, errorCod
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.server.logger.Error("Failed to encode forbidden response: %v", err)
+	}
 }
 
 // Context helper functions

@@ -328,7 +328,9 @@ func TestRBACPermissions(t *testing.T) {
 
 	t.Run("wildcard_permissions", func(t *testing.T) {
 		rbac.CreateRole("superuser", []string{"*"})
-		rbac.AssignRole("superuser1", "superuser")
+		if err := rbac.AssignRole("superuser1", "superuser"); err != nil {
+			t.Fatalf("Failed to assign superuser role: %v", err)
+		}
 
 		// Superuser should have any permission
 		if !rbac.HasPermission("superuser1", "any_permission") {
@@ -349,8 +351,12 @@ func TestRBACPermissions(t *testing.T) {
 		rbac.CreateRole("moderator", []string{"moderate", "ban"})
 
 		// Assign multiple roles
-		rbac.AssignRole("multi_user", "editor")
-		rbac.AssignRole("multi_user", "moderator")
+		if err := rbac.AssignRole("multi_user", "editor"); err != nil {
+			t.Fatalf("Failed to assign editor role: %v", err)
+		}
+		if err := rbac.AssignRole("multi_user", "moderator"); err != nil {
+			t.Fatalf("Failed to assign moderator role: %v", err)
+		}
 
 		roles := rbac.GetUserRoles("multi_user")
 		if len(roles) != 2 {

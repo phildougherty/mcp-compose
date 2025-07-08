@@ -3,6 +3,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 )
 
@@ -188,7 +189,10 @@ func NewStdioTransport(r io.Reader, w io.Writer) *StdioTransport {
 	// Set up built-in progress listener
 	transport.progressListener = func(token string, progress ProgressParams) {
 		notification := CreateProgressNotification(progress)
-		transport.SendProgress(notification)
+		if err := transport.SendProgress(notification); err != nil {
+			// Log error but don't fail initialization
+			fmt.Printf("Warning: failed to send progress notification: %v\n", err)
+		}
 	}
 	return transport
 }

@@ -125,7 +125,9 @@ func TestTokenStoreStats(t *testing.T) {
 			CreatedAt: time.Now(),
 		}
 
-		store.StoreAccessToken(token)
+		if err := store.StoreAccessToken(token); err != nil {
+			t.Fatalf("Failed to store access token: %v", err)
+		}
 
 		activeAccess, _, _ := store.GetStats()
 		if activeAccess != 1 {
