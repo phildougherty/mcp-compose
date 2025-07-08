@@ -245,7 +245,11 @@ CMD ["./mcp-compose-memory", "--host", "0.0.0.0", "--port", "3001"]`
 	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
-	defer os.Remove(dockerfileName)
+	defer func() {
+		if err := os.Remove(dockerfileName); err != nil {
+			fmt.Printf("Warning: failed to remove temporary Dockerfile: %v\n", err)
+		}
+	}()
 
 	fmt.Println("Building Go memory server image with fresh dependencies...")
 

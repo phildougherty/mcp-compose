@@ -193,13 +193,22 @@ func (p *PodmanRuntime) ExecContainer(containerName string, command []string, in
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		stdin.Close()
+		if closeErr := stdin.Close(); closeErr != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create stdout pipe and close stdin: %v, close error: %w", err, closeErr)
+		}
 		return nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
+		if closeErr := stdin.Close(); closeErr != nil {
+			if closeErr2 := stdout.Close(); closeErr2 != nil {
+				return nil, nil, nil, fmt.Errorf("failed to start command and close pipes: %v, stdin close error: %v, stdout close error: %w", err, closeErr, closeErr2)
+			}
+			return nil, nil, nil, fmt.Errorf("failed to start command and close stdin: %v, close error: %w", err, closeErr)
+		}
+		if closeErr := stdout.Close(); closeErr != nil {
+			return nil, nil, nil, fmt.Errorf("failed to start command and close stdout: %v, close error: %w", err, closeErr)
+		}
 		return nil, nil, nil, fmt.Errorf("failed to start command: %w", err)
 	}
 

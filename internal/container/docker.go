@@ -68,8 +68,15 @@ func (d *DockerRuntime) ExecContainer(containerName string, command []string, in
 	cmd.Stderr = os.Stderr // Redirect Stderr directly for exec command
 
 	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
+		if closeErr := stdin.Close(); closeErr != nil {
+			if closeErr2 := stdout.Close(); closeErr2 != nil {
+				return nil, nil, nil, fmt.Errorf("failed to start exec command and close pipes: %v, stdin close error: %v, stdout close error: %w", err, closeErr, closeErr2)
+			}
+			return nil, nil, nil, fmt.Errorf("failed to start exec command and close stdin: %v, close error: %w", err, closeErr)
+		}
+		if closeErr := stdout.Close(); closeErr != nil {
+			return nil, nil, nil, fmt.Errorf("failed to start exec command and close stdout: %v, close error: %w", err, closeErr)
+		}
 		return nil, nil, nil, fmt.Errorf("failed to start exec command: %w", err)
 	}
 	return cmd, stdin, stdout, nil

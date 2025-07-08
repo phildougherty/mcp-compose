@@ -46,13 +46,19 @@ servers: {}`,
 			if err != nil {
 				t.Fatalf("Failed to create temp file: %v", err)
 			}
-			defer os.Remove(tmpFile.Name())
+			defer func() {
+				if err := os.Remove(tmpFile.Name()); err != nil {
+					t.Logf("Warning: failed to remove temp file: %v", err)
+				}
+			}()
 
 			// Write test config
 			if _, err := tmpFile.WriteString(tt.configYAML); err != nil {
 				t.Fatalf("Failed to write config: %v", err)
 			}
-			tmpFile.Close()
+			if err := tmpFile.Close(); err != nil {
+				t.Fatalf("Failed to close temp file: %v", err)
+			}
 
 			// Load config
 			_, err = LoadConfig(tmpFile.Name())
@@ -103,11 +109,15 @@ func TestExpandEnvVars(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					t.Fatalf("Failed to set environment variable %s: %v", key, err)
+				}
 			}
 			defer func() {
 				for key := range tt.envVars {
-					os.Unsetenv(key)
+					if err := os.Unsetenv(key); err != nil {
+						t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
+					}
 				}
 			}()
 
