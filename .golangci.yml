@@ -39,7 +39,7 @@ linters:
     - gofumpt
     - goheader
     - goimports
-    - mnd
+    - gomnd
     - gomoddirectives
     - gomodguard
     - goprintffuncname
@@ -127,7 +127,7 @@ linters-settings:
       - "^fixme:"
       - "^todo:"
 
-  mnd:
+  gomnd:
     checks:
       - argument
       - case
@@ -185,7 +185,7 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - mnd
+        - gomnd
         - funlen
         - gocognit
         - gocyclo

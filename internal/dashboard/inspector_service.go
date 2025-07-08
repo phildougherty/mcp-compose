@@ -184,23 +184,6 @@ func (is *InspectorService) CleanupExpiredSessions(maxAge time.Duration) int {
 	return count
 }
 
-func (is *InspectorService) isServerHealthy(serverName string) bool {
-	// Check if server is healthy by trying to initialize a session
-	// This is more reliable than ping which may not be implemented
-	_, err := is.proxyRequest(serverName, "initialize", map[string]interface{}{
-		"protocolVersion": "2024-11-05",
-		"capabilities": map[string]interface{}{
-			"roots": map[string]interface{}{
-				"listChanged": true,
-			},
-		},
-		"clientInfo": map[string]interface{}{
-			"name":    "MCP Dashboard Health Check",
-			"version": "1.0.0",
-		},
-	})
-	return err == nil
-}
 
 func (is *InspectorService) getServerCapabilities(serverName string) (map[string]interface{}, error) {
 	response, err := is.proxyRequest(serverName, "initialize", map[string]interface{}{

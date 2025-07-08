@@ -2,7 +2,6 @@ package server
 
 import (
 	"testing"
-	"time"
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
@@ -45,7 +44,6 @@ func TestServerInstance(t *testing.T) {
 			Command:  "echo hello",
 		},
 		Status:       "stopped",
-		StartTime:    time.Now(),
 		Capabilities: make(map[string]bool),
 	}
 
@@ -221,8 +219,6 @@ func TestManagerShutdown(t *testing.T) {
 
 func TestServerInstanceHealthCheck(t *testing.T) {
 	instance := &ServerInstance{
-		Name:         "test-server",
-		Status:       "running",
 		HealthStatus: "healthy",
 	}
 

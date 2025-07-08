@@ -61,7 +61,7 @@ func (d *DockerRuntime) ExecContainer(containerName string, command []string, in
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		if closeErr := stdin.Close(); closeErr != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create stdout pipe and close stdin: %w, %w", err, closeErr)
+			return nil, nil, nil, fmt.Errorf("failed to create stdout pipe and close stdin: %v, close error: %w", err, closeErr)
 		}
 		return nil, nil, nil, fmt.Errorf("failed to create stdout pipe for exec: %w", err)
 	}

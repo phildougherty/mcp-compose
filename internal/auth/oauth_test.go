@@ -1,9 +1,6 @@
 package auth
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -598,17 +595,6 @@ func TestConcurrentOAuthOperations(t *testing.T) {
 	})
 }
 
-// Helper functions for PKCE
-func generateCodeVerifier() string {
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	return base64.RawURLEncoding.EncodeToString(bytes)
-}
-
-func generateCodeChallenge(verifier string) string {
-	hash := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(hash[:])
-}
 
 // Mock RBAC implementation for testing
 type RBACRole struct {

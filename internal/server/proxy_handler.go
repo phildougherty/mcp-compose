@@ -417,7 +417,7 @@ func isProxyStandardMethod(method string) bool {
 }
 
 // useEnhancedSSE determines whether to use enhanced SSE connections for a server
-func (h *ProxyHandler) useEnhancedSSE(serverName string) bool {
+func (h *ProxyHandler) useEnhancedSSE(_serverName string) bool {
 	// For now, enable enhanced SSE for all servers
 	// In the future, this could be configuration-driven
 	return true

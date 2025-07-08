@@ -232,7 +232,7 @@ func (cm *ConnectionManager) GetHealthCheckResults(maxResults int) []HealthCheck
 		case result := <-cm.healthChan:
 			results = append(results, result)
 		default:
-			break
+			return results
 		}
 	}
 

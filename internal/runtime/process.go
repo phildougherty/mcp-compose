@@ -126,7 +126,7 @@ func (p *Process) Stop() error {
 	if err != nil {
 		// Process doesn't exist, clean up PID file
 		if removeErr := os.Remove(p.pidFile); removeErr != nil {
-			return fmt.Errorf("process not found and failed to remove PID file: %w, %w", err, removeErr)
+			return fmt.Errorf("process not found and failed to remove PID file: %v, remove error: %w", err, removeErr)
 		}
 		return nil
 	}
