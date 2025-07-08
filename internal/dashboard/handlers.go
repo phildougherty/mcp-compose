@@ -32,7 +32,9 @@ func (d *DashboardServer) handleServers(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +49,9 @@ func (d *DashboardServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleConnections(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +66,9 @@ func (d *DashboardServer) handleConnections(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +115,9 @@ func (d *DashboardServer) tryProxyContainerLogs(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 	return true
 }
 
@@ -126,7 +134,9 @@ func (d *DashboardServer) tryProxyContainerStats(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 	return true
 }
 
@@ -154,7 +164,9 @@ func (d *DashboardServer) handleProxyReload(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 // getContainerLogs retrieves logs from a Docker container
@@ -287,7 +299,9 @@ func (d *DashboardServer) handleServerOpenAPI(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +337,9 @@ func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Requ
 	}
 	// Determine content type based on what the proxy returns
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleServerLogs(w http.ResponseWriter, r *http.Request) {
@@ -369,7 +385,9 @@ func (d *DashboardServer) handleOAuthStatus(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Request) {
@@ -383,7 +401,9 @@ func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	case http.MethodDelete:
 		// Extract client ID from path
@@ -401,7 +421,9 @@ func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -430,7 +452,9 @@ func (d *DashboardServer) handleOAuthRegister(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 // Helper methods for different HTTP methods
@@ -507,7 +531,9 @@ func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Request) {
@@ -538,7 +564,9 @@ func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Request) {
@@ -563,7 +591,9 @@ func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
@@ -713,7 +743,9 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(resp)
+	if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
@@ -746,7 +778,9 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 		// Enhancement: If we got a successful response from proxy, we can enhance it
 		// For now, just pass through the proxy response
 		w.Header().Set("Content-Type", "text/html")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 		return
 	}
 
@@ -1084,7 +1118,9 @@ func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Req
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	case http.MethodPost, http.MethodPut:
 		body, err := io.ReadAll(r.Body)
@@ -1107,7 +1143,9 @@ func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Req
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1158,7 +1196,9 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 		} else {
 			w.Header().Set("Content-Type", "text/plain")
 		}
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	case http.MethodPost:
 		body, err := io.ReadAll(r.Body)
@@ -1175,7 +1215,9 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(resp)
+		if _, err := w.Write(resp); err != nil {
+		d.logger.Error("Failed to write response: %v", err)
+	}
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

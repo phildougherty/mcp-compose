@@ -323,7 +323,9 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 
 	// Call connection handler
 	if err := handler.OnConnect(transport); err != nil {
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 		ws.mu.Lock()
 		delete(ws.connections, connectionID)
 		ws.mu.Unlock()
@@ -339,11 +341,15 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 // handleConnection handles messages for a WebSocket connection
 func (ws *WebSocketServer) handleConnection(connectionID string, transport *WebSocketTransport, handler WebSocketHandler) {
 	defer func() {
-		handler.OnDisconnect(transport)
+		if err := handler.OnDisconnect(transport); err != nil {
+			fmt.Printf("Warning: failed to handle disconnect: %v\n", err)
+		}
 		ws.mu.Lock()
 		delete(ws.connections, connectionID)
 		ws.mu.Unlock()
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 	}()
 
 	for {
@@ -368,7 +374,9 @@ func (ws *WebSocketServer) handleConnection(connectionID string, transport *WebS
 					ID:      msg.ID,
 					Error:   NewInternalError(err.Error()),
 				}
-				transport.Send(errorResponse)
+				if err := transport.Send(errorResponse); err != nil {
+					fmt.Printf("Warning: failed to send error response: %v\n", err)
+				}
 			}
 		}
 	}
@@ -379,7 +387,9 @@ func (ws *WebSocketServer) Close() error {
 	ws.cancel()
 	ws.mu.Lock()
 	for _, transport := range ws.connections {
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 	}
 	ws.connections = make(map[string]*WebSocketTransport)
 	ws.mu.Unlock()

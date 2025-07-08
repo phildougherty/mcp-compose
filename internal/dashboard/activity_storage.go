@@ -107,7 +107,11 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres system database: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			fmt.Printf("Warning: failed to close database connection: %v\n", err)
+		}
+	}()
 
 	// Check if target database exists
 	var exists bool
@@ -223,7 +227,11 @@ func (s *ActivityStorage) GetRecentActivities(limit int, since *time.Time) ([]St
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: failed to close rows: %v\n", err)
+		}
+	}()
 
 	var activities []StoredActivity
 	for rows.Next() {
