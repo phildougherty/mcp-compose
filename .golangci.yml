@@ -11,7 +11,6 @@ linters:
     - contextcheck
     - cyclop
     - decorder
-    - depguard
     - dogsled
     - dupl
     - durationcheck
@@ -210,8 +209,7 @@ issues:
         - noctx
         - contextcheck
         - containedctx
-        - depguard
-        - gomoddirectives
+            - gomoddirectives
         - gomodguard
         - loggercheck
         - nestif

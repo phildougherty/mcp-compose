@@ -11,7 +11,6 @@ import (
 
 type Logger struct {
 	enabled    bool
-	storage    string
 	maxEntries int
 	maxAge     time.Duration
 	events     map[string]bool

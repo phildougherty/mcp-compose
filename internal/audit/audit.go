@@ -1,12 +1,18 @@
 package audit
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/logging"
+)
+
+var (
+	// ErrAuditShutdownTimeout is returned when audit logger shutdown times out.
+	ErrAuditShutdownTimeout = errors.New("audit logger shutdown timeout")
 )
 
 type AuditLogger struct {
@@ -35,7 +41,7 @@ type AuditEntry struct {
 	Error     string                 `json:"error,omitempty"`
 }
 
-func NewAuditLogger(auditConfig config.AuditConfig, logger *logging.Logger) *AuditLogger {
+func NewAuditLogger(auditConfig *config.AuditConfig, logger *logging.Logger) *AuditLogger {
 	maxAge, _ := time.ParseDuration(auditConfig.Retention.MaxAge)
 	if maxAge == 0 {
 		maxAge = 7 * 24 * time.Hour // Default 7 days
@@ -64,7 +70,7 @@ func NewAuditLogger(auditConfig config.AuditConfig, logger *logging.Logger) *Aud
 	return al
 }
 
-func (al *AuditLogger) Log(event string, userID, clientID, ip, userAgent string, success bool, details map[string]interface{}, err error) {
+func (al *AuditLogger) Log(event, userID, clientID, ip, userAgent string, success bool, details map[string]interface{}, err error) {
 	if !al.enabled {
 		return
 	}
@@ -90,7 +96,7 @@ func (al *AuditLogger) Log(event string, userID, clientID, ip, userAgent string,
 		entry.Error = err.Error()
 	}
 
-	al.storeEntry(entry)
+	al.storeEntry(&entry)
 
 	// Also log to standard logger
 	level := "info"
@@ -106,13 +112,13 @@ func (al *AuditLogger) Log(event string, userID, clientID, ip, userAgent string,
 	}
 }
 
-func (al *AuditLogger) storeEntry(entry AuditEntry) {
+func (al *AuditLogger) storeEntry(entry *AuditEntry) {
 	al.mu.Lock()
 	defer al.mu.Unlock()
 
 	switch al.storage {
 	case "memory":
-		al.entries = append(al.entries, entry)
+		al.entries = append(al.entries, *entry)
 		// Trim if over max entries
 		if len(al.entries) > al.maxEntries {
 			al.entries = al.entries[len(al.entries)-al.maxEntries:]
@@ -120,21 +126,21 @@ func (al *AuditLogger) storeEntry(entry AuditEntry) {
 	case "file":
 		// File storage not implemented - using memory fallback
 		al.logger.Warning("File storage not implemented, using memory storage as fallback")
-		al.entries = append(al.entries, entry)
+		al.entries = append(al.entries, *entry)
 		if len(al.entries) > al.maxEntries {
 			al.entries = al.entries[len(al.entries)-al.maxEntries:]
 		}
 	case "database":
 		// Database storage not implemented - using memory fallback
 		al.logger.Warning("Database storage not implemented, using memory storage as fallback")
-		al.entries = append(al.entries, entry)
+		al.entries = append(al.entries, *entry)
 		if len(al.entries) > al.maxEntries {
 			al.entries = al.entries[len(al.entries)-al.maxEntries:]
 		}
 	}
 }
 
-func (al *AuditLogger) GetEntries(limit int, offset int, filter AuditFilter) ([]AuditEntry, int, error) {
+func (al *AuditLogger) GetEntries(limit int, offset int, filter *AuditFilter) ([]AuditEntry, int, error) {
 	al.mu.RLock()
 	defer al.mu.RUnlock()
 
@@ -170,19 +176,31 @@ type AuditFilter struct {
 	EndTime   time.Time `json:"end_time,omitempty"`
 }
 
-func (al *AuditLogger) matchesFilter(entry AuditEntry, filter AuditFilter) bool {
-	if filter.Event != "" && entry.Event != filter.Event {
-		return false
-	}
-	if filter.UserID != "" && entry.UserID != filter.UserID {
-		return false
-	}
-	if filter.ClientID != "" && entry.ClientID != filter.ClientID {
-		return false
-	}
-	if filter.Success != nil && entry.Success != *filter.Success {
-		return false
-	}
+func (al *AuditLogger) matchesFilter(entry AuditEntry, filter *AuditFilter) bool {
+	return al.matchesEvent(entry, filter) &&
+		al.matchesUser(entry, filter) &&
+		al.matchesClient(entry, filter) &&
+		al.matchesSuccess(entry, filter) &&
+		al.matchesTimeRange(entry, filter)
+}
+
+func (al *AuditLogger) matchesEvent(entry AuditEntry, filter *AuditFilter) bool {
+	return filter.Event == "" || entry.Event == filter.Event
+}
+
+func (al *AuditLogger) matchesUser(entry AuditEntry, filter *AuditFilter) bool {
+	return filter.UserID == "" || entry.UserID == filter.UserID
+}
+
+func (al *AuditLogger) matchesClient(entry AuditEntry, filter *AuditFilter) bool {
+	return filter.ClientID == "" || entry.ClientID == filter.ClientID
+}
+
+func (al *AuditLogger) matchesSuccess(entry AuditEntry, filter *AuditFilter) bool {
+	return filter.Success == nil || entry.Success == *filter.Success
+}
+
+func (al *AuditLogger) matchesTimeRange(entry AuditEntry, filter *AuditFilter) bool {
 	if !filter.StartTime.IsZero() && entry.Timestamp.Before(filter.StartTime) {
 		return false
 	}
@@ -242,7 +260,7 @@ func (al *AuditLogger) Shutdown() error {
 		return nil
 	case <-time.After(5 * time.Second):
 		al.logger.Warning("Audit logger shutdown timeout")
-		return fmt.Errorf("audit logger shutdown timeout")
+		return ErrAuditShutdownTimeout
 	}
 }
 
