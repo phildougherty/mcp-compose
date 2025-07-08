@@ -19,9 +19,7 @@ linters:
     - errchkjson
     - errname
     - errorlint
-    - execinquery
     - exhaustive
-    - exportloopref
     - forbidigo
     - forcetypeassert
     - funlen
@@ -39,7 +37,7 @@ linters:
     - gofumpt
     - goheader
     - goimports
-    - gomnd
+    - mnd
     - gomoddirectives
     - gomodguard
     - goprintffuncname
@@ -127,7 +125,7 @@ linters-settings:
       - "^fixme:"
       - "^todo:"
 
-  gomnd:
+  mnd:
     checks:
       - argument
       - case
@@ -185,7 +183,7 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - gomnd
+        - mnd
         - funlen
         - gocognit
         - gocyclo
@@ -233,9 +231,7 @@ issues:
         - errchkjson
         - errname
         - errorlint
-        - execinquery
-        - exportloopref
-        - gosec
+                - gosec
         - importas
         - makezero
         - nilerr
