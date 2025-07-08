@@ -221,7 +221,11 @@ func (d *DashboardServer) handleActivityWebSocket(w http.ResponseWriter, r *http
 		log.Printf("[WEBSOCKET] ❌ Failed to upgrade connection: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			d.logger.Error("Failed to close websocket connection: %v", err)
+		}
+	}()
 	log.Printf("[WEBSOCKET] ✅ WebSocket upgraded successfully")
 	safeConn := &SafeWebSocketConn{conn: conn}
 	activityBroadcaster.register <- safeConn
@@ -281,7 +285,9 @@ func (d *DashboardServer) handleServerDocs(w http.ResponseWriter, r *http.Reques
 	htmlContent = strings.ReplaceAll(htmlContent, `href="/`, `href="/api/server-proxy/`)
 	htmlContent = strings.ReplaceAll(htmlContent, `href="api/`, `href="/api/`) // Don't double-prefix API routes
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(htmlContent))
+	if _, err := w.Write([]byte(htmlContent)); err != nil {
+		d.logger.Error("Failed to write HTML content: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleServerOpenAPI(w http.ResponseWriter, r *http.Request) {
@@ -367,7 +373,9 @@ func (d *DashboardServer) handleServerLogs(w http.ResponseWriter, r *http.Reques
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		d.logger.Error("Failed to encode response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +482,11 @@ func (d *DashboardServer) proxyPostRequest(endpoint string, body []byte) ([]byte
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
@@ -499,7 +511,11 @@ func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
@@ -526,7 +542,9 @@ func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Reque
 			{"name": "mcp:prompts", "description": "Access to MCP prompts"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(defaultScopes)
+		if err := json.NewEncoder(w).Encode(defaultScopes); err != nil {
+			d.logger.Error("Failed to encode default scopes: %v", err)
+		}
 		return
 	}
 
@@ -559,7 +577,9 @@ func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Requ
 			"total":   0,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			d.logger.Error("Failed to encode response: %v", err)
+		}
 		return
 	}
 
@@ -586,7 +606,9 @@ func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Reques
 			"event_counts":  map[string]int{},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			d.logger.Error("Failed to encode response: %v", err)
+		}
 		return
 	}
 
@@ -631,7 +653,11 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to request token", http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Copy response
 	responseBody, err := io.ReadAll(resp.Body)
@@ -644,7 +670,9 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 	// Copy status code and headers
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
-	w.Write(responseBody)
+	if _, err := w.Write(responseBody); err != nil {
+		d.logger.Error("Failed to write response body: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -685,7 +713,11 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 			http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 		// Handle redirects manually
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
@@ -1166,7 +1198,11 @@ func (d *DashboardServer) proxyPutRequest(endpoint string, body []byte) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	return io.ReadAll(resp.Body)
 }
@@ -1363,7 +1399,9 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 							// Try to parse as JSON, fallback to raw text
 							var jsonResult interface{}
 							if err := json.Unmarshal([]byte(text.(string)), &jsonResult); err == nil {
-								json.NewEncoder(w).Encode(jsonResult)
+								if err := json.NewEncoder(w).Encode(jsonResult); err != nil {
+									d.logger.Error("Failed to encode JSON result: %v", err)
+								}
 								return
 							}
 						}
@@ -1371,19 +1409,27 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 				}
 			}
 			// Fallback to returning the whole result
-			json.NewEncoder(w).Encode(resultMap)
+			if err := json.NewEncoder(w).Encode(resultMap); err != nil {
+				d.logger.Error("Failed to encode result map: %v", err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(response.Result)
+		if err := json.NewEncoder(w).Encode(response.Result); err != nil {
+			d.logger.Error("Failed to encode response result: %v", err)
+		}
 	} else if response.Error != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": response.Error,
-		})
+		}); err != nil {
+			d.logger.Error("Failed to encode error response: %v", err)
+		}
 	} else {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"result": "success",
-		})
+		}); err != nil {
+			d.logger.Error("Failed to encode success response: %v", err)
+		}
 	}
 }
 
@@ -1403,10 +1449,12 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 	if d.inspectorService == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"available": false,
 			"error":     "Inspector service not available",
-		})
+		}); err != nil {
+			d.logger.Error("Failed to encode availability response: %v", err)
+		}
 		return
 	}
 
@@ -1415,10 +1463,12 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"available": false,
 			"error":     err.Error(),
-		})
+		}); err != nil {
+			d.logger.Error("Failed to encode error response: %v", err)
+		}
 		return
 	}
 
@@ -1427,12 +1477,14 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"available":    true,
 		"sessionId":    session.ID,
 		"serverName":   "task-scheduler",
 		"capabilities": session.Capabilities,
-	})
+	}); err != nil {
+		d.logger.Error("Failed to encode availability response: %v", err)
+	}
 }
 
 // Update handleContainerLogs function
@@ -1867,7 +1919,9 @@ func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		d.logger.Error("Failed to encode stats: %v", err)
+	}
 }
 
 // Update handleServerAction to support both Docker and Podman
@@ -1902,7 +1956,9 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotImplemented)
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			d.logger.Error("Failed to encode response: %v", err)
+		}
 		return
 	case "stop":
 		if runtime == "docker" {
@@ -1931,7 +1987,9 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			d.logger.Error("Failed to encode response: %v", err)
+		}
 		return
 	}
 
@@ -1941,5 +1999,7 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 		"runtime": runtime,
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		d.logger.Error("Failed to encode response: %v", err)
+	}
 }
