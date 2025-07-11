@@ -1,0 +1,58 @@
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev ca-certificates
+
+# Set work directory
+WORKDIR /build
+
+# Clone the repository
+RUN git clone https://github.com/phildougherty/mcp-cron-persistent.git .
+
+# Download dependencies
+RUN go mod download
+
+# Build with proper flags and error handling
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -a -installsuffix cgo \
+    -ldflags="-s -w" \
+    -o mcp-cron \
+    ./cmd/mcp-cron
+
+# Final stage - use specific alpine version to avoid registry issues
+FROM alpine:3.18
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata curl sqlite
+
+# Set timezone
+ENV TZ=America/New_York
+RUN cp /usr/share/zoneinfo/America/New_York /etc/localtime && \
+    echo "America/New_York" > /etc/timezone
+
+# Set work directory
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /build/mcp-cron .
+RUN chmod +x ./mcp-cron
+
+# Create data directory with proper permissions  
+RUN mkdir -p /data && chmod 755 /data
+
+# Default environment that will be overridden by container
+ENV MCP_CRON_DATABASE_PATH=/data/task-scheduler.db
+ENV MCP_CRON_SERVER_TRANSPORT=sse  
+ENV MCP_CRON_SERVER_ADDRESS=0.0.0.0
+ENV MCP_CRON_SERVER_PORT=8018
+
+# Expose the port (will be dynamically set)
+EXPOSE $MCP_CRON_SERVER_PORT
+
+# Add health check using environment variable
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
+    CMD curl -f http://localhost:$MCP_CRON_SERVER_PORT/health || exit 1
+
+# Use exec form and environment variables for the command
+CMD ["sh", "-c", "./mcp-cron --transport=$MCP_CRON_SERVER_TRANSPORT --address=$MCP_CRON_SERVER_ADDRESS --port=$MCP_CRON_SERVER_PORT --db-path=$MCP_CRON_DATABASE_PATH"]

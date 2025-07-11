@@ -4,7 +4,6 @@ package memory
 import (
 	"fmt"
 	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"os"
 	"os/exec"
@@ -190,83 +189,18 @@ func (m *Manager) startPostgres() error {
 func (m *Manager) buildMemoryImage() error {
 	fmt.Println("Building Go-based memory server image...")
 
-	dockerfileContent := `# Build stage
-FROM golang:1.21-alpine AS builder
+	dockerfilePath := "dockerfiles/Dockerfile.memory-go"
+	
+	// Check if Dockerfile exists
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-# Install build dependencies
-RUN apk add --no-cache git gcc musl-dev ca-certificates
-
-# Set work directory  
-WORKDIR /build
-
-# Clone the new Go repository
-RUN git clone https://github.com/phildougherty/mcp-compose-memory.git .
-
-# Initialize go module and ensure all dependencies are resolved
-RUN go mod tidy
-
-# Download all dependencies
-RUN go mod download
-
-# Verify all dependencies are available
-RUN go list -m all
-
-# Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build \
-    -a -installsuffix cgo \
-    -ldflags="-s -w" \
-    -o mcp-compose-memory \
-    .
-
-# Final stage
-FROM alpine:3.18
-
-# Install runtime dependencies  
-RUN apk --no-cache add ca-certificates tzdata postgresql-client wget
-
-# Set timezone
-ENV TZ=America/New_York
-
-# Set work directory
-WORKDIR /app
-
-# Copy binary from builder
-COPY --from=builder /build/mcp-compose-memory .
-
-# Make binary executable
-RUN chmod +x ./mcp-compose-memory
-
-# Create data directory with proper permissions
-RUN mkdir -p /data && chmod 755 /data
-
-# Default environment
-ENV DATABASE_URL=postgresql://postgres:password@postgres:5432/memory_graph?sslmode=disable
-
-# Expose the port
-EXPOSE 3001
-
-# Add health check
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
-
-# Run the server
-CMD ["./mcp-compose-memory", "--host", "0.0.0.0", "--port", "3001"]`
-
-	dockerfileName := "Dockerfile.memory-go"
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
-
-		return fmt.Errorf("failed to write Dockerfile: %w", err)
+		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
 	}
-	defer func() {
-		if err := os.Remove(dockerfileName); err != nil {
-			fmt.Printf("Warning: failed to remove temporary Dockerfile: %v\n", err)
-		}
-	}()
 
 	fmt.Println("Building Go memory server image with fresh dependencies...")
 
 	// Build with no cache to force fresh download of git repo
-	buildCmd := exec.Command("docker", "build", "--no-cache", "-f", dockerfileName, "-t", "mcp-compose-memory:latest", ".")
+	buildCmd := exec.Command("docker", "build", "--no-cache", "-f", dockerfilePath, "-t", "mcp-compose-memory:latest", ".")
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
 

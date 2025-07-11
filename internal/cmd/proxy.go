@@ -336,7 +336,6 @@ func getProjectName(configFile string) string {
 
 func buildGoProxyImage(httpProxy bool) error {
 	imageName := "mcp-compose-go-proxy:latest"
-	dockerfileName := "Dockerfile.mcp-proxy"
 
 	if httpProxy {
 		imageName = "mcp-compose-go-http-proxy:latest"
@@ -344,66 +343,15 @@ func buildGoProxyImage(httpProxy bool) error {
 
 	fmt.Printf("Building Go proxy image (%s)...\n", imageName)
 
-	// Enhanced Dockerfile with protocol support
-	dockerfileContent := `FROM golang:1.24-alpine AS builder
-WORKDIR /build
+	dockerfilePath := "dockerfiles/Dockerfile.proxy"
+	
+	// Check if Dockerfile exists
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-# Build with enhanced protocol support
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w" \
-    -a -installsuffix cgo \
-    -o mcp-compose-executable \
-    cmd/mcp-compose/main.go
-
-FROM alpine:latest
-
-# Add essential tools for proxy operation
-RUN apk --no-cache add \
-    ca-certificates \
-    docker-cli \
-    curl \
-    wget \
-    jq \
-    tzdata
-
-# Set timezone
-ENV TZ=UTC
-
-WORKDIR /app
-
-COPY --from=builder /build/mcp-compose-executable .
-
-# Create directories for various protocol features
-RUN mkdir -p /app/data /app/logs /app/cache /app/temp
-
-# Set proxy-specific environment variables
-ENV MCP_PROXY_PORT=9876
-ENV MCP_PROTOCOL_MODE=enhanced
-ENV MCP_ENABLE_NOTIFICATIONS=true
-ENV MCP_ENABLE_SUBSCRIPTIONS=true
-ENV MCP_ENABLE_PROGRESS=true
-ENV MCP_ENABLE_SAMPLING=true
-
-EXPOSE 9876
-
-CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
-`
-
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
-
-		return fmt.Errorf("failed to write Dockerfile %s: %w", dockerfileName, err)
+		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
 	}
-	defer func() { _ = os.Remove(dockerfileName) }()
 
-	cmd := exec.Command("docker", "build", "-f", dockerfileName, "-t", imageName, ".")
+	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", imageName, ".")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

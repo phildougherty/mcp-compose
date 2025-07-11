@@ -2,9 +2,7 @@ package dashboard
 
 import (
 	"fmt"
-	"log"
 	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 	"os"
@@ -95,57 +93,13 @@ func (m *Manager) Stop() error {
 func (m *Manager) buildDashboardImage() error {
 	m.logger.Info("Building dashboard Docker image...")
 
-	// Enhanced Dockerfile with PostgreSQL dependencies
-	dockerfileContent := `FROM golang:1.21-alpine AS builder
-WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-# Build the main mcp-compose binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o mcp-compose cmd/mcp-compose/main.go
+	dockerfilePath := "dockerfiles/Dockerfile.dashboard"
+	
+	// Check if Dockerfile exists
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-FROM alpine:latest
-# Install required packages including PostgreSQL client
-RUN apk --no-cache add ca-certificates docker-cli curl postgresql-client
-
-# Create non-root user
-RUN adduser -D -u 1000 dashboard
-WORKDIR /app
-COPY --from=builder /build/mcp-compose .
-
-# Change ownership to dashboard user
-RUN chown dashboard:dashboard /app/mcp-compose && chmod +x /app/mcp-compose
-
-EXPOSE 3001
-
-# Create a startup script with health checks
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'echo "Dashboard container starting..."' >> /app/start.sh && \
-    echo 'echo "Environment variables:"' >> /app/start.sh && \
-    echo 'echo "  MCP_PROXY_URL: $MCP_PROXY_URL"' >> /app/start.sh && \
-    echo 'echo "  MCP_API_KEY: $MCP_API_KEY"' >> /app/start.sh && \
-    echo 'echo "  MCP_DASHBOARD_HOST: $MCP_DASHBOARD_HOST"' >> /app/start.sh && \
-    echo 'echo "  POSTGRES_URL: ${POSTGRES_URL:+configured}"' >> /app/start.sh && \
-    echo 'echo "Starting dashboard server on 0.0.0.0:3001..."' >> /app/start.sh && \
-    echo 'exec ./mcp-compose dashboard --native --file /app/mcp-compose.yaml --port 3001 --host 0.0.0.0' >> /app/start.sh && \
-    chmod +x /app/start.sh && \
-    chown dashboard:dashboard /app/start.sh
-
-# Switch to non-root user
-USER dashboard
-CMD ["/app/start.sh"]
-`
-
-	dockerfilePath := "Dockerfile.dashboard"
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
-
-		return fmt.Errorf("failed to write Dockerfile: %w", err)
+		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
 	}
-	defer func() {
-		if err := os.Remove(dockerfilePath); err != nil {
-			log.Printf("Warning: failed to remove dockerfile: %v", err)
-		}
-	}()
 
 	// Build the image
 	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", "mcp-compose-dashboard:latest", ".")
