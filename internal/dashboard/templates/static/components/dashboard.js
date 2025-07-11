@@ -482,14 +482,20 @@ const DashboardApp = {
         },
         
         checkMobileView() {
+            const wasMobile = this.isMobileView;
             this.isMobileView = window.innerWidth < 768;
+            console.log('checkMobileView - window.innerWidth:', window.innerWidth, 'isMobileView:', this.isMobileView);
             if (!this.isMobileView) {
                 this.mobileMenuOpen = false;
             }
         },
         
         toggleMobileMenu() {
+            console.log('toggleMobileMenu clicked, isMobileView:', this.isMobileView, 'current mobileMenuOpen:', this.mobileMenuOpen);
             this.mobileMenuOpen = !this.mobileMenuOpen;
+            console.log('mobileMenuOpen after toggle:', this.mobileMenuOpen);
+            // Force update to ensure reactivity
+            this.$forceUpdate();
         },
         
         showToast(toast) {
@@ -712,7 +718,7 @@ const DashboardApp = {
         </header>
 
         <!-- Mobile Menu Dropdown -->
-        <div v-if="mobileMenuOpen && isMobileView" class="md:hidden bg-gray-800 border-b border-gray-700 sticky top-12 z-40 mobile-menu-container">
+        <div v-if="mobileMenuOpen" class="md:hidden bg-gray-800 border-b border-gray-700 sticky top-12 z-40 mobile-menu-container">
             <div class="px-4 py-3 space-y-3">
                 <!-- Mobile Actions -->
                 <div class="space-y-2">
@@ -764,7 +770,7 @@ const DashboardApp = {
         </div>
 
         <!-- Compact Navigation Pills -->
-        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'top-32': mobileMenuOpen && isMobileView }">
+        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'top-32': mobileMenuOpen }">
             <div class="px-4 sm:px-6 lg:px-8">
                 <div class="flex items-center py-2 space-x-1 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
                     <button
