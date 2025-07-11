@@ -118,7 +118,13 @@ const DashboardApp = {
             };
             
             const isServerHealthy = (server) => {
-                return isContainerRunning(server) && getConnectionStatus(server) === 'Connected';
+                // Use the same logic as the main isServerHealthy method
+                const connectionStatus = getConnectionStatus(server);
+                if (connectionStatus === 'Connected') {
+                    return true;
+                }
+                // Fallback: if no HTTP connection but container is running, it might be a STDIO server
+                return isContainerRunning(server) && server.configProtocol !== 'http';
             };
             
             // Calculate stats

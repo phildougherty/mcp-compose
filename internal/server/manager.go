@@ -237,7 +237,7 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 		manager.servers[name] = &ServerInstance{
 			Name:            name,
 			Config:          serverCfg,
-			IsContainer:     serverCfg.Image != "" || serverCfg.Runtime != "",
+			IsContainer:     serverCfg.Image != "" || serverCfg.Runtime != "" || manager.isLikelyContainer(name, serverCfg),
 			Status:          "stopped",
 			Capabilities:    make(map[string]bool),
 			ConnectionInfo:  make(map[string]string),
@@ -665,6 +665,10 @@ func (m *Manager) GetServerStatus(name string) (string, error) {
 	defer m.mu.Unlock()
 	fixedIdentifier := fmt.Sprintf("mcp-compose-%s", name)
 
+	// Check if this is a built-in service that might have different container handling
+	if m.isBuiltInService(name) {
+		return m.getBuiltInServiceStatus(name, fixedIdentifier)
+	}
 
 	return m.getServerStatusUnsafe(name, fixedIdentifier)
 }
@@ -673,7 +677,7 @@ func (m *Manager) GetServerStatus(name string) (string, error) {
 func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (string, error) {
 	instance, ok := m.servers[name]
 	if !ok {
-
+		m.logger.Debug("Server '%s' not found in manager's server list (have %d servers)", name, len(m.servers))
 
 		return "unknown", fmt.Errorf("server '%s' not found in manager's list", name)
 	}
@@ -682,15 +686,13 @@ func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (st
 	var err error
 
 	if instance.IsContainer {
-		// Try by known ContainerID first for precision, then by fixedIdentifier as fallback
-		if instance.ContainerID != "" {
+		// Always try by name first since it's more reliable, then by ContainerID as fallback
+		m.logger.Debug("Checking container status for '%s' (identifier: %s, ContainerID: %s)", name, fixedIdentifier, instance.ContainerID)
+		currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
+		if err != nil && instance.ContainerID != "" {
+			// If name lookup failed but we have a ContainerID, try that
+			m.logger.Debug("Failed to get status by name for %s (%s), trying by ID %s: %v", name, fixedIdentifier, instance.ContainerID, err)
 			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(instance.ContainerID)
-			if err != nil { // e.g., ID is stale
-				m.logger.Debug("Failed to get status by ID for %s (%s), trying by name %s: %v", name, instance.ContainerID, fixedIdentifier, err)
-				currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
-			}
-		} else { // No ContainerID known, must use fixed name
-			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
 		}
 		if err != nil {
 			m.logger.Warning("Error getting container status for '%s' (identifier: %s): %v", name, fixedIdentifier, err)
@@ -700,6 +702,8 @@ func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (st
 			if currentRuntimeStatus == "" {
 				currentRuntimeStatus = "unknown"
 			}
+		} else {
+			m.logger.Debug("Container status for '%s': %s", name, currentRuntimeStatus)
 		}
 	} else { // Process-based server
 		proc, findErr := runtime.FindProcess(fixedIdentifier)
@@ -718,6 +722,84 @@ func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (st
 
 
 	return currentRuntimeStatus, err // Return error from runtime if any
+}
+
+// isBuiltInService checks if a server is a built-in service with special handling
+func (m *Manager) isBuiltInService(name string) bool {
+	builtInServices := []string{"memory", "task-scheduler", "dashboard", "proxy"}
+	for _, service := range builtInServices {
+		if name == service {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getBuiltInServiceStatus handles status checking for built-in services
+func (m *Manager) getBuiltInServiceStatus(name string, fixedIdentifier string) (string, error) {
+	instance, ok := m.servers[name]
+	if !ok {
+		// Built-in service not found in server list
+		return "unknown", fmt.Errorf("built-in service '%s' not found in manager's list", name)
+	}
+
+	var currentRuntimeStatus string
+	var err error
+
+	if instance.IsContainer {
+		// Always try by name first since it's more reliable, then by ContainerID as fallback
+		currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(fixedIdentifier)
+		if err != nil && instance.ContainerID != "" {
+			// If name lookup failed but we have a ContainerID, try that
+			m.logger.Debug("Failed to get status by name for built-in service %s (%s), trying by ID %s: %v", name, fixedIdentifier, instance.ContainerID, err)
+			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(instance.ContainerID)
+		}
+		
+		if err != nil {
+			// For built-in services, if container doesn't exist, it's likely stopped/not started
+			if strings.Contains(strings.ToLower(err.Error()), "no such container") ||
+				strings.Contains(strings.ToLower(err.Error()), "no such object") {
+				m.logger.Debug("Built-in service %s container not found, marking as stopped", name)
+				currentRuntimeStatus = "stopped"
+				err = nil
+			} else {
+				m.logger.Warning("Error getting container status for built-in service '%s' (identifier: %s): %v", name, fixedIdentifier, err)
+				if currentRuntimeStatus == "" {
+					currentRuntimeStatus = "unknown"
+				}
+			}
+		}
+	} else {
+		// Process-based built-in service (unlikely but handle it)
+		currentRuntimeStatus = "stopped" // Most built-in services are containerized
+	}
+
+	instance.Status = currentRuntimeStatus
+
+	return currentRuntimeStatus, err
+}
+
+// isLikelyContainer determines if a server is likely running in a container
+// based on protocol and other hints, even if Image field is not set
+func (m *Manager) isLikelyContainer(serverName string, serverCfg config.ServerConfig) bool {
+	// If it has HTTP protocol and port, it's likely a container
+	if serverCfg.Protocol == "http" && serverCfg.HttpPort > 0 {
+		return true
+	}
+	
+	// Check if there's a corresponding container name that exists
+	expectedContainerName := fmt.Sprintf("mcp-compose-%s", serverName)
+	if m.containerRuntime != nil {
+		// Try to check if container exists (ignore errors, just check existence)
+		_, err := m.containerRuntime.GetContainerStatus(expectedContainerName)
+		if err == nil {
+			m.logger.Debug("Found container %s for server %s, marking as container", expectedContainerName, serverName)
+			return true
+		}
+	}
+	
+	return false
 }
 
 // ShowLogs displays logs for a server using the fixed identifier
