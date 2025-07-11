@@ -345,7 +345,7 @@ func buildGoProxyImage(httpProxy bool) error {
 	fmt.Printf("Building Go proxy image (%s)...\n", imageName)
 
 	// Enhanced Dockerfile with protocol support
-	dockerfileContent := `FROM golang:1.21-alpine AS builder
+	dockerfileContent := `FROM golang:1.24-alpine AS builder
 WORKDIR /build
 
 # Install build dependencies
