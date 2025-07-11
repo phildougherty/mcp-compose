@@ -545,6 +545,7 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 					}
 					if err := safeConn.WriteJSON(msg); err != nil {
 						d.logger.Debug("Failed to write log message: %v", err)
+
 						return true
 					}
 				}
@@ -554,6 +555,7 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 
 	if err := scanner.Err(); err != nil {
 		d.logger.Error("Error reading proxy logs: %v", err)
+
 		return false
 	}
 

@@ -775,6 +775,7 @@ func (m *Manager) isLikelyContainer(serverName string, serverCfg config.ServerCo
 		_, err := m.containerRuntime.GetContainerStatus(expectedContainerName)
 		if err == nil {
 			m.logger.Debug("Found container %s for server %s, marking as container", expectedContainerName, serverName)
+
 			return true
 		}
 	}
