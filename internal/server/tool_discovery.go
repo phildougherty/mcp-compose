@@ -16,7 +16,6 @@ func (h *ProxyHandler) refreshToolCache() {
 	// Only refresh if cache is expired
 	if time.Now().Before(h.cacheExpiry) {
 
-
 		return
 	}
 
@@ -55,7 +54,6 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 	// Check if server exists
 	if _, exists := h.Manager.GetServerInstance(serverName); !exists {
 		h.logger.Warning("Server instance %s not found, using generic fallback", serverName)
-
 
 		return h.getGenericToolForServer(serverName), nil
 	}
@@ -100,12 +98,10 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 				// STDIO server - skip for now and use generic
 				h.logger.Warning("Direct STDIO server %s tool discovery not implemented, using generic fallback", serverName)
 
-
 				return h.getGenericToolForServer(serverName), nil
 			}
 		default:
 			h.logger.Warning("Unknown protocol %s for server %s, using generic fallback", protocol, serverName)
-
 
 			return h.getGenericToolForServer(serverName), nil
 		}
@@ -119,7 +115,6 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 					toolNames[i] = spec.Name
 				}
 				h.logger.Info("Successfully discovered %d tools from %s: %v", len(specs), serverName, toolNames)
-
 
 				return specs, nil
 			}
@@ -149,13 +144,11 @@ func (h *ProxyHandler) discoverServerTools(serverName string) ([]openapi.ToolSpe
 
 	// All retries failed, use generic fallback
 
-
 	return h.getGenericToolForServer(serverName), fmt.Errorf("failed to discover tools after %d attempts", maxRetries)
 }
 
 func (h *ProxyHandler) sendSSEToolsRequestWithRetry(serverName string, requestPayload map[string]interface{}, timeout time.Duration, attempt int) (map[string]interface{}, error) {
 	h.logger.Debug("Attempting enhanced SSE request to %s (attempt %d, timeout %v)", serverName, attempt, timeout)
-
 
 	return h.sendOptimalSSERequest(serverName, requestPayload)
 }
@@ -165,10 +158,8 @@ func (h *ProxyHandler) sendHTTPToolsRequestWithRetry(serverName string, requestP
 	conn, connErr := h.getServerConnection(serverName)
 	if connErr != nil {
 
-
 		return nil, connErr
 	}
-
 
 	return h.sendHTTPJsonRequest(conn, requestPayload, timeout)
 }
@@ -178,7 +169,6 @@ func (h *ProxyHandler) parseToolsResponse(serverName string, response map[string
 
 	// Check for JSON-RPC error
 	if errResp, ok := response["error"].(map[string]interface{}); ok {
-
 
 		return nil, fmt.Errorf("server returned error: %v", errResp)
 	}
@@ -232,17 +222,14 @@ func (h *ProxyHandler) parseToolsResponse(serverName string, response map[string
 
 	if len(specs) == 0 {
 
-
 		return nil, fmt.Errorf("no tools found in response")
 	}
-
 
 	return specs, nil
 }
 
 // Generic fallback that works with any MCP server
 func (h *ProxyHandler) getGenericToolForServer(serverName string) []openapi.ToolSpec {
-
 
 	return []openapi.ToolSpec{
 		{
@@ -279,7 +266,6 @@ func (h *ProxyHandler) isKnownTool(toolName string) bool {
 	if exists {
 		h.logger.Debug("Tool cache lookup for '%s': found in server %s", toolName, serverName)
 
-
 		return true
 	}
 
@@ -296,7 +282,6 @@ func (h *ProxyHandler) isKnownTool(toolName string) bool {
 		if exists {
 			h.logger.Debug("Tool '%s' found after cache refresh", toolName)
 
-
 			return true
 		}
 	} else {
@@ -304,7 +289,6 @@ func (h *ProxyHandler) isKnownTool(toolName string) bool {
 	}
 
 	h.logger.Debug("Tool '%s' not found even after cache check", toolName)
-
 
 	return false
 }
@@ -320,12 +304,10 @@ func (h *ProxyHandler) findServerForTool(toolName string) (string, bool) {
 	if exists {
 		h.logger.Debug("Found tool %s in server %s via cache", toolName, serverName)
 
-
 		return serverName, true
 	}
 
 	h.logger.Warning("Tool %s not found in cache", toolName)
-
 
 	return "", false
 }
@@ -337,7 +319,6 @@ func getKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 
-
 	return keys
 }
 
@@ -346,7 +327,6 @@ func getToolNames(specs []openapi.ToolSpec) []string {
 	for i, spec := range specs {
 		names[i] = spec.Name
 	}
-
 
 	return names
 }

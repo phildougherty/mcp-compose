@@ -84,7 +84,6 @@ func NewDashboardCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&disable, "disable", false, "Disable the dashboard")
 	cmd.Flags().BoolVar(&native, "native", false, "Run dashboard natively (requires proxy to be native too)")
 
-
 	return cmd
 }
 

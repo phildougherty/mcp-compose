@@ -124,7 +124,6 @@ func (cm *ConnectionManager) GetConnectionStats(serverName string) *ConnectionMe
 		}
 	}
 
-
 	return nil
 }
 
@@ -137,7 +136,6 @@ func (cm *ConnectionManager) GetAllConnectionStats() map[string]*ConnectionMetri
 	for serverName := range cm.metrics {
 		result[serverName] = cm.GetConnectionStats(serverName)
 	}
-
 
 	return result
 }
@@ -170,7 +168,6 @@ func (cm *ConnectionManager) HealthCheck(serverName string) HealthCheckResult {
 	default:
 		// Channel is full, skip this result
 	}
-
 
 	return result
 }
@@ -228,7 +225,6 @@ func (cm *ConnectionManager) CleanupStaleConnections(maxIdleTime time.Duration) 
 		}
 	}
 
-
 	return cleanedCount
 }
 
@@ -246,7 +242,6 @@ func (cm *ConnectionManager) GetHealthCheckResults(maxResults int) []HealthCheck
 			return results
 		}
 	}
-
 
 	return results
 }
@@ -294,7 +289,6 @@ func (cm *ConnectionManager) GetConnectionSummary() map[string]interface{} {
 		summary["overall_stats"].(map[string]interface{})["average_uptime"] = (totalUptime / time.Duration(len(allStats))).String()
 		summary["overall_stats"].(map[string]interface{})["average_error_rate"] = totalErrorRate / float64(len(allStats))
 	}
-
 
 	return summary
 }

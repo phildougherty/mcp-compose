@@ -59,11 +59,9 @@ Examples:
 				}
 			}
 
-
 			return nil
 		},
 	}
-
 
 	return cmd
 }
@@ -125,7 +123,6 @@ func restartProxy() error {
 	fmt.Println("✅ Proxy stopped successfully.")
 	fmt.Println("To restart the proxy, use: mcp-compose proxy [options]")
 	fmt.Println("Note: The proxy will restart with the same configuration as last started.")
-
 
 	return nil
 }

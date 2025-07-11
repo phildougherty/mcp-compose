@@ -63,11 +63,9 @@ Examples:
 				}
 			}
 
-
 			return nil
 		},
 	}
-
 
 	return cmd
 }

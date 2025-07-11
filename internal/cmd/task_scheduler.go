@@ -204,7 +204,6 @@ Examples:
 	cmd.Flags().BoolVar(&healthCheck, "health-check", true, "Enable health checks")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug mode")
 
-
 	return cmd
 }
 
@@ -626,7 +625,6 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 	fmt.Printf("  → OpenRouter Gateway: %s\n", env["MCP_OPENROUTER_GATEWAY_URL"])
 	fmt.Printf("\nTo stop the task scheduler: mcp-compose stop task-scheduler\n")
 
-
 	return nil
 }
 
@@ -647,13 +645,12 @@ func buildTaskSchedulerImageWithRetry(debug bool) error {
 		}
 	}
 
-
 	return fmt.Errorf("failed to build task scheduler image after %d attempts", constants.DefaultRetryLimit)
 }
 
 func buildTaskSchedulerImage(debug bool) error {
 	dockerfilePath := "dockerfiles/Dockerfile.task-scheduler"
-	
+
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
@@ -670,7 +667,6 @@ func buildTaskSchedulerImage(debug bool) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
-
 
 	return cmd.Run()
 }
@@ -693,7 +689,6 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 			time.Sleep(constants.DefaultRetryDelay)
 		}
 	}
-
 
 	return "", fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
 }
@@ -722,7 +717,6 @@ func waitForContainerHealth(runtime container.Runtime, containerName string, tim
 
 		time.Sleep(constants.DefaultRetryDelay)
 	}
-
 
 	return fmt.Errorf("container did not become healthy within %v", timeout)
 }

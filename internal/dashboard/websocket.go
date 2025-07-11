@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/constants"
 	"github.com/gorilla/websocket"
+	"mcpcompose/internal/constants"
 )
 
 // Message types for different WebSocket streams
@@ -522,7 +522,7 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 		// Parse SSE format: "data: {json}" lines contain the actual log data
 		if strings.HasPrefix(line, "data: ") {
 			jsonData := strings.TrimPrefix(line, "data: ")
-			
+
 			// Try to parse as JSON to extract log content
 			var logData map[string]interface{}
 			if err := json.Unmarshal([]byte(jsonData), &logData); err == nil {
@@ -713,7 +713,6 @@ func (d *DashboardServer) parseLogLevel(message string) string {
 
 		return "DEBUG"
 	}
-
 
 	return "INFO"
 }

@@ -75,7 +75,6 @@ func (b *STDIOBridge) Start() error {
 		}
 	}
 
-
 	return scanner.Err()
 }
 
@@ -126,7 +125,6 @@ func (b *STDIOBridge) forwardToProxy(request map[string]interface{}) (map[string
 
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-
 
 	return response, nil
 }

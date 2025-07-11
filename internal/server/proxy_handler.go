@@ -175,7 +175,6 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	// Establish initial HTTP connections to all configured HTTP servers
 	go handler.establishInitialHTTPConnections()
 
-
 	return handler
 }
 
@@ -348,13 +347,11 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 	if targetPort == 0 && serverConfig.Protocol == "http" {
 		h.logger.Error("Server %s (HTTP): 'http_port' is 0 and could not be inferred from 'ports'. This is a critical configuration error for HTTP communication within Docker network.", serverName)
 
-
 		return fmt.Sprintf("http://%s:INVALID_PORT_CONFIG_FOR_HTTP_SERVER", targetHost)
 	}
 
 	if targetPort == 0 && serverConfig.Protocol != "http" {
 		h.logger.Debug("Server %s is likely STDIO (http_port is 0 and protocol is not http). URL constructed for display purposes only if needed.", serverName)
-
 
 		return fmt.Sprintf("http://%s:0/ (STDIO server, no HTTP port)", targetHost)
 	}
@@ -382,7 +379,6 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 
 	h.logger.Debug("Resolved internal HTTP URL (MCP Endpoint for containerized proxy) for server %s: %s", serverName, baseURL)
 
-
 	return baseURL
 }
 
@@ -390,13 +386,11 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 func (h *ProxyHandler) isTaskSchedulerContainer() bool {
 	if h.Manager == nil || h.Manager.containerRuntime == nil {
 
-
 		return false
 	}
 
 	// Check if container exists
 	status, err := h.Manager.containerRuntime.GetContainerStatus("mcp-compose-task-scheduler")
-
 
 	return err == nil && status == "running"
 }
@@ -434,7 +428,6 @@ func isProxyStandardMethod(method string) bool {
 		"notifications/cancelled":   true,
 	}
 
-
 	return proxyMethods[method]
 }
 
@@ -442,7 +435,6 @@ func isProxyStandardMethod(method string) bool {
 func (h *ProxyHandler) useEnhancedSSE(_serverName string) bool {
 	// For now, enable enhanced SSE for all servers
 	// In the future, this could be configuration-driven
-
 
 	return true
 }
@@ -452,11 +444,9 @@ func (h *ProxyHandler) getOptimalSSEConnection(serverName string) (interface{}, 
 	if h.useEnhancedSSE(serverName) {
 		h.logger.Debug("Using enhanced SSE connection for server %s", serverName)
 
-
 		return h.getEnhancedSSEConnection(serverName)
 	} else {
 		h.logger.Debug("Using standard SSE connection for server %s", serverName)
-
 
 		return h.getSSEConnection(serverName)
 	}
@@ -472,7 +462,6 @@ func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[stri
 		if h.connectionManager != nil {
 			h.connectionManager.RecordRequest(serverName, false, time.Since(start))
 		}
-
 
 		return nil, err
 	}
@@ -497,12 +486,10 @@ func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[stri
 	if requestErr != nil {
 		h.logger.Debug("Enhanced SSE request to %s failed in %v: %v", serverName, responseTime, requestErr)
 
-
 		return nil, requestErr
 	}
 
 	h.logger.Debug("Enhanced SSE request to %s completed successfully in %v", serverName, responseTime)
-
 
 	return response, nil
 }

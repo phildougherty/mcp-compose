@@ -49,7 +49,6 @@ func (h *ProxyHandler) getSSEConnection(serverName string) (*MCPSSEConnection, e
 		conn.mu.Unlock()
 		h.logger.Debug("Reusing healthy SSE connection for %s", serverName)
 
-
 		return conn, nil
 	}
 
@@ -65,13 +64,11 @@ func (h *ProxyHandler) getSSEConnection(serverName string) (*MCPSSEConnection, e
 	serverConfig, cfgExists := h.Manager.config.Servers[serverName]
 	if !cfgExists {
 
-
 		return nil, fmt.Errorf("configuration for server '%s' not found", serverName)
 	}
 
 	newConn, err := h.createSSEConnection(serverName, serverConfig)
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to create SSE connection: %w", err)
 	}
@@ -82,7 +79,6 @@ func (h *ProxyHandler) getSSEConnection(serverName string) (*MCPSSEConnection, e
 	}
 	h.SSEConnections[serverName] = newConn
 	h.SSEMutex.Unlock()
-
 
 	return newConn, nil
 }
@@ -103,12 +99,10 @@ func (h *ProxyHandler) createSSEConnection(serverName string, serverConfig confi
 	// Initialize SSE connection
 	if err := h.initializeSSEConnection(conn); err != nil {
 
-
 		return nil, fmt.Errorf("failed to initialize SSE connection: %w", err)
 	}
 
 	h.logger.Info("Successfully created and initialized SSE connection for %s", serverName)
-
 
 	return conn, nil
 }
@@ -138,7 +132,6 @@ func (h *ProxyHandler) getServerSSEURL(serverName string, serverConfig config.Se
 	sseURL := baseURL + sseEndpoint
 	h.logger.Debug("Resolved SSE URL for server %s: %s", serverName, sseURL)
 
-
 	return baseURL, sseURL
 }
 
@@ -148,7 +141,6 @@ func (h *ProxyHandler) initializeSSEConnection(conn *MCPSSEConnection) error {
 	// Phase 1: Get session endpoint via GET to /sse
 	sessionEndpoint, err := h.getSSESessionEndpoint(conn)
 	if err != nil {
-
 
 		return fmt.Errorf("failed to get SSE session endpoint: %w", err)
 	}
@@ -177,7 +169,6 @@ func (h *ProxyHandler) initializeSSEConnection(conn *MCPSSEConnection) error {
 	// Send initialize but don't wait for response
 	err = h.sendSSERequestNoResponse(conn, initRequest)
 	if err != nil {
-
 
 		return fmt.Errorf("failed to send initialize request: %w", err)
 	}
@@ -213,14 +204,12 @@ func (h *ProxyHandler) initializeSSEConnection(conn *MCPSSEConnection) error {
 
 	h.logger.Info("SSE connection to %s initialized successfully", conn.ServerName)
 
-
 	return nil
 }
 
 func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request map[string]interface{}) error {
 	requestData, err := json.Marshal(request)
 	if err != nil {
-
 
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -230,7 +219,6 @@ func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request 
 	conn.mu.Unlock()
 
 	if sessionEndpoint == "" {
-
 
 		return fmt.Errorf("no session endpoint available")
 	}
@@ -244,7 +232,6 @@ func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 	if err != nil {
 
-
 		return fmt.Errorf("failed to create session request: %w", err)
 	}
 
@@ -252,7 +239,6 @@ func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request 
 
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
-
 
 		return fmt.Errorf("session request failed: %w", err)
 	}
@@ -267,10 +253,8 @@ func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request 
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 
-
 		return fmt.Errorf("unexpected response status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
-
 
 	return nil
 }
@@ -283,7 +267,6 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 	if err != nil {
 		cancel()
 
-
 		return "", fmt.Errorf("failed to create SSE session request: %w", err)
 	}
 
@@ -295,7 +278,6 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 	if err != nil {
 		cancel()
 
-
 		return "", fmt.Errorf("SSE session request failed: %w", err)
 	}
 
@@ -305,7 +287,6 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 			h.logger.Warning("Failed to close SSE response body: %v", err)
 		}
 		cancel()
-
 
 		return "", fmt.Errorf("SSE session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -343,7 +324,6 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 	if sessionEndpoint == "" {
 		h.closeSSEConnection(conn)
 
-
 		return "", fmt.Errorf("no session endpoint found in SSE stream")
 	}
 
@@ -351,7 +331,6 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 	go h.readSSEResponses(conn)
 
 	h.logger.Info("Got SSE session endpoint for %s: %s", conn.ServerName, sessionEndpoint)
-
 
 	return sessionEndpoint, nil
 }
@@ -431,7 +410,6 @@ func (h *ProxyHandler) processSSEMessage(conn *MCPSSEConnection, messageData str
 	if err := json.Unmarshal([]byte(messageData), &response); err != nil {
 		h.logger.Error("Failed to parse SSE message JSON for %s: %v. Raw data: %q", conn.ServerName, err, messageData)
 
-
 		return
 	}
 
@@ -487,14 +465,12 @@ func (h *ProxyHandler) processSSEMessage(conn *MCPSSEConnection, messageData str
 
 func (h *ProxyHandler) sendSSERequest(conn *MCPSSEConnection, request map[string]interface{}) (map[string]interface{}, error) {
 
-
 	return h.sendSSERequestToSession(conn, request)
 }
 
 func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request map[string]interface{}) (map[string]interface{}, error) {
 	requestData, err := json.Marshal(request)
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -504,7 +480,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 	conn.mu.Unlock()
 
 	if sessionEndpoint == "" {
-
 
 		return nil, fmt.Errorf("no session endpoint available")
 	}
@@ -526,7 +501,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			cleanupMutex.Lock()
 			defer cleanupMutex.Unlock()
 			if cleanupDone {
-
 
 				return // Already cleaned up
 			}
@@ -554,7 +528,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 		if err != nil {
 
-
 			return nil, fmt.Errorf("failed to create session request: %w", err)
 		}
 
@@ -565,7 +538,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			conn.mu.Lock()
 			conn.Healthy = false
 			conn.mu.Unlock()
-
 
 			return nil, fmt.Errorf("session request failed: %w", err)
 		}
@@ -589,7 +561,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			case response, ok := <-respCh:
 				if !ok {
 
-
 					return nil, fmt.Errorf("response channel closed while waiting for %s", method)
 				}
 				h.logger.Info("Received async SSE response for %s %s", method, conn.ServerName)
@@ -597,14 +568,11 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 				conn.Healthy = true
 				conn.mu.Unlock()
 
-
 				return response, nil
 			case <-time.After(constants.CleanupIntervalExtended):
 
-
 				return nil, fmt.Errorf("timeout waiting for SSE response to %s", method)
 			case <-h.ctx.Done():
-
 
 				return nil, h.ctx.Err()
 			}
@@ -619,10 +587,8 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			var response map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 
-
 				return nil, fmt.Errorf("failed to decode response: %w", err)
 			}
-
 
 			return response, nil
 		}
@@ -634,7 +600,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, constants.SSEResponseBuffer))
 
-
 		return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -645,7 +610,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to create session request: %w", err)
 	}
 
@@ -653,7 +617,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
-
 
 		return nil, fmt.Errorf("session request failed: %w", err)
 	}
@@ -665,7 +628,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 
 	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK {
 
-
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
 			"result":  "accepted",
@@ -673,7 +635,6 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 	}
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, constants.SSEResponseBuffer))
-
 
 	return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 }
@@ -709,12 +670,10 @@ func (h *ProxyHandler) closeSSEConnection(conn *MCPSSEConnection) {
 func (h *ProxyHandler) isSSEConnectionHealthy(conn *MCPSSEConnection) bool {
 	if conn == nil {
 
-
 		return false
 	}
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-
 
 	return conn.Healthy && conn.Initialized
 }
@@ -744,7 +703,6 @@ func getMapKeys(m map[interface{}]chan map[string]interface{}) []interface{} {
 	for k := range m {
 		keys = append(keys, k)
 	}
-
 
 	return keys
 }

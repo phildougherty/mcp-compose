@@ -92,7 +92,6 @@ func NewComposer(configPath string) (*Composer, error) {
 		)
 	}
 
-
 	return composer, nil
 }
 
@@ -162,7 +161,6 @@ func (c *Composer) Shutdown() error {
 	if err := c.manager.Shutdown(); err != nil {
 		c.logger.Warning("Error shutting down server manager: %v", err)
 	}
-
 
 	return nil
 }
@@ -315,7 +313,6 @@ func Up(configFile string, serverNames []string) error {
 		fmt.Printf("Use 'mcp-compose down' to stop them.\n")
 	}
 
-
 	return nil
 }
 
@@ -350,7 +347,6 @@ func collectRequiredNetworks(cfg *config.ComposeConfig, serverNames []string) ma
 		}
 	}
 
-
 	return networkToServers
 }
 
@@ -381,7 +377,6 @@ func generateNetworkDescription(networkToServers map[string][]string) string {
 			networks = append(networks, fmt.Sprintf("'%s'", networkName))
 		}
 	}
-
 
 	return fmt.Sprintf(" via Docker networks: %s", strings.Join(networks, ", "))
 }
@@ -466,7 +461,6 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 			seen[network] = true
 		}
 	}
-
 
 	return uniqueNetworks
 }
@@ -564,7 +558,6 @@ func startServerProcess(serverName string, serverCfg config.ServerConfig) error 
 
 		return fmt.Errorf("failed to start process for server '%s': %w", serverName, err)
 	}
-
 
 	return nil
 }
@@ -758,7 +751,6 @@ func List(configFile string) error {
 		return fmt.Errorf("failed to flush output: %w", err)
 	}
 
-
 	return nil
 }
 
@@ -766,16 +758,13 @@ func serverCfgHasHTTPArg(args []string) bool {
 	for i, arg := range args {
 		if arg == "--transport" && i+1 < len(args) && strings.ToLower(args[i+1]) == "http" {
 
-
 			return true
 		}
 		if strings.HasPrefix(arg, "--port") {
 
-
 			return true
 		}
 	}
-
 
 	return false
 }
@@ -784,18 +773,15 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 
-
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
 
-
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 	if cRuntime.GetRuntimeName() == "none" {
 		fmt.Println("No container runtime detected. 'logs' command is for containerized servers.")
-
 
 		return nil
 	}
@@ -809,7 +795,6 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 		}
 		if len(serversToLog) == 0 {
 			fmt.Println("No containerized servers defined in configuration to show logs for.")
-
 
 			return nil
 		}
@@ -826,7 +811,6 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 		}
 		if len(serversToLog) == 0 {
 			fmt.Println("None of the specified servers were found or are containerized.")
-
 
 			return nil
 		}
@@ -845,7 +829,6 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 		}
 	}
 
-
 	return nil
 }
 
@@ -853,11 +836,9 @@ func Validate(configFile string) error {
 	_, err := config.LoadConfig(configFile)
 	if err != nil {
 
-
 		return fmt.Errorf("configuration file '%s' is invalid: %w", configFile, err)
 	}
 	fmt.Printf("Configuration file '%s' is valid.\n", configFile)
-
 
 	return nil
 }
@@ -918,7 +899,6 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 	if len(sortedOrder) != len(allServerNames) {
 		fmt.Fprintf(os.Stderr, "Warning: Cycle detected in server dependencies or some servers are unreachable. Startup order might be incorrect.\n")
 
-
 		return buildFallbackOrder(cfg, targetServers)
 	}
 
@@ -940,20 +920,17 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 		}
 	}
 
-
 	return finalSortedOrder
 }
 
 func addDependenciesRecursive(cfg *config.ComposeConfig, serverName string, result map[string]bool) {
 	if result[serverName] {
 
-
 		return
 	}
 	result[serverName] = true
 	serverConf, exists := cfg.Servers[serverName]
 	if !exists {
-
 
 		return
 	}
@@ -1024,7 +1001,6 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 			break
 		}
 	}
-
 
 	return fallbackOrder
 }
@@ -1127,7 +1103,6 @@ func convertSecurityConfig(serverName string, serverCfg config.ServerConfig) con
 		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("seccomp:%s", serverCfg.Security.Seccomp))
 	}
 
-
 	return opts
 }
 
@@ -1169,10 +1144,8 @@ func startServerContainer(serverName string, serverCfg config.ServerConfig, cRun
 	_, err := cRuntime.StartContainer(&opts)
 	if err != nil {
 
-
 		return fmt.Errorf("failed to start container for server '%s': %w", serverName, err)
 	}
-
 
 	return nil
 }

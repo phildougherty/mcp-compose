@@ -73,7 +73,6 @@ Examples:
 	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the memory server in config")
 	cmd.Flags().BoolVar(&disable, "disable", false, "Disable the memory server")
 
-
 	return cmd
 }
 

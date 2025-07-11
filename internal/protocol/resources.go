@@ -191,7 +191,6 @@ func (rm *ResourceManager) AddResource(resource *Resource) error {
 		rm.addToCache(resource)
 	}
 
-
 	return nil
 }
 
@@ -217,7 +216,6 @@ func (rm *ResourceManager) GetResource(uri string) (*Resource, error) {
 
 	// Update access time
 	resource.Accessed = time.Now()
-
 
 	return resource, nil
 }
@@ -259,7 +257,6 @@ func (rm *ResourceManager) EmbedResourceInPrompt(uri string, strategy string, op
 		return nil, fmt.Errorf("unsupported embedding strategy: %s", strategy)
 	}
 
-
 	return embedded, nil
 }
 
@@ -284,7 +281,6 @@ func (rm *ResourceManager) TransformResource(uri string, targetFormat string, op
 			}
 		}
 	}
-
 
 	return nil, fmt.Errorf("no transformer found for format: %s", targetFormat)
 }
@@ -337,7 +333,6 @@ func (rm *ResourceManager) getFromCache(uri string) *CachedResource {
 		return nil
 	}
 
-
 	return cached
 }
 
@@ -377,7 +372,6 @@ func (rm *ResourceManager) GetCacheStats() map[string]interface{} {
 		}
 	}
 
-
 	return map[string]interface{}{
 		"totalEntries":  len(rm.cache),
 		"totalAccess":   totalAccess,
@@ -399,7 +393,6 @@ func (rm *ResourceManager) Search(query string, filters map[string]interface{}) 
 			results = append(results, resource)
 		}
 	}
-
 
 	return results
 }
@@ -458,7 +451,6 @@ func (rm *ResourceManager) matchesSearch(resource *Resource, query string, filte
 		}
 	}
 
-
 	return true
 }
 
@@ -507,7 +499,6 @@ func (dt *DefaultTextTransformer) GetTransformationOptions(fromFormat, toFormat 
 		options["includeMetadata"] = true
 	}
 
-
 	return options
 }
 
@@ -525,7 +516,6 @@ func (dt *DefaultTextTransformer) createSummary(resource *Resource, options map[
 	if len(summary) > maxLength {
 		summary = summary[:maxLength] + "..."
 	}
-
 
 	return &ResourceContentData{
 		Type:         "text",
@@ -600,7 +590,6 @@ func (dt *DefaultTextTransformer) convertToJSON(resource *Resource, options map[
 
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}
-
 
 	return &ResourceContentData{
 		Type:         "text",

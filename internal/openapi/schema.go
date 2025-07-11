@@ -267,7 +267,6 @@ func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, err
 	// Add the specs to the schema
 	schema.Specs = specs
 
-
 	return schema, nil
 }
 
@@ -294,7 +293,6 @@ func buildToolDescription(tool Tool) string {
 		}
 	}
 
-
 	return desc
 }
 
@@ -318,7 +316,6 @@ func buildAnnotationDescription(annotations *ToolAnnotations) string {
 
 		return "\n\nMCP Annotations:\n" + strings.Join(parts, "\n")
 	}
-
 
 	return ""
 }
@@ -447,7 +444,6 @@ func convertJSONSchemaToOpenAPI(jsonSchema map[string]interface{}) Schema {
 		itemsSchema := convertJSONSchemaToOpenAPI(items)
 		schema.Items = &itemsSchema
 	}
-
 
 	return schema
 }

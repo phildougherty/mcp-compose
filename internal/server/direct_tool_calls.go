@@ -24,7 +24,6 @@ func (r *mcpResponseRecorder) Header() http.Header {
 		r.headers = make(http.Header)
 	}
 
-
 	return r.headers
 }
 

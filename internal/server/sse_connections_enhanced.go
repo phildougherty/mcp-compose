@@ -97,7 +97,6 @@ func (h *ProxyHandler) getEnhancedSSEConnection(serverName string) (*EnhancedMCP
 	h.EnhancedSSEConnections[serverName] = newConn
 	h.SSEMutex.Unlock()
 
-
 	return newConn, nil
 }
 
@@ -261,7 +260,6 @@ func (h *ProxyHandler) getEnhancedSSESessionEndpoint(conn *EnhancedMCPSSEConnect
 	if sessionEndpoint == "" {
 		h.closeEnhancedSSEConnection(conn)
 
-
 		return "", fmt.Errorf("no session endpoint found in SSE stream")
 	}
 
@@ -269,7 +267,6 @@ func (h *ProxyHandler) getEnhancedSSESessionEndpoint(conn *EnhancedMCPSSEConnect
 	go h.readEnhancedSSEResponses(conn)
 
 	h.logger.Info("Got enhanced SSE session endpoint for %s: %s", conn.ServerName, sessionEndpoint)
-
 
 	return sessionEndpoint, nil
 }
@@ -340,7 +337,6 @@ func (h *ProxyHandler) processEnhancedSSEMessage(conn *EnhancedMCPSSEConnection,
 		conn.errorCount++
 		conn.mu.Unlock()
 
-
 		return
 	}
 
@@ -391,7 +387,6 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 	requestData, err := json.Marshal(request)
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -400,7 +395,6 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 	conn.mu.RUnlock()
 
 	if sessionEndpoint == "" {
-
 
 		return nil, fmt.Errorf("no session endpoint available")
 	}
@@ -434,7 +428,6 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 		if err != nil {
 
-
 			return nil, fmt.Errorf("failed to create session request: %w", err)
 		}
 
@@ -446,7 +439,6 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 			conn.Healthy = false
 			conn.errorCount++
 			conn.mu.Unlock()
-
 
 			return nil, fmt.Errorf("session request failed: %w", err)
 		}
@@ -466,21 +458,17 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 			case response, ok := <-respCh:
 				if !ok {
 
-
 					return nil, fmt.Errorf("response channel closed while waiting for %s", method)
 				}
 				conn.mu.Lock()
 				conn.Healthy = true
 				conn.mu.Unlock()
 
-
 				return response, nil
 			case <-time.After(constants.HTTPRequestTimeout):
 
-
 				return nil, fmt.Errorf("timeout waiting for enhanced SSE response to %s", method)
 			case <-h.ctx.Done():
-
 
 				return nil, h.ctx.Err()
 			}
@@ -495,10 +483,8 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 			var response map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 
-
 				return nil, fmt.Errorf("failed to decode response: %w", err)
 			}
-
 
 			return response, nil
 		}
@@ -511,12 +497,10 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, constants.SSEResponseBuffer))
 
-
 		return nil, fmt.Errorf("session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	// For requests without ID (notifications), just send and return success
-
 
 	return h.sendEnhancedSSERequestNoResponse(conn, request)
 }
@@ -524,7 +508,6 @@ func (h *ProxyHandler) sendEnhancedSSERequest(conn *EnhancedMCPSSEConnection, re
 func (h *ProxyHandler) sendEnhancedSSERequestNoResponse(conn *EnhancedMCPSSEConnection, request map[string]interface{}) (map[string]interface{}, error) {
 	requestData, err := json.Marshal(request)
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -535,7 +518,6 @@ func (h *ProxyHandler) sendEnhancedSSERequestNoResponse(conn *EnhancedMCPSSEConn
 
 	if sessionEndpoint == "" {
 
-
 		return nil, fmt.Errorf("no session endpoint available")
 	}
 
@@ -544,7 +526,6 @@ func (h *ProxyHandler) sendEnhancedSSERequestNoResponse(conn *EnhancedMCPSSEConn
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", sessionEndpoint, bytes.NewBuffer(requestData))
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to create session request: %w", err)
 	}
@@ -635,7 +616,6 @@ func (conn *EnhancedMCPSSEConnection) GetConnectionStats() map[string]interface{
 	conn.reqMutex.RLock()
 	pendingCount := len(conn.pendingRequests)
 	conn.reqMutex.RUnlock()
-
 
 	return map[string]interface{}{
 		"server_name":      conn.ServerName,

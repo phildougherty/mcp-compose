@@ -146,7 +146,6 @@ func (wst *WebSocketTransport) Start() error {
 		return wst.conn.SetReadDeadline(time.Now().Add(constants.WebSocketReadTimeout))
 	})
 
-
 	return nil
 }
 
@@ -210,7 +209,6 @@ func (wst *WebSocketTransport) Close() error {
 		wst.cancel()
 	}
 
-
 	return wst.conn.Close()
 }
 
@@ -233,7 +231,6 @@ func (wst *WebSocketTransport) SendProgress(notification *ProgressNotification) 
 		return err
 	}
 	msg.Params = params
-
 
 	return wst.Send(msg)
 }
@@ -369,7 +366,6 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 
 	// Start message handling
 	go ws.handleConnection(connectionID, transport, handler)
-
 
 	return transport, nil
 }

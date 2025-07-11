@@ -141,7 +141,6 @@ func (rm *RootManager) ListRoots() []Root {
 		roots = append(roots, entry.Root)
 	}
 
-
 	return roots
 }
 
@@ -167,7 +166,6 @@ func (rm *RootManager) CheckRootAccess(path string, operation string) (*RootEntr
 			return entry, nil
 		}
 	}
-
 
 	return nil, NewAuthorizationError(path, "not within any managed root")
 }
@@ -258,7 +256,6 @@ func (rm *RootManager) validateRootURI(uri string) error {
 		// Custom schemes are allowed but should be documented
 		// Consider logging a warning for unknown schemes
 	}
-
 
 	return nil
 }
@@ -353,7 +350,6 @@ func (rm *RootManager) GetRootStats() map[string]interface{} {
 		stats["roots"] = append(stats["roots"].([]map[string]interface{}), rootStat)
 	}
 
-
 	return stats
 }
 
@@ -396,7 +392,6 @@ func (rm *RootManager) CreateDefaultRoots() error {
 
 		return fmt.Errorf("failed to add working directory root: %v", err)
 	}
-
 
 	return nil
 }

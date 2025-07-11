@@ -74,7 +74,6 @@ func NewLogger(level string) *Logger {
 		logLevel = INFO
 	}
 
-
 	return &Logger{
 		level:      logLevel,
 		writer:     os.Stdout,

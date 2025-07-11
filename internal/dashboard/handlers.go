@@ -25,7 +25,6 @@ func (d *DashboardServer) handleServers(w http.ResponseWriter, r *http.Request) 
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 	// Forward to proxy server
@@ -33,7 +32,6 @@ func (d *DashboardServer) handleServers(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		d.logger.Error("Failed to get servers from proxy: %v", err)
 		http.Error(w, "Failed to get servers", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -47,14 +45,12 @@ func (d *DashboardServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 	resp, err := d.proxyRequest("/api/status")
 	if err != nil {
 		d.logger.Error("Failed to get status from proxy: %v", err)
 		http.Error(w, "Failed to get status", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -68,14 +64,12 @@ func (d *DashboardServer) handleConnections(w http.ResponseWriter, r *http.Reque
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 	resp, err := d.proxyRequest("/api/connections")
 	if err != nil {
 		d.logger.Error("Failed to get connections from proxy: %v", err)
 		http.Error(w, "Failed to get connections", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -92,7 +86,6 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 	if len(parts) < constants.StringSplitParts {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 
-
 		return
 	}
 	containerName := parts[0]
@@ -103,7 +96,6 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 		// Try proxying first, fall back to local if proxying fails
 		if d.tryProxyContainerLogs(w, r, containerName) {
 
-
 			return
 		}
 		// Fallback to local handling
@@ -111,7 +103,6 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 	case "stats":
 		// Try proxying first, fall back to local if proxying fails
 		if d.tryProxyContainerStats(w, r, containerName) {
-
 
 			return
 		}
@@ -133,7 +124,6 @@ func (d *DashboardServer) tryProxyContainerLogs(w http.ResponseWriter, r *http.R
 	if err != nil {
 		d.logger.Error("Failed to proxy container logs for %s: %v", containerName, err)
 
-
 		return false
 	}
 	d.logger.Info("Successfully proxied container logs for %s", containerName)
@@ -142,7 +132,6 @@ func (d *DashboardServer) tryProxyContainerLogs(w http.ResponseWriter, r *http.R
 	if _, err := w.Write(resp); err != nil {
 		d.logger.Error("Failed to write response: %v", err)
 	}
-
 
 	return true
 }
@@ -157,7 +146,6 @@ func (d *DashboardServer) tryProxyContainerStats(w http.ResponseWriter, r *http.
 	if err != nil {
 		d.logger.Debug("Failed to proxy container stats, will try local: %v", err)
 
-
 		return false
 	}
 
@@ -165,7 +153,6 @@ func (d *DashboardServer) tryProxyContainerStats(w http.ResponseWriter, r *http.
 	if _, err := w.Write(resp); err != nil {
 		d.logger.Error("Failed to write response: %v", err)
 	}
-
 
 	return true
 }
@@ -186,14 +173,12 @@ func (d *DashboardServer) handleProxyReload(w http.ResponseWriter, r *http.Reque
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 	resp, err := d.proxyRequest("/api/reload")
 	if err != nil {
 		d.logger.Error("Failed to reload proxy: %v", err)
 		http.Error(w, "Failed to reload proxy", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -214,7 +199,6 @@ func (d *DashboardServer) getContainerLogs(containerName, tail string, follow bo
 	output, err := cmd.Output()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("docker logs command failed: %w", err)
 	}
 	lines := strings.Split(string(output), "\n")
@@ -226,7 +210,6 @@ func (d *DashboardServer) getContainerLogs(containerName, tail string, follow bo
 		}
 	}
 
-
 	return filteredLines, nil
 }
 
@@ -234,14 +217,12 @@ func (d *DashboardServer) handleActivityReceive(w http.ResponseWriter, r *http.R
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 	var activity ActivityMessage
 	if err := json.NewDecoder(r.Body).Decode(&activity); err != nil {
 		log.Printf("[ACTIVITY] Invalid activity JSON: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-
 
 		return
 	}
@@ -261,7 +242,6 @@ func (d *DashboardServer) handleActivityWebSocket(w http.ResponseWriter, r *http
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WEBSOCKET] ❌ Failed to upgrade connection: %v", err)
-
 
 		return
 	}
@@ -292,23 +272,19 @@ func getClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if ips := strings.Split(xff, ","); len(ips) > 0 {
 
-
 			return strings.TrimSpace(ips[0])
 		}
 	}
 	// Try X-Real-IP header
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 
-
 		return xri
 	}
 	// Fall back to RemoteAddr
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 
-
 		return host
 	}
-
 
 	return r.RemoteAddr
 }
@@ -319,7 +295,6 @@ func (d *DashboardServer) handleServerDocs(w http.ResponseWriter, r *http.Reques
 	if path == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
 
-
 		return
 	}
 	// Proxy request to the MCP proxy
@@ -327,7 +302,6 @@ func (d *DashboardServer) handleServerDocs(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		d.logger.Error("Failed to get server docs for %s: %v", path, err)
 		http.Error(w, "Failed to get server docs", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -353,7 +327,6 @@ func (d *DashboardServer) handleServerOpenAPI(w http.ResponseWriter, r *http.Req
 	if path == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
 
-
 		return
 	}
 	// Proxy request to the MCP proxy
@@ -361,7 +334,6 @@ func (d *DashboardServer) handleServerOpenAPI(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		d.logger.Error("Failed to get server OpenAPI for %s: %v", path, err)
 		http.Error(w, "Failed to get server OpenAPI", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -377,7 +349,6 @@ func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Requ
 	if path == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
 
-
 		return
 	}
 	// Check if server exists
@@ -386,7 +357,6 @@ func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Requ
 		d.logger.Error("Failed to get servers list: %v", err)
 		http.Error(w, "Failed to verify server exists", http.StatusInternalServerError)
 
-
 		return
 	}
 	var serversMap map[string]interface{}
@@ -394,12 +364,10 @@ func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Requ
 		d.logger.Error("Failed to parse servers response: %v", err)
 		http.Error(w, "Failed to parse servers list", http.StatusInternalServerError)
 
-
 		return
 	}
 	if _, exists := serversMap[path]; !exists {
 		http.Error(w, fmt.Sprintf("Server '%s' not found", path), http.StatusNotFound)
-
 
 		return
 	}
@@ -408,7 +376,6 @@ func (d *DashboardServer) handleServerDirect(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		d.logger.Error("Failed to get server details for %s: %v", path, err)
 		http.Error(w, fmt.Sprintf("Failed to access server '%s'", path), http.StatusInternalServerError)
-
 
 		return
 	}
@@ -425,7 +392,6 @@ func (d *DashboardServer) handleServerLogs(w http.ResponseWriter, r *http.Reques
 	if path == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
 
-
 		return
 	}
 	// Get logs from container (existing functionality)
@@ -438,7 +404,6 @@ func (d *DashboardServer) handleServerLogs(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		d.logger.Error("Failed to get logs for %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
-
 
 		return
 	}
@@ -457,7 +422,6 @@ func (d *DashboardServer) handleOAuthStatus(w http.ResponseWriter, r *http.Reque
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 
@@ -466,7 +430,6 @@ func (d *DashboardServer) handleOAuthStatus(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		d.logger.Error("Failed to get OAuth status from proxy: %v", err)
 		http.Error(w, "Failed to get OAuth status", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -486,7 +449,6 @@ func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Requ
 			d.logger.Error("Failed to get OAuth clients from proxy: %v", err)
 			http.Error(w, "Failed to get OAuth clients", http.StatusInternalServerError)
 
-
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -500,7 +462,6 @@ func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Requ
 		if path == "" {
 			http.Error(w, "Client ID required", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -509,7 +470,6 @@ func (d *DashboardServer) handleOAuthClients(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			d.logger.Error("Failed to delete OAuth client: %v", err)
 			http.Error(w, "Failed to delete OAuth client", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -527,7 +487,6 @@ func (d *DashboardServer) handleOAuthRegister(w http.ResponseWriter, r *http.Req
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 
@@ -535,7 +494,6 @@ func (d *DashboardServer) handleOAuthRegister(w http.ResponseWriter, r *http.Req
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-
 
 		return
 	}
@@ -545,7 +503,6 @@ func (d *DashboardServer) handleOAuthRegister(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		d.logger.Error("Failed to register OAuth client: %v", err)
 		http.Error(w, "Failed to register OAuth client", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -562,7 +519,6 @@ func (d *DashboardServer) proxyPostRequest(endpoint string, body []byte) ([]byte
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -574,7 +530,6 @@ func (d *DashboardServer) proxyPostRequest(endpoint string, body []byte) ([]byte
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
 
-
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer func() {
@@ -586,10 +541,8 @@ func (d *DashboardServer) proxyPostRequest(endpoint string, body []byte) ([]byte
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 
-
 		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
 	}
-
 
 	return io.ReadAll(resp.Body)
 }
@@ -598,7 +551,6 @@ func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
 	url := d.proxyURL + endpoint
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -610,7 +562,6 @@ func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
 
-
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer func() {
@@ -622,10 +573,8 @@ func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 
-
 		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
 	}
-
 
 	return io.ReadAll(resp.Body)
 }
@@ -633,7 +582,6 @@ func (d *DashboardServer) proxyDeleteRequest(endpoint string) ([]byte, error) {
 func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}
@@ -653,7 +601,6 @@ func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Reque
 			d.logger.Error("Failed to encode default scopes: %v", err)
 		}
 
-
 		return
 	}
 
@@ -666,7 +613,6 @@ func (d *DashboardServer) handleOAuthScopes(w http.ResponseWriter, r *http.Reque
 func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}
@@ -692,7 +638,6 @@ func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Requ
 			d.logger.Error("Failed to encode response: %v", err)
 		}
 
-
 		return
 	}
 
@@ -705,7 +650,6 @@ func (d *DashboardServer) handleAuditEntries(w http.ResponseWriter, r *http.Requ
 func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}
@@ -725,7 +669,6 @@ func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Reques
 			d.logger.Error("Failed to encode response: %v", err)
 		}
 
-
 		return
 	}
 
@@ -739,7 +682,6 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 
@@ -747,7 +689,6 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-
 
 		return
 	}
@@ -758,7 +699,6 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		d.logger.Error("Failed to create OAuth token request: %v", err)
 		http.Error(w, "Failed to request token", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -775,7 +715,6 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 		d.logger.Error("OAuth token request failed: %v", err)
 		http.Error(w, "Failed to request token", http.StatusInternalServerError)
 
-
 		return
 	}
 	defer func() {
@@ -789,7 +728,6 @@ func (d *DashboardServer) handleOAuthToken(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		d.logger.Error("Failed to read OAuth token response: %v", err)
 		http.Error(w, "Failed to request token", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -816,7 +754,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -824,7 +761,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 		req, err := http.NewRequest("POST", proxyURL, bytes.NewBuffer(body))
 		if err != nil {
 			http.Error(w, "Failed to create request", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -835,7 +771,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 		client := &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 
-
 				return http.ErrUseLastResponse // Don't follow redirects automatically
 			},
 		}
@@ -844,7 +779,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			d.logger.Error("OAuth authorize request failed: %v", err)
 			http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -866,7 +800,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 					d.logger.Error("Failed to parse redirect URL: %v", err)
 					http.Error(w, "Invalid redirect URL", http.StatusInternalServerError)
 
-
 					return
 				}
 
@@ -876,13 +809,11 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 					d.logger.Info("Redirecting browser to local callback: %s", localCallback)
 					http.Redirect(w, r, localCallback, http.StatusFound)
 
-
 					return
 				} else {
 					// For other redirects, redirect as-is
 					d.logger.Info("Redirecting browser to: %s", location)
 					http.Redirect(w, r, location, resp.StatusCode)
-
 
 					return
 				}
@@ -893,7 +824,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 		responseBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			http.Error(w, "Failed to read response", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -909,7 +839,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 			d.logger.Error("Failed to write response: %v", err)
 		}
 
-
 		return
 	}
 
@@ -918,7 +847,6 @@ func (d *DashboardServer) handleOAuthAuthorize(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		d.logger.Error("Failed to get OAuth authorize from proxy: %v", err)
 		http.Error(w, "Failed to process authorization", http.StatusInternalServerError)
-
 
 		return
 	}
@@ -956,7 +884,6 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 				d.logger.Error("Failed to write response: %v", err)
 			}
 
-
 			return
 		}
 
@@ -967,7 +894,6 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 			d.logger.Error("Failed to write response: %v", err)
 		}
 
-
 		return
 	}
 
@@ -977,7 +903,6 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -986,7 +911,6 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 			d.logger.Error("Failed to post OAuth callback to proxy: %v", err)
 			http.Error(w, "Failed to process callback", http.StatusInternalServerError)
 
-
 			return
 		}
 
@@ -994,7 +918,6 @@ func (d *DashboardServer) handleOAuthCallback(w http.ResponseWriter, r *http.Req
 		if _, err := w.Write(postResp); err != nil {
 			d.logger.Error("Failed to write response: %v", err)
 		}
-
 
 		return
 	}
@@ -1129,7 +1052,6 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
                 exchangeBtn.textContent = '🔄 Exchange Code for Access Token';
             }
         }`, code, r.Host)
-
 
 	return fmt.Sprintf(`
 <!DOCTYPE html>
@@ -1312,7 +1234,6 @@ func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Req
 			d.logger.Error("Failed to proxy OAuth GET request: %v", err)
 			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
 
-
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1324,7 +1245,6 @@ func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Req
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
-
 
 			return
 		}
@@ -1339,7 +1259,6 @@ func (d *DashboardServer) handleOAuthAPIProxy(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			d.logger.Error("Failed to proxy OAuth %s request: %v", r.Method, err)
 			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -1360,7 +1279,6 @@ func (d *DashboardServer) proxyPutRequest(endpoint string, body []byte) ([]byte,
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(body))
 	if err != nil {
 
-
 		return nil, err
 	}
 
@@ -1369,7 +1287,6 @@ func (d *DashboardServer) proxyPutRequest(endpoint string, body []byte) ([]byte,
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
 
-
 		return nil, err
 	}
 	defer func() {
@@ -1377,7 +1294,6 @@ func (d *DashboardServer) proxyPutRequest(endpoint string, body []byte) ([]byte,
 			d.logger.Error("Failed to close response body: %v", err)
 		}
 	}()
-
 
 	return io.ReadAll(resp.Body)
 }
@@ -1399,7 +1315,6 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 			d.logger.Error("Failed to proxy API GET request: %v", err)
 			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
 
-
 			return
 		}
 
@@ -1418,7 +1333,6 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -1426,7 +1340,6 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			d.logger.Error("Failed to proxy API POST request: %v", err)
 			http.Error(w, "Failed to proxy request", http.StatusInternalServerError)
-
 
 			return
 		}
@@ -1463,12 +1376,10 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 		if err != nil {
 			http.Error(w, "Failed to read body", http.StatusBadRequest)
 
-
 			return
 		}
 		if err := json.Unmarshal(body, &toolArgs); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-
 
 			return
 		}
@@ -1484,7 +1395,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 		} else {
 			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -1497,7 +1407,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 			}
 		} else {
 			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
-
 
 			return
 		}
@@ -1512,7 +1421,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 		} else {
 			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
 
-
 			return
 		}
 
@@ -1525,7 +1433,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 			}
 		} else {
 			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
-
 
 			return
 		}
@@ -1541,7 +1448,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported operation: %s %s", r.Method, path), http.StatusBadRequest)
 
-
 		return
 	}
 
@@ -1551,7 +1457,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 	if d.inspectorService == nil {
 		http.Error(w, `{"error": "Inspector service not available"}`, http.StatusServiceUnavailable)
 
-
 		return
 	}
 
@@ -1560,7 +1465,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 	if err != nil {
 		d.logger.Error("Failed to create task scheduler session: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error": "Failed to create session: %v"}`, err), http.StatusServiceUnavailable)
-
 
 		return
 	}
@@ -1577,7 +1481,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 	if err != nil {
 		d.logger.Error("Task scheduler tool call failed: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error": "Tool call failed: %v"}`, err), http.StatusInternalServerError)
-
 
 		return
 	}
@@ -1606,7 +1509,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 									d.logger.Error("Failed to encode JSON result: %v", err)
 								}
 
-
 								return
 							}
 						}
@@ -1617,7 +1519,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 			if err := json.NewEncoder(w).Encode(resultMap); err != nil {
 				d.logger.Error("Failed to encode result map: %v", err)
 			}
-
 
 			return
 		}
@@ -1644,7 +1545,6 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 func mustJSON(v interface{}) string {
 	b, _ := json.Marshal(v)
 
-
 	return string(b)
 }
 
@@ -1652,7 +1552,6 @@ func mustJSON(v interface{}) string {
 func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}
@@ -1666,7 +1565,6 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 		}); err != nil {
 			d.logger.Error("Failed to encode availability response: %v", err)
 		}
-
 
 		return
 	}
@@ -1682,7 +1580,6 @@ func (d *DashboardServer) handleTaskSchedulerHealth(w http.ResponseWriter, r *ht
 		}); err != nil {
 			d.logger.Error("Failed to encode error response: %v", err)
 		}
-
 
 		return
 	}
@@ -1733,7 +1630,6 @@ func (d *DashboardServer) handleContainerLogs(w http.ResponseWriter, r *http.Req
 		d.logger.Error("Container %s not found: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Container not found: %s", containerName), http.StatusNotFound)
 
-
 		return
 	}
 
@@ -1758,7 +1654,6 @@ func (d *DashboardServer) verifyContainerExists(containerName string) error {
 		cmd = exec.Command("podman", "inspect", containerName)
 	default:
 
-
 		return fmt.Errorf("unsupported container runtime: %s", runtime)
 	}
 
@@ -1769,12 +1664,10 @@ func (d *DashboardServer) verifyContainerExists(containerName string) error {
 	if err != nil {
 		d.logger.Debug("Container verification failed: %v", err)
 
-
 		return fmt.Errorf("container not found")
 	}
 
 	d.logger.Debug("Container %s verified successfully", containerName)
-
 
 	return nil
 }
@@ -1784,7 +1677,6 @@ func (d *DashboardServer) detectContainerRuntime() string {
 	if _, err := exec.LookPath("docker"); err == nil {
 		if cmd := exec.Command("docker", "version"); cmd.Run() == nil {
 
-
 			return "docker"
 		}
 	}
@@ -1793,11 +1685,9 @@ func (d *DashboardServer) detectContainerRuntime() string {
 	if _, err := exec.LookPath("podman"); err == nil {
 		if cmd := exec.Command("podman", "version"); cmd.Run() == nil {
 
-
 			return "podman"
 		}
 	}
-
 
 	return "docker" // fallback
 }
@@ -1810,7 +1700,6 @@ func (d *DashboardServer) getStaticContainerLogs(w http.ResponseWriter, r *http.
 	if err != nil {
 		d.logger.Error("Failed to get logs for container %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
-
 
 		return
 	}
@@ -1840,7 +1729,6 @@ func (d *DashboardServer) streamContainerLogs(w http.ResponseWriter, r *http.Req
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 
-
 		return
 	}
 
@@ -1848,12 +1736,10 @@ func (d *DashboardServer) streamContainerLogs(w http.ResponseWriter, r *http.Req
 	if _, err := fmt.Fprintf(w, "event: connected\n"); err != nil {
 		d.logger.Error("Failed to write SSE event: %v", err)
 
-
 		return
 	}
 	if _, err := fmt.Fprintf(w, "data: {\"container\":\"%s\",\"message\":\"Log stream connected\"}\n\n", containerName); err != nil {
 		d.logger.Error("Failed to write SSE data: %v", err)
-
 
 		return
 	}
@@ -1919,7 +1805,6 @@ func (d *DashboardServer) getLogsFromRuntime(ctx context.Context, containerName 
 
 	default:
 
-
 		return nil, fmt.Errorf("unsupported container runtime: %s", runtime)
 	}
 
@@ -1934,10 +1819,8 @@ func (d *DashboardServer) getLogsFromRuntime(ctx context.Context, containerName 
 		if strings.Contains(stderrStr, "no such container") ||
 			strings.Contains(stderrStr, "No such container") {
 
-
 			return nil, fmt.Errorf("container not found: %s", containerName)
 		}
-
 
 		return nil, fmt.Errorf("command failed: %v, stderr: %s", err, stderrStr)
 	}
@@ -1945,7 +1828,6 @@ func (d *DashboardServer) getLogsFromRuntime(ctx context.Context, containerName 
 	if stderr.Len() > 0 {
 		d.logger.Warning("Command stderr for %s: %s", containerName, stderr.String())
 	}
-
 
 	return d.parseLogOutput(stdout.String()), nil
 }
@@ -1987,7 +1869,6 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 
 	default:
 
-
 		return fmt.Errorf("unsupported container runtime: %s", runtime)
 	}
 
@@ -1996,19 +1877,16 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 
-
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 
-
 		return fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-
 
 		return fmt.Errorf("failed to start command: %v", err)
 	}
@@ -2033,7 +1911,6 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 		case <-ctx.Done():
 			d.logger.Info("Log streaming cancelled for container %s", containerName)
 
-
 			return ctx.Err()
 		default:
 		}
@@ -2048,12 +1925,10 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 		if _, err := fmt.Fprintf(w, "event: log\n"); err != nil {
 			d.logger.Error("Failed to write SSE log event: %v", err)
 
-
 			return err
 		}
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", logEntry); err != nil {
 			d.logger.Error("Failed to write SSE log data: %v", err)
-
 
 			return err
 		}
@@ -2067,7 +1942,6 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 
 	if err := scanner.Err(); err != nil {
 
-
 		return fmt.Errorf("error reading logs: %v", err)
 	}
 
@@ -2075,10 +1949,8 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
 
-
 			return ctx.Err() // Context was cancelled
 		}
-
 
 		return fmt.Errorf("command failed: %v", err)
 	}
@@ -2092,13 +1964,11 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 	}
 	flusher.Flush()
 
-
 	return nil
 }
 
 func (d *DashboardServer) parseLogOutput(output string) []string {
 	if output == "" {
-
 
 		return []string{}
 	}
@@ -2111,7 +1981,6 @@ func (d *DashboardServer) parseLogOutput(output string) []string {
 			result = append(result, d.parseLogLine(line, i+1))
 		}
 	}
-
 
 	return result
 }
@@ -2152,11 +2021,9 @@ func (d *DashboardServer) parseLogLine(line string, lineNumber int) string {
 	if err != nil {
 		d.logger.Error("Failed to marshal log entry: %v", err)
 
-
 		return fmt.Sprintf("{\"line\":%d,\"content\":%q,\"timestamp\":%q}",
 			lineNumber, line, time.Now().Format(time.RFC3339Nano))
 	}
-
 
 	return string(jsonBytes)
 }
@@ -2177,7 +2044,6 @@ func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Re
 	default:
 		http.Error(w, "Unsupported container runtime", http.StatusInternalServerError)
 
-
 		return
 	}
 
@@ -2185,7 +2051,6 @@ func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Re
 	if err != nil {
 		d.logger.Error("Failed to get container stats for %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
-
 
 		return
 	}
@@ -2227,7 +2092,6 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
 		return
 	}
 
@@ -2237,13 +2101,11 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 
-
 		return
 	}
 
 	if req.Server == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
-
 
 		return
 	}
@@ -2264,7 +2126,6 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 			d.logger.Error("Failed to encode response: %v", err)
 		}
 
-
 		return
 	case "stop":
 		if runtime == "docker" {
@@ -2280,7 +2141,6 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 		}
 	default:
 		http.Error(w, "Unknown action", http.StatusBadRequest)
-
 
 		return
 	}
@@ -2298,7 +2158,6 @@ func (d *DashboardServer) handleServerAction(w http.ResponseWriter, r *http.Requ
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			d.logger.Error("Failed to encode response: %v", err)
 		}
-
 
 		return
 	}

@@ -20,14 +20,12 @@ This will refresh the proxy's server list without restarting the proxy.`,
 			port, _ := cmd.Flags().GetInt("port")
 			apiKey, _ := cmd.Flags().GetString("api-key")
 
-
 			return reloadProxy(port, apiKey)
 		},
 	}
 
 	cmd.Flags().IntP("port", "p", constants.DefaultProxyPort, "Proxy server port")
 	cmd.Flags().String("api-key", "", "API key for proxy authentication")
-
 
 	return cmd
 }

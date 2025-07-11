@@ -32,7 +32,6 @@ func NewResourceMetadataHandler(authServers []string, scopes []string) *Resource
 		ScopesSupported:        scopes,
 	}
 
-
 	return &ResourceMetadataHandler{
 		metadata: metadata,
 	}
@@ -42,7 +41,6 @@ func NewResourceMetadataHandler(authServers []string, scopes []string) *Resource
 func (h *ResourceMetadataHandler) HandleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}

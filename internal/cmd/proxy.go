@@ -251,7 +251,7 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	// Get configurable timeouts or use defaults
 	readTimeout := constants.FileOperationTimeout  // Default for large file operations
 	writeTimeout := constants.FileOperationTimeout // Default for long-running tools
-	idleTimeout := constants.ConnectionKeepAlive  // Default for connection keepalive
+	idleTimeout := constants.ConnectionKeepAlive   // Default for connection keepalive
 
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
@@ -317,7 +317,6 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
-
 	return httpServer.Shutdown(shutdownCtx)
 }
 
@@ -344,7 +343,7 @@ func buildGoProxyImage(httpProxy bool) error {
 	fmt.Printf("Building Go proxy image (%s)...\n", imageName)
 
 	dockerfilePath := "dockerfiles/Dockerfile.proxy"
-	
+
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
@@ -490,7 +489,6 @@ If API key authentication is enabled, you'll need to configure the Authorization
 	if err := os.WriteFile(readmePath, []byte(readmeContent), constants.DefaultFileMode); err != nil {
 		fmt.Printf("Warning: Failed to write README: %v\n", err)
 	}
-
 
 	return nil
 }

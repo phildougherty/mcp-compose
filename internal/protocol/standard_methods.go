@@ -111,7 +111,6 @@ func (h *StandardMethodHandler) handleInitialize(params json.RawMessage, request
 	// Mark as initialized
 	h.initialized = true
 
-
 	return NewResponse(requestID, result, nil)
 }
 
@@ -147,7 +146,6 @@ func (h *StandardMethodHandler) handlePing(requestID interface{}) (*MCPResponse,
 		"status":    "ok",
 	}
 
-
 	return NewResponse(requestID, result, nil)
 }
 
@@ -174,7 +172,6 @@ func (h *StandardMethodHandler) handleRootsList(params json.RawMessage, requestI
 		Roots: roots,
 	}
 
-
 	return NewResponse(requestID, result, nil)
 }
 
@@ -195,7 +192,6 @@ func (h *StandardMethodHandler) handleCancelled(params json.RawMessage) error {
 	// Implementation would track ongoing requests and cancel the specified one
 	// For now, just acknowledge the cancellation
 	fmt.Printf("Request %v cancelled: %s\n", cancelParams.RequestID, cancelParams.Reason)
-
 
 	return nil
 }
@@ -289,7 +285,6 @@ func (h *StandardMethodHandler) SetCapability(capability string, enabled bool, o
 		return NewValidationError("capability", capability, "unknown capability")
 	}
 
-
 	return nil
 }
 
@@ -347,7 +342,6 @@ func ValidateInitializeRequest(params InitializeParams) error {
 			return NewValidationError(fmt.Sprintf("roots[%d].name", i), root.Name, "root name is required")
 		}
 	}
-
 
 	return nil
 }

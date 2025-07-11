@@ -164,7 +164,6 @@ docker run --rm -i \
 	fmt.Println("2. Go to Settings > MCP Servers")
 	fmt.Println("3. Click 'Import Servers' and select the generated file")
 
-
 	return nil
 }
 
@@ -298,7 +297,6 @@ if __name__ == "__main__":
 	fmt.Println("1. Install the Anthropic Python client: pip install anthropic")
 	fmt.Println("2. Set your ANTHROPIC_API_KEY environment variable")
 	fmt.Println("3. Run the example script: python anthropic_mcp_example.py")
-
 
 	return nil
 }
@@ -465,7 +463,6 @@ main();
 	fmt.Println("1. Install dependencies: npm install")
 	fmt.Println("2. Set your OPENAI_API_KEY environment variable")
 	fmt.Println("3. Run the example script: npm start")
-
 
 	return nil
 }

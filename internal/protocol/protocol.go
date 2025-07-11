@@ -262,7 +262,6 @@ func NewRequest(id interface{}, method string, params interface{}, progressToken
 		req.ProgressToken = progressToken[0]
 	}
 
-
 	return req, nil
 }
 
@@ -289,7 +288,6 @@ func NewResponse(id interface{}, result interface{}, err *MCPError, progressToke
 		resp.ProgressToken = progressToken[0]
 	}
 
-
 	return resp, nil
 }
 
@@ -304,7 +302,6 @@ func NewNotification(method string, params interface{}) (*MCPNotification, error
 			return nil, err
 		}
 	}
-
 
 	return &MCPNotification{
 		JSONRPC: "2.0",
@@ -416,7 +413,6 @@ func ValidateMessage(msg MCPMessage) error {
 			return NewInvalidRequest("notification cannot have result or error fields")
 		}
 	}
-
 
 	return nil
 }

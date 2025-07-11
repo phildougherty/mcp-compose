@@ -44,7 +44,6 @@ func NewLogger(maxEntries int, maxAge string, events []string, logger *logging.L
 		eventMap[event] = true
 	}
 
-
 	return &Logger{
 		enabled:    true,
 		maxEntries: maxEntries,
@@ -101,7 +100,6 @@ func (l *Logger) GetEntries(limit, offset int) ([]Entry, int) {
 	if end > total {
 		end = total
 	}
-
 
 	return l.entries[start:end], total
 }

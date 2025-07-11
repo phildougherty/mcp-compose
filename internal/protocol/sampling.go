@@ -229,7 +229,6 @@ func (sm *SamplingManager) ProcessSamplingRequest(requestID string) (*SamplingRe
 	request.Status = "completed"
 	sm.mu.Unlock()
 
-
 	return response, nil
 }
 
@@ -257,7 +256,6 @@ func (sm *SamplingManager) ApproveRequest(requestID, reviewer, comments string) 
 		Comments:   comments,
 	}
 
-
 	return nil
 }
 
@@ -284,7 +282,6 @@ func (sm *SamplingManager) RejectRequest(requestID, reviewer, reason string) err
 		ReviewTime: time.Now(),
 		Comments:   reason,
 	}
-
 
 	return nil
 }
@@ -347,7 +344,6 @@ func (sm *SamplingManager) selectHandler(request *SamplingRequest) SamplingHandl
 		return handler
 	}
 
-
 	return nil
 }
 
@@ -363,7 +359,6 @@ func (sm *SamplingManager) GetPendingRequests() []*SamplingRequest {
 		}
 	}
 
-
 	return pending
 }
 
@@ -377,7 +372,6 @@ func (sm *SamplingManager) GetRequestStatus(requestID string) (string, error) {
 
 		return "", fmt.Errorf("sampling request %s not found", requestID)
 	}
-
 
 	return request.Status, nil
 }

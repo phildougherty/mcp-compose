@@ -77,7 +77,6 @@ func NewAuditLogger(auditConfig *config.AuditConfig, logger *logging.Logger) *Au
 	al.wg.Add(1)
 	go al.cleanupOldEntries()
 
-
 	return al
 }
 
@@ -177,7 +176,6 @@ func (al *AuditLogger) GetEntries(limit int, offset int, filter *AuditFilter) ([
 		end = len(filtered)
 	}
 
-
 	return filtered[start:end], total, nil
 }
 
@@ -229,7 +227,6 @@ func (al *AuditLogger) matchesTimeRange(entry AuditEntry, filter *AuditFilter) b
 		return false
 	}
 
-
 	return true
 }
 
@@ -243,7 +240,6 @@ func (al *AuditLogger) cleanupOldEntries() {
 		select {
 		case <-al.stopCh:
 			al.logger.Debug("Audit logger cleanup goroutine stopping")
-
 
 			return
 		case <-ticker.C:
@@ -283,11 +279,9 @@ func (al *AuditLogger) Shutdown() error {
 	case <-done:
 		al.logger.Debug("Audit logger shutdown completed")
 
-
 		return nil
 	case <-time.After(DefaultAuditStatsTimeout * time.Second):
 		al.logger.Warning("Audit logger shutdown timeout")
-
 
 		return ErrAuditShutdownTimeout
 	}
@@ -314,7 +308,6 @@ func (al *AuditLogger) GetStats() AuditStats {
 	if len(al.entries) > 0 {
 		stats.SuccessRate = float64(successCount) / float64(len(al.entries)) * PercentageMultiplier
 	}
-
 
 	return stats
 }

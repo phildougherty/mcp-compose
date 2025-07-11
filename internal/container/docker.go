@@ -23,10 +23,8 @@ type DockerRuntime struct {
 func NewDockerRuntime(path string) (Runtime, error) {
 	if path == "" {
 
-
 		return nil, fmt.Errorf("docker executable path cannot be empty")
 	}
-
 
 	return &DockerRuntime{execPath: path}, nil
 }
@@ -38,20 +36,16 @@ func (d *DockerRuntime) RemoveNetwork(name string) error {
 		// Check if network doesn't exist (not an error for cleanup)
 		if strings.Contains(string(output), "not found") {
 
-
 			return nil
 		}
 
-
 		return fmt.Errorf("failed to remove network %s: %w. Output: %s", name, err, string(output))
 	}
-
 
 	return nil
 }
 
 func (d *DockerRuntime) GetRuntimeName() string {
-
 
 	return "docker"
 }
@@ -70,7 +64,6 @@ func (d *DockerRuntime) ExecContainer(containerName string, command []string, in
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 
-
 		return nil, nil, nil, fmt.Errorf("failed to create stdin pipe for exec: %w", err)
 	}
 
@@ -78,10 +71,8 @@ func (d *DockerRuntime) ExecContainer(containerName string, command []string, in
 	if err != nil {
 		if closeErr := stdin.Close(); closeErr != nil {
 
-
 			return nil, nil, nil, fmt.Errorf("failed to create stdout pipe and close stdin: %v, close error: %w", err, closeErr)
 		}
-
 
 		return nil, nil, nil, fmt.Errorf("failed to create stdout pipe for exec: %w", err)
 	}
@@ -91,23 +82,18 @@ func (d *DockerRuntime) ExecContainer(containerName string, command []string, in
 		if closeErr := stdin.Close(); closeErr != nil {
 			if closeErr2 := stdout.Close(); closeErr2 != nil {
 
-
 				return nil, nil, nil, fmt.Errorf("failed to start exec command and close pipes: %v, stdin close error: %v, stdout close error: %w", err, closeErr, closeErr2)
 			}
-
 
 			return nil, nil, nil, fmt.Errorf("failed to start exec command and close stdin: %v, close error: %w", err, closeErr)
 		}
 		if closeErr := stdout.Close(); closeErr != nil {
 
-
 			return nil, nil, nil, fmt.Errorf("failed to start exec command and close stdout: %v, close error: %w", err, closeErr)
 		}
 
-
 		return nil, nil, nil, fmt.Errorf("failed to start exec command: %w", err)
 	}
-
 
 	return cmd, stdin, stdout, nil
 }
@@ -119,7 +105,6 @@ func (d *DockerRuntime) StopContainer(name string) error {
 		// If inspect fails, container likely doesn't exist.
 		// This is not an error for a "stop" operation if the intent is "ensure stopped".
 		fmt.Printf("Container '%s' not found or already removed, skipping stop/remove.\n", name)
-
 
 		return nil
 	}
@@ -137,11 +122,9 @@ func (d *DockerRuntime) StopContainer(name string) error {
 	rmCmd := exec.Command(d.execPath, "rm", "-f", name) // -f to force remove if stopped but not removed
 	if err := rmCmd.Run(); err != nil {
 
-
 		return fmt.Errorf("failed to remove container '%s': %w", name, err)
 	}
 	fmt.Printf("Container '%s' removed.\n", name)
-
 
 	return nil
 }
@@ -154,10 +137,8 @@ func (d *DockerRuntime) GetContainerStatus(name string) (string, error) {
 		if strings.Contains(strings.ToLower(string(output)), "no such object") ||
 			strings.Contains(strings.ToLower(err.Error()), "no such container") {
 
-
 			return "stopped", nil
 		}
-
 
 		return "unknown", fmt.Errorf("failed to inspect container '%s': %w, output: %s", name, err, string(output))
 	}
@@ -166,35 +147,28 @@ func (d *DockerRuntime) GetContainerStatus(name string) (string, error) {
 	switch strings.ToLower(status) {
 	case "running":
 
-
 		return "running", nil
 	case "created", "restarting":
-
 
 		return "starting", nil // Or map 'created' to 'stopped' if it means not yet run
 	case "paused":
 
-
 		return "paused", nil
 	case "exited", "dead":
-
 
 		return "stopped", nil
 	default:
 		// For any other status (like "removing"), or if status is empty
 		if status == "" {
 
-
 			return "unknown", fmt.Errorf("empty status received for container %s", name)
 		}
-
 
 		return status, nil // Return the raw status from Docker
 	}
 }
 
 func (d *DockerRuntime) GetExecPath() string {
-
 
 	return d.execPath
 }
@@ -209,7 +183,6 @@ func (d *DockerRuntime) ShowContainerLogs(name string, follow bool) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-
 	return cmd.Run()
 }
 
@@ -218,7 +191,6 @@ func (d *DockerRuntime) NetworkExists(name string) (bool, error) {
 	// If `Run` returns an error, the network likely doesn't exist or cannot be inspected.
 	// A nil error means the inspect command succeeded, so the network exists.
 	err := cmd.Run()
-
 
 	return err == nil, nil
 }
@@ -231,15 +203,12 @@ func (d *DockerRuntime) CreateNetwork(name string) error {
 		if strings.Contains(string(output), "already exists") {
 			fmt.Printf("Network '%s' already exists.\n", name)
 
-
 			return nil
 		}
-
 
 		return fmt.Errorf("failed to create network '%s': %w, output: %s", name, err, string(output))
 	}
 	fmt.Printf("Network '%s' created.\n", name)
-
 
 	return nil
 }
@@ -251,10 +220,8 @@ func (d *DockerRuntime) RestartContainer(name string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return fmt.Errorf("failed to restart container '%s': %w. Output: %s", name, err, string(output))
 	}
-
 
 	return nil
 }
@@ -262,13 +229,11 @@ func (d *DockerRuntime) RestartContainer(name string) error {
 func (d *DockerRuntime) PauseContainer(name string) error {
 	cmd := exec.Command(d.execPath, "pause", name)
 
-
 	return cmd.Run()
 }
 
 func (d *DockerRuntime) UnpauseContainer(name string) error {
 	cmd := exec.Command(d.execPath, "unpause", name)
-
 
 	return cmd.Run()
 }
@@ -291,17 +256,14 @@ func (d *DockerRuntime) GetContainerInfo(name string) (*ContainerInfo, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to inspect container '%s': %w", name, err)
 	}
 
 	var info ContainerInfo
 	if err := json.Unmarshal(output, &info); err != nil {
 
-
 		return nil, fmt.Errorf("failed to parse container info: %w", err)
 	}
-
 
 	return &info, nil
 }
@@ -317,7 +279,6 @@ func (d *DockerRuntime) ListContainers(filters map[string]string) ([]ContainerIn
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
@@ -325,15 +286,16 @@ func (d *DockerRuntime) ListContainers(filters map[string]string) ([]ContainerIn
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		if line == "" {
+
 			continue
 		}
 		var container ContainerInfo
 		if err := json.Unmarshal([]byte(line), &container); err != nil {
+
 			continue // Skip malformed entries
 		}
 		containers = append(containers, container)
 	}
-
 
 	return containers, nil
 }
@@ -349,7 +311,6 @@ func (d *DockerRuntime) PullImage(image string, auth *ImageAuth) error {
 	cmd := exec.Command(d.execPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
 
 	return cmd.Run()
 }
@@ -405,10 +366,8 @@ func (d *DockerRuntime) BuildImage(opts *BuildOptions) error {
 
 	if err != nil {
 
-
 		return fmt.Errorf("docker build failed: %w\nBuild output: %s", err, string(output))
 	}
-
 
 	return nil
 }
@@ -418,17 +377,14 @@ func (d *DockerRuntime) GetContainerStats(name string) (*ContainerStats, error) 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to get stats for container '%s': %w", name, err)
 	}
 
 	var stats ContainerStats
 	if err := json.Unmarshal(output, &stats); err != nil {
 
-
 		return nil, fmt.Errorf("failed to parse stats: %w", err)
 	}
-
 
 	return &stats, nil
 }
@@ -444,7 +400,6 @@ func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
 	if isSystemContainer {
 		fmt.Printf("Info: System container '%s' granted elevated permissions\n", opts.Name)
 
-
 		return nil
 	}
 
@@ -455,7 +410,6 @@ func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
 	if opts.Privileged {
 		if !securityConfig.AllowPrivilegedOps {
 
-
 			return fmt.Errorf("container '%s' requests privileged mode but security.allow_privileged_ops is not enabled", opts.Name)
 		}
 		fmt.Printf("Info: Container '%s' running in privileged mode (explicitly allowed)\n", opts.Name)
@@ -465,7 +419,6 @@ func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
 	for _, volume := range opts.Volumes {
 		if err := d.validateVolumeMount(volume, opts.Name, &securityConfig); err != nil {
 
-
 			return err
 		}
 	}
@@ -474,11 +427,9 @@ func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
 	for _, cap := range opts.CapAdd {
 		if err := d.validateCapability(cap, opts.Name); err != nil {
 
-
 			return err
 		}
 	}
-
 
 	return nil
 }
@@ -487,7 +438,6 @@ func (d *DockerRuntime) validateVolumeMount(volume, containerName string, securi
 	parts := strings.Split(volume, ":")
 	if len(parts) < constants.StringSplitParts {
 		// This is a named volume (e.g., "mcp-cron-data:/data") - always allow
-
 
 		return nil
 	}
@@ -499,7 +449,6 @@ func (d *DockerRuntime) validateVolumeMount(volume, containerName string, securi
 		// This is a named Docker volume - always allow
 		fmt.Printf("Info: Container '%s' mounting Docker volume '%s'\n", containerName, source)
 
-
 		return nil
 	}
 
@@ -507,19 +456,16 @@ func (d *DockerRuntime) validateVolumeMount(volume, containerName string, securi
 	if source == "/var/run/docker.sock" {
 		if !security.AllowDockerSocket {
 
-
 			return fmt.Errorf("container '%s' requests Docker socket access but security.allow_docker_socket is not enabled", containerName)
 		}
 
 		// Ensure it's read-only unless explicitly allowed for privileged ops
 		if !strings.HasSuffix(volume, ":ro") && !security.AllowPrivilegedOps {
 
-
 			return fmt.Errorf("container '%s' requests write access to Docker socket but security.allow_privileged_ops is not enabled", containerName)
 		}
 
 		fmt.Printf("Info: Container '%s' granted Docker socket access (explicitly allowed)\n", containerName)
-
 
 		return nil
 	}
@@ -530,11 +476,9 @@ func (d *DockerRuntime) validateVolumeMount(volume, containerName string, securi
 		if source == dangerous {
 			if !security.AllowPrivilegedOps {
 
-
 				return fmt.Errorf("container '%s' requests dangerous mount '%s' but security.allow_privileged_ops is not enabled", containerName, source)
 			}
 			fmt.Printf("Warning: Container '%s' mounting dangerous path '%s' (explicitly allowed)\n", containerName, source)
-
 
 			return nil
 		}
@@ -546,16 +490,13 @@ func (d *DockerRuntime) validateVolumeMount(volume, containerName string, securi
 			if strings.HasPrefix(source, allowed) {
 				fmt.Printf("Info: Container '%s' mounting allowed host path '%s'\n", containerName, source)
 
-
 				return nil
 			}
 		}
 		// If allow list is specified but path not in it
 
-
 		return fmt.Errorf("container '%s' requests mount '%s' which is not in security.allow_host_mounts list", containerName, source)
 	}
-
 
 	return nil
 }
@@ -575,7 +516,6 @@ func (d *DockerRuntime) validateCapability(capability, containerName string) err
 		}
 	}
 
-
 	return nil
 }
 
@@ -588,7 +528,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		_ = stopCmd.Run()
 		rmCmd := exec.Command(d.execPath, "rm", "-f", opts.Name)
 		if err := rmCmd.Run(); err != nil {
-
 
 			return "", fmt.Errorf("failed to remove existing container '%s': %w", opts.Name, err)
 		}
@@ -612,10 +551,8 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		fmt.Printf("  Current Working Directory: %s\n", func() string {
 			if cwd, err := os.Getwd(); err == nil {
 
-
 				return cwd
 			}
-
 
 			return "unknown"
 		}())
@@ -623,7 +560,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		// Check if context exists
 		if info, err := os.Stat(opts.Build.Context); err != nil {
 			fmt.Printf("  Context directory error: %v\n", err)
-
 
 			return "", fmt.Errorf("build context directory '%s' does not exist: %w", opts.Build.Context, err)
 		} else {
@@ -638,7 +574,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		fullPath := filepath.Join(opts.Build.Context, dockerfilePath)
 		if _, err := os.Stat(fullPath); err != nil {
 			fmt.Printf("  Dockerfile error: %v (looking for: %s)\n", err, fullPath)
-
 
 			return "", fmt.Errorf("dockerfile '%s' does not exist in context '%s': %w", dockerfilePath, opts.Build.Context, err)
 		} else {
@@ -661,7 +596,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		fmt.Printf("Starting build process for '%s'...\n", imageToRun)
 		if err := d.BuildImage(buildOpts); err != nil {
 
-
 			return "", fmt.Errorf("failed to build image: %w", err)
 		}
 
@@ -669,7 +603,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	}
 
 	if imageToRun == "" {
-
 
 		return "", fmt.Errorf("no image specified or could be built for server '%s'", opts.Name)
 	}
@@ -679,7 +612,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		fmt.Printf("Pulling image '%s'...\n", imageToRun)
 		if err := d.PullImage(imageToRun, nil); err != nil {
 
-
 			return "", fmt.Errorf("failed to pull image '%s': %w", imageToRun, err)
 		}
 	}
@@ -687,7 +619,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	// NOW apply security validation to the CONTAINER RUNTIME only
 	fmt.Printf("Applying security validation for container runtime '%s'...\n", opts.Name)
 	if err := d.ValidateSecurityContext(opts); err != nil {
-
 
 		return "", fmt.Errorf("container runtime security validation failed: %w", err)
 	}
@@ -875,7 +806,6 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 			}
 		}
 
-
 		return "", fmt.Errorf("failed to start container '%s' with image '%s': %w. Output: %s", opts.Name, imageToRun, err, string(output))
 	}
 
@@ -916,20 +846,17 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 		}
 	}
 
-
 	return containerID, nil
 }
 
 func (d *DockerRuntime) ConnectToNetwork(containerName, networkName string) error {
 	cmd := exec.Command(d.execPath, "network", "connect", networkName, containerName)
 
-
 	return cmd.Run()
 }
 
 func (d *DockerRuntime) DisconnectFromNetwork(containerName, networkName string) error {
 	cmd := exec.Command(d.execPath, "network", "disconnect", networkName, containerName)
-
 
 	return cmd.Run()
 }
@@ -960,16 +887,13 @@ func (d *DockerRuntime) CreateVolume(name string, opts *VolumeOptions) error {
 		if strings.Contains(string(output), "already exists") {
 			fmt.Printf("Volume '%s' already exists.\n", name)
 
-
 			return nil
 		}
-
 
 		return fmt.Errorf("failed to create volume '%s': %w, output: %s", name, err, string(output))
 	}
 
 	fmt.Printf("Volume '%s' created.\n", name)
-
 
 	return nil
 }
@@ -986,14 +910,11 @@ func (d *DockerRuntime) RemoveVolume(name string, force bool) error {
 	if err != nil {
 		if strings.Contains(string(output), "no such volume") {
 
-
 			return nil // Volume doesn't exist, consider it success
 		}
 
-
 		return fmt.Errorf("failed to remove volume '%s': %w, output: %s", name, err, string(output))
 	}
-
 
 	return nil
 }
@@ -1002,7 +923,6 @@ func (d *DockerRuntime) ListVolumes() ([]VolumeInfo, error) {
 	cmd := exec.Command(d.execPath, "volume", "ls", "--format", "json")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-
 
 		return nil, fmt.Errorf("failed to list volumes: %w", err)
 	}
@@ -1022,7 +942,6 @@ func (d *DockerRuntime) ListVolumes() ([]VolumeInfo, error) {
 		volumes = append(volumes, volume)
 	}
 
-
 	return volumes, nil
 }
 
@@ -1035,7 +954,6 @@ func (d *DockerRuntime) RemoveImage(image string, force bool) error {
 
 	cmd := exec.Command(d.execPath, args...)
 
-
 	return cmd.Run()
 }
 
@@ -1044,7 +962,6 @@ func (d *DockerRuntime) ListImages() ([]ImageInfo, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to list images: %w", err)
 	}
 
@@ -1052,15 +969,16 @@ func (d *DockerRuntime) ListImages() ([]ImageInfo, error) {
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		if line == "" {
+
 			continue
 		}
 		var image ImageInfo
 		if err := json.Unmarshal([]byte(line), &image); err != nil {
+
 			continue // Skip malformed entries
 		}
 		images = append(images, image)
 	}
-
 
 	return images, nil
 }
@@ -1070,7 +988,6 @@ func (d *DockerRuntime) ListNetworks() ([]NetworkInfo, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to list networks: %w", err)
 	}
 
@@ -1078,15 +995,16 @@ func (d *DockerRuntime) ListNetworks() ([]NetworkInfo, error) {
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		if line == "" {
+
 			continue
 		}
 		var network NetworkInfo
 		if err := json.Unmarshal([]byte(line), &network); err != nil {
+
 			continue // Skip malformed entries
 		}
 		networks = append(networks, network)
 	}
-
 
 	return networks, nil
 }
@@ -1096,30 +1014,25 @@ func (d *DockerRuntime) GetNetworkInfo(name string) (*NetworkInfo, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to inspect network '%s': %w", name, err)
 	}
 
 	var networks []NetworkInfo
 	if err := json.Unmarshal(output, &networks); err != nil {
 
-
 		return nil, fmt.Errorf("failed to parse network info: %w", err)
 	}
 
 	if len(networks) == 0 {
 
-
 		return nil, fmt.Errorf("network '%s' not found", name)
 	}
-
 
 	return &networks[0], nil
 }
 
 func (d *DockerRuntime) WaitForContainer(name string, condition string) error {
 	cmd := exec.Command(d.execPath, "wait", name)
-
 
 	return cmd.Run()
 }
@@ -1140,7 +1053,6 @@ func (d *DockerRuntime) UpdateContainerResources(name string, resources *Resourc
 	args = append(args, name)
 
 	cmd := exec.Command(d.execPath, args...)
-
 
 	return cmd.Run()
 }

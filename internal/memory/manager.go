@@ -125,7 +125,6 @@ func (m *Manager) Start() error {
 	fmt.Printf("Memory server container started with ID: %s\n", containerID[:12])
 	fmt.Printf("Memory server is running at http://localhost:3001\n")
 
-
 	return nil
 }
 
@@ -188,7 +187,6 @@ func (m *Manager) startPostgres(pgPassword string) error {
 
 	fmt.Printf("Postgres-memory container started with ID: %s\n", containerID[:12])
 
-
 	return nil
 }
 
@@ -196,7 +194,7 @@ func (m *Manager) buildMemoryImage() error {
 	fmt.Println("Building Go-based memory server image...")
 
 	dockerfilePath := "dockerfiles/Dockerfile.memory-go"
-	
+
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
@@ -217,7 +215,6 @@ func (m *Manager) buildMemoryImage() error {
 
 	fmt.Println("✅ Go memory server image built successfully")
 
-
 	return nil
 }
 
@@ -234,7 +231,6 @@ func (m *Manager) Stop() error {
 
 	fmt.Println("✅ Memory server stopped successfully.")
 
-
 	return nil
 }
 
@@ -245,12 +241,10 @@ func (m *Manager) Restart() error {
 		fmt.Printf("Warning: Error during memory server shutdown: %v\n", err)
 	}
 
-
 	return m.Start()
 }
 
 func (m *Manager) Status() (string, error) {
-
 
 	return m.runtime.GetContainerStatus("mcp-compose-memory")
 }

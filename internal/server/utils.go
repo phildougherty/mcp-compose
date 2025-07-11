@@ -127,7 +127,6 @@ func initializeOAuth(oauthConfig *config.OAuthConfig, logger *logging.Logger) (*
 	authServers := []string{serverConfig.Issuer}
 	resourceMeta := auth.NewResourceMetadataHandler(authServers, serverConfig.ScopesSupported)
 
-
 	return authServer, authMiddleware, resourceMeta
 }
 
@@ -240,7 +239,6 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 
 		return false
 	}
-
 
 	return true
 }

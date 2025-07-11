@@ -51,10 +51,8 @@ func (e *MCPError) Error() string {
 	if len(e.Data) > 0 {
 		dataJson, _ := json.Marshal(e.Data)
 
-
 		return fmt.Sprintf("MCP Error %d: %s (data: %s)", e.Code, e.Message, string(dataJson))
 	}
-
 
 	return fmt.Sprintf("MCP Error %d: %s", e.Code, e.Message)
 }
@@ -68,7 +66,6 @@ func NewMCPError(code int, message string, data ...map[string]interface{}) *MCPE
 	if len(data) > 0 && data[0] != nil {
 		err.Data = data[0]
 	}
-
 
 	return err
 }
@@ -106,7 +103,6 @@ func NewInvalidParams(details string, params interface{}) *MCPError {
 	if params != nil {
 		data["provided_params"] = params
 	}
-
 
 	return NewMCPError(InvalidParams, "Invalid params", data)
 }

@@ -69,7 +69,6 @@ Examples:
 				return compose.Down(file, regularServers)
 			}
 
-
 			return nil
 		},
 	}
@@ -126,7 +125,6 @@ func downBuiltInServices(configFile string) error {
 	if err := memoryManager.Stop(); err != nil {
 		fmt.Printf("Warning: Failed to stop memory server: %v\n", err)
 	}
-
 
 	return nil
 }

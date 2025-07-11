@@ -173,7 +173,6 @@ func (sm *SubscriptionManager) Subscribe(clientID, sessionID string, req Subscri
 	sm.clients[clientID].Subscriptions[subscriptionID] = subscription
 	sm.clients[clientID].LastSeen = time.Now()
 
-
 	return &SubscribeResponse{
 		SubscriptionID: subscriptionID,
 	}, nil
@@ -208,7 +207,6 @@ func (sm *SubscriptionManager) Unsubscribe(clientID string, req UnsubscribeReque
 			delete(sm.clients, clientID)
 		}
 	}
-
 
 	return nil
 }
@@ -249,7 +247,6 @@ func (sm *SubscriptionManager) NotifyResourceUpdate(uri string, updateType strin
 		}
 	}
 
-
 	return nil
 }
 
@@ -262,7 +259,6 @@ func (sm *SubscriptionManager) findMatchingSubscriptions(uri string) []*Resource
 			matches = append(matches, subscription)
 		}
 	}
-
 
 	return matches
 }
@@ -335,7 +331,6 @@ func (sm *SubscriptionManager) applyFilter(filter ResourceFilter, update Resourc
 			value = update.Metadata[filter.Property]
 		}
 	}
-
 
 	return sm.matchFilterValue(filter, value)
 }
@@ -460,7 +455,6 @@ func (sm *SubscriptionManager) GetSubscriptions(clientID string) []*ResourceSubs
 	for _, sub := range client.Subscriptions {
 		subscriptions = append(subscriptions, sub)
 	}
-
 
 	return subscriptions
 }

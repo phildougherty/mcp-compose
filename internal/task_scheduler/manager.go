@@ -49,7 +49,6 @@ func (m *Manager) Start() error {
 				"status": status,
 			})
 
-
 		return fmt.Errorf("task scheduler is already running")
 	}
 
@@ -82,7 +81,6 @@ func (m *Manager) Start() error {
 				"error": err.Error(),
 			})
 
-
 		return fmt.Errorf("failed to build task scheduler image: %w", err)
 	}
 
@@ -99,7 +97,6 @@ func (m *Manager) Start() error {
 				map[string]interface{}{
 					"error": err.Error(),
 				})
-
 
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
@@ -159,7 +156,6 @@ func (m *Manager) Start() error {
 				"error": err.Error(),
 			})
 
-
 		return fmt.Errorf("failed to start task scheduler container: %w", err)
 	}
 
@@ -183,7 +179,6 @@ func (m *Manager) Start() error {
 				"timeout": "30s",
 			})
 
-
 		return fmt.Errorf("task scheduler failed to start properly: %w", err)
 	}
 
@@ -193,7 +188,6 @@ func (m *Manager) Start() error {
 			"port":        m.config.TaskScheduler.Port,
 			"containerId": containerID[:12],
 		})
-
 
 	return nil
 }
@@ -211,14 +205,12 @@ func (m *Manager) Stop() error {
 				"error": err.Error(),
 			})
 
-
 		return fmt.Errorf("failed to stop task scheduler container: %w", err)
 	}
 
 	dashboard.BroadcastActivity("INFO", "service", "task-scheduler", "",
 		"Task scheduler stopped successfully",
 		nil)
-
 
 	return nil
 }
@@ -249,7 +241,6 @@ func (m *Manager) Restart() error {
 	dashboard.BroadcastActivity("INFO", "service", "task-scheduler", "",
 		"Task scheduler restarted successfully",
 		nil)
-
 
 	return nil
 }
@@ -335,7 +326,6 @@ func (m *Manager) buildEnvironment() map[string]string {
 	for key, value := range m.config.TaskScheduler.Env {
 		env[key] = value
 	}
-
 
 	return env
 }

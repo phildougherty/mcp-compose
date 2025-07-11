@@ -122,6 +122,5 @@ func ValidateCapabilities(serverCapabilities MCPCapabilities, requiredCapabiliti
 		}
 	}
 
-
 	return nil
 }

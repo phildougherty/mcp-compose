@@ -18,22 +18,22 @@ import (
 
 const (
 	// Random string generation lengths
-	AuthCodeLength           = 32
-	AccessTokenLength        = 64
-	RefreshTokenLength       = 64
-	ClientIDLength           = 40
-	ClientSecretLength       = 8
-	StateLength              = 32
-	NonceLength              = 32
-	PKCECodeVerifierLength   = 64
-	PKCECodeChallengeLength  = 128
-	
+	AuthCodeLength          = 32
+	AccessTokenLength       = 64
+	RefreshTokenLength      = 64
+	ClientIDLength          = 40
+	ClientSecretLength      = 8
+	StateLength             = 32
+	NonceLength             = 32
+	PKCECodeVerifierLength  = 64
+	PKCECodeChallengeLength = 128
+
 	// Auth timing constants
-	AuthCodeLifetimeMinutes  = 10
-	DefaultCleanupInterval   = 5 // minutes
-	
+	AuthCodeLifetimeMinutes = 10
+	DefaultCleanupInterval  = 5 // minutes
+
 	// String split parameter
-	AuthHeaderSplitParts     = 2
+	AuthHeaderSplitParts = 2
 )
 
 // OAuthConfig represents OAuth 2.1 configuration
@@ -251,7 +251,6 @@ func (g *DefaultTokenGenerator) GenerateUserCode() (string, error) {
 	// Generate 8-character user code with only uppercase letters and numbers
 	chars := "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // Exclude confusing chars
 
-
 	return generateRandomStringFromSet(ClientSecretLength, chars)
 }
 
@@ -286,7 +285,6 @@ func (v *DefaultCodeVerifier) VerifyCodeChallenge(verifier, challenge, method st
 		hash := sha256.Sum256([]byte(verifier))
 		expected := base64.RawURLEncoding.EncodeToString(hash[:])
 
-
 		return expected == challenge
 	default:
 
@@ -299,7 +297,6 @@ func (v *DefaultCodeVerifier) GenerateCodeVerifier() (string, error) {
 	// RFC 7636: 43-128 characters, A-Z, a-z, 0-9, -, ., _, ~
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 
-
 	return generateRandomStringFromSet(PKCECodeChallengeLength, chars)
 }
 
@@ -311,7 +308,6 @@ func (v *DefaultCodeVerifier) GenerateCodeChallenge(verifier, method string) (st
 		return verifier, nil
 	case "S256":
 		hash := sha256.Sum256([]byte(verifier))
-
 
 		return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 	default:
@@ -352,7 +348,6 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 	if len(config.ScopesSupported) == 0 {
 		config.ScopesSupported = []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"}
 	}
-
 
 	return &AuthorizationServer{
 		config:           config,
@@ -476,7 +471,6 @@ func (s *AuthorizationServer) RegisterClient(config *OAuthConfig) (*OAuthClient,
 	s.clients[clientID] = client
 	s.logger.Info("Registered OAuth client: %s (public: %v)", clientID, isPublic)
 
-
 	return client, nil
 }
 
@@ -485,7 +479,6 @@ func (s *AuthorizationServer) GetClient(clientID string) (*OAuthClient, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	client, exists := s.clients[clientID]
-
 
 	return client, exists
 }
@@ -510,10 +503,8 @@ func (s *AuthorizationServer) ValidateAccessToken(token string) (*AccessToken, e
 			s.mu.Unlock()
 		}()
 
-
 		return nil, fmt.Errorf("token expired")
 	}
-
 
 	return accessToken, nil
 }
@@ -532,7 +523,6 @@ func (s *AuthorizationServer) HasScope(tokenScope, requiredScope string) bool {
 			return true
 		}
 	}
-
 
 	return false
 }
@@ -571,7 +561,6 @@ func (s *AuthorizationServer) GetTokenCount() (int, int, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-
 	return len(s.accessTokens), len(s.refreshTokens), len(s.authCodes)
 }
 
@@ -601,7 +590,6 @@ func (s *AuthorizationServer) ValidateClient(clientID, clientSecret string) (*OA
 		return nil, fmt.Errorf("client secret expired")
 	}
 
-
 	return client, nil
 }
 
@@ -612,7 +600,6 @@ func generateRandomString(length int) (string, error) {
 
 		return "", err
 	}
-
 
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
@@ -630,7 +617,6 @@ func generateRandomStringFromSet(length int, charset string) (string, error) {
 		result[i] = charset[int(b)%len(charset)]
 	}
 
-
 	return string(result), nil
 }
 
@@ -639,7 +625,6 @@ func (s *AuthorizationServer) GetMetadata() *AuthorizationServerConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-
 	return s.config
 }
 
@@ -647,7 +632,6 @@ func (s *AuthorizationServer) GetMetadata() *AuthorizationServerConfig {
 func (s *AuthorizationServer) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 
 		return
 	}
@@ -669,7 +653,6 @@ func (s *AuthorizationServer) GetAllClients() []*OAuthClient {
 		clients = append(clients, client)
 	}
 
-
 	return clients
 }
 
@@ -688,7 +671,6 @@ func (s *AuthorizationServer) GetAllAccessTokens() []TokenInfo {
 			Revoked:   token.Revoked,
 		})
 	}
-
 
 	return tokens
 }

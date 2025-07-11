@@ -97,7 +97,6 @@ func (pm *ProgressManager) UpdateProgress(token string, progress float64, messag
 		}
 	}
 
-
 	return nil
 }
 
@@ -129,7 +128,6 @@ func (pm *ProgressManager) UpdateDetailedProgress(token string, current, total i
 		}
 	}
 
-
 	return nil
 }
 
@@ -157,7 +155,6 @@ func (pm *ProgressManager) CompleteProgress(token string, message string) error 
 	// Clean up
 	delete(pm.tokens, token)
 	delete(pm.listeners, token)
-
 
 	return nil
 }
@@ -188,7 +185,6 @@ func (pm *ProgressManager) FailProgress(token string, err error) error {
 	delete(pm.tokens, token)
 	delete(pm.listeners, token)
 
-
 	return nil
 }
 
@@ -214,7 +210,6 @@ func ParseProgressNotification(data []byte) (*ProgressNotification, error) {
 
 		return nil, NewInvalidRequest(fmt.Sprintf("expected notifications/progress, got %s", notification.Method))
 	}
-
 
 	return &notification, nil
 }
@@ -245,7 +240,6 @@ func ValidateProgressParams(params ProgressParams) error {
 			return NewValidationError("current", *params.Current, "current cannot exceed total")
 		}
 	}
-
 
 	return nil
 }

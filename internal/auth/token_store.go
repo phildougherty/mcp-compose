@@ -26,7 +26,6 @@ func NewTokenStore() *TokenStore {
 	}
 	go ts.startCleanupRoutine()
 
-
 	return ts
 }
 
@@ -46,7 +45,6 @@ func (ts *TokenStore) GetAccessToken(tokenStr string) (*AccessToken, error) {
 
 		return nil, fmt.Errorf("invalid or expired access token")
 	}
-
 
 	return token, nil
 }

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	
+
 	"mcpcompose/internal/constants"
 )
 
@@ -95,7 +95,6 @@ func ParseURITemplate(template string) (*URITemplate, error) {
 		ut.Expressions = append(ut.Expressions, expr)
 	}
 
-
 	return ut, nil
 }
 
@@ -125,7 +124,6 @@ func parseExpression(expr string) (TemplateExpression, error) {
 		return te, err
 	}
 
-
 	return te, nil
 }
 
@@ -145,7 +143,6 @@ func parseVariableList(varList string, te *TemplateExpression) error {
 		}
 		te.Variables = append(te.Variables, varSpec)
 	}
-
 
 	return nil
 }
@@ -219,7 +216,6 @@ func isValidVariableName(name string) bool {
 		}
 	}
 
-
 	return true
 }
 
@@ -239,7 +235,6 @@ func (ut *URITemplate) Expand(variables map[string]interface{}) (string, error) 
 		// Replace the expression in the template
 		result = result[:expr.StartPos] + expansion + result[expr.EndPos:]
 	}
-
 
 	return result, nil
 }
@@ -304,7 +299,6 @@ func (ut *URITemplate) expandSimple(vars []VariableSpec, variables map[string]in
 		parts = append(parts, encoded)
 	}
 
-
 	return strings.Join(parts, ","), nil
 }
 
@@ -335,7 +329,6 @@ func (ut *URITemplate) expandReserved(vars []VariableSpec, variables map[string]
 		parts = append(parts, encoded)
 	}
 
-
 	return strings.Join(parts, ","), nil
 }
 
@@ -352,7 +345,6 @@ func (ut *URITemplate) expandFragment(vars []VariableSpec, variables map[string]
 		return "", nil
 	}
 
-
 	return "#" + expansion, nil
 }
 
@@ -368,7 +360,6 @@ func (ut *URITemplate) expandDot(vars []VariableSpec, variables map[string]inter
 
 		return "", nil
 	}
-
 
 	return "." + expansion, nil
 }
@@ -403,7 +394,6 @@ func (ut *URITemplate) expandSlash(vars []VariableSpec, variables map[string]int
 
 		return "", nil
 	}
-
 
 	return "/" + strings.Join(parts, "/"), nil
 }
@@ -440,7 +430,6 @@ func (ut *URITemplate) expandSemicolon(vars []VariableSpec, variables map[string
 		return "", nil
 	}
 
-
 	return ";" + strings.Join(parts, ";"), nil
 }
 
@@ -475,7 +464,6 @@ func (ut *URITemplate) expandQuery(vars []VariableSpec, variables map[string]int
 
 		return "", nil
 	}
-
 
 	return "?" + strings.Join(parts, "&"), nil
 }
@@ -542,7 +530,6 @@ func (ut *URITemplate) encodeReserved(s string) string {
 		}
 	}
 
-
 	return encoded
 }
 
@@ -559,7 +546,6 @@ func (ut *URITemplate) GetVariableNames() []string {
 			}
 		}
 	}
-
 
 	return names
 }
@@ -589,7 +575,6 @@ func (ut *URITemplate) Validate() error {
 			}
 		}
 	}
-
 
 	return nil
 }

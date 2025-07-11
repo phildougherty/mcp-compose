@@ -38,7 +38,6 @@ func NewManager(cfg *config.ComposeConfig, runtime container.Runtime) *Manager {
 		}
 	}
 
-
 	return m
 }
 
@@ -94,7 +93,7 @@ func (m *Manager) buildDashboardImage() error {
 	m.logger.Info("Building dashboard Docker image...")
 
 	dockerfilePath := "dockerfiles/Dockerfile.dashboard"
-	
+
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
@@ -225,7 +224,6 @@ func (m *Manager) startDashboardContainer() error {
 	} else {
 		m.logger.Info("Activity storage disabled - no PostgreSQL URL configured")
 	}
-
 
 	return nil
 }

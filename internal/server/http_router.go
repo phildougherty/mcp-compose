@@ -226,7 +226,6 @@ func (h *ProxyHandler) handleOAuthEndpoints(w http.ResponseWriter, r *http.Reque
 		return true
 	}
 
-
 	return false
 }
 
@@ -293,7 +292,6 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-
 
 	return false
 }

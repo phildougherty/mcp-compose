@@ -92,7 +92,6 @@ func runLogsCommand(configFile string, serverNames []string, follow bool) error 
 		return compose.Logs(configFile, serverNames, follow)
 	}
 
-
 	return nil
 }
 
@@ -151,7 +150,6 @@ func handleSpecialContainerLogs(containers map[string]string, follow bool) error
 			break
 		}
 	}
-
 
 	return nil
 }

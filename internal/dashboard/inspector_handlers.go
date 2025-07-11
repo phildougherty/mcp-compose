@@ -14,8 +14,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
-
 		return
 	}
 
@@ -25,8 +23,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 		d.logger.Error("Failed to read request body: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, `{"error": "Failed to read request body"}`, http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -42,8 +38,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, `{"error": "Invalid request body"}`, http.StatusBadRequest)
 
-
-
 		return
 	}
 
@@ -53,8 +47,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 		d.logger.Error("Empty server name in request. Full request: %+v", request)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, `{"error": "Server name required"}`, http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -68,8 +60,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 			d.logger.Error("Failed to encode JSON response: %v", err)
 		}
 
-
-
 		return
 	}
 
@@ -77,8 +67,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 		d.logger.Error("Inspector service is nil during connect!")
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("Inspector service not available"), http.StatusInternalServerError)
-
-
 
 		return
 	}
@@ -88,8 +76,6 @@ func (d *DashboardServer) handleInspectorConnect(w http.ResponseWriter, r *http.
 		d.logger.Error("Failed to create inspector session for %s: %v", request.Server, err)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError(err.Error()), http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -120,8 +106,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
-
 		return
 	}
 
@@ -131,8 +115,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 		d.logger.Error("Failed to read inspector request body: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("Failed to read request body"), http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -150,8 +132,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("Invalid request body"), http.StatusBadRequest)
 
-
-
 		return
 	}
 
@@ -161,8 +141,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 		d.logger.Error("Missing required fields: sessionId='%s', method='%s'", request.SessionID, request.Method)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("SessionID and Method required"), http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -180,8 +158,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("Inspector service not available"), http.StatusInternalServerError)
 
-
-
 		return
 	}
 
@@ -195,8 +171,6 @@ func (d *DashboardServer) handleInspectorRequest(w http.ResponseWriter, r *http.
 			w.Header().Set("Content-Type", "application/json")
 			http.Error(w, jsonError(err.Error()), http.StatusInternalServerError)
 		}
-
-
 
 		return
 	}
@@ -213,8 +187,6 @@ func (d *DashboardServer) handleInspectorDisconnect(w http.ResponseWriter, r *ht
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
-
-
 		return
 	}
 
@@ -226,16 +198,12 @@ func (d *DashboardServer) handleInspectorDisconnect(w http.ResponseWriter, r *ht
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("Invalid request body"), http.StatusBadRequest)
 
-
-
 		return
 	}
 
 	if request.SessionID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError("SessionID required"), http.StatusBadRequest)
-
-
 
 		return
 	}
@@ -244,8 +212,6 @@ func (d *DashboardServer) handleInspectorDisconnect(w http.ResponseWriter, r *ht
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, jsonError(err.Error()), http.StatusNotFound)
-
-
 
 		return
 	}
@@ -259,7 +225,6 @@ func (d *DashboardServer) handleInspectorDisconnect(w http.ResponseWriter, r *ht
 }
 
 func jsonError(message string) string {
-
 
 	return `{"error": "` + strings.ReplaceAll(message, `"`, `\"`) + `"}`
 }

@@ -604,7 +604,6 @@ func TestConcurrentOAuthOperations(t *testing.T) {
 	})
 }
 
-
 // Mock RBAC implementation for testing
 type RBACRole struct {
 	Name        string
@@ -698,7 +697,6 @@ func (r *RBACManager) HasPermission(userID, permission string) bool {
 		}
 	}
 
-
 	return false
 }
 
@@ -712,7 +710,6 @@ func (r *RBACManager) GetUserRoles(userID string) []string {
 		return []string{}
 	}
 
-
 	return user.Roles
 }
 
@@ -725,7 +722,6 @@ func (r *RBACManager) GetRolePermissions(roleName string) []string {
 
 		return []string{}
 	}
-
 
 	return role.Permissions
 }

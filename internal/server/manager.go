@@ -201,7 +201,6 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 	for name, serverCfg := range cfg.Servers {
 		if err := tempManager.validateServerConfig(name, serverCfg); err != nil {
 
-
 			return nil, fmt.Errorf("invalid server configuration: %w", err)
 		}
 	}
@@ -254,7 +253,6 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 
 	logger.Info("Manager initialized with %d servers", len(manager.servers))
 
-
 	return manager, nil
 }
 
@@ -267,7 +265,6 @@ func (m *Manager) StartServer(name string) error {
 	instance, ok := m.servers[name]
 	if !ok {
 		m.logger.Error("MANAGER: Server '%s' not found in configuration during StartServer", name)
-
 
 		return fmt.Errorf("server '%s' not found in configuration", name)
 	}
@@ -287,7 +284,6 @@ func (m *Manager) StartServer(name string) error {
 	if currentStatus == "running" {
 		m.logger.Info("MANAGER: Server '%s' (identifier: %s) reported as already running by status check.", name, fixedIdentifier)
 
-
 		return nil
 	}
 
@@ -296,7 +292,6 @@ func (m *Manager) StartServer(name string) error {
 		m.logger.Info("MANAGER: Running pre-start hook for server '%s'...", name)
 		if hookErr := m.runLifecycleHook(srvCfg.Lifecycle.PreStart); hookErr != nil {
 			m.logger.Error("MANAGER: Pre-start hook for server '%s' failed: %v", name, hookErr)
-
 
 			return fmt.Errorf("pre-start hook for server '%s' failed: %w", name, hookErr)
 		}
@@ -309,7 +304,6 @@ func (m *Manager) StartServer(name string) error {
 		for _, networkName := range srvCfg.Networks {
 			if networkErr := m.ensureNetworkExists(networkName, true); networkErr != nil {
 				m.logger.Error("MANAGER: Failed to ensure network '%s' for server '%s': %v", networkName, name, networkErr)
-
 
 				return fmt.Errorf("failed to ensure network '%s' for server '%s': %w", networkName, name, networkErr)
 			}
@@ -331,7 +325,6 @@ func (m *Manager) StartServer(name string) error {
 
 	if startErr != nil {
 		m.logger.Error("MANAGER: Error starting server '%s' (identifier: %s): %v", name, fixedIdentifier, startErr)
-
 
 		return fmt.Errorf("failed to start server '%s' (identifier: %s): %w", name, fixedIdentifier, startErr)
 	}
@@ -361,7 +354,6 @@ func (m *Manager) StartServer(name string) error {
 			watcher, watchErr := NewResourcesWatcher(&srvCfg, instance, m.logger)
 			if watchErr != nil {
 				m.logger.Warning("MANAGER: Failed to initialize resource watcher for server '%s': %v", name, watchErr)
-
 
 				return
 			}
@@ -394,7 +386,6 @@ func (m *Manager) StartServer(name string) error {
 
 	m.logger.Info("MANAGER: StartServer for '%s' completed.", name)
 
-
 	return nil
 }
 
@@ -406,11 +397,9 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 	}
 	if m.containerRuntime.GetRuntimeName() == "none" && srvCfg.Image != "" {
 
-
 		return fmt.Errorf("server '%s' requires container runtime but none available", serverKeyName)
 	}
 	if srvCfg.Image == "" {
-
 
 		return fmt.Errorf("server '%s' (container: %s) has no image specified", serverKeyName, containerNameToUse)
 	}
@@ -516,7 +505,6 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 	containerID, err := m.containerRuntime.StartContainer(opts)
 	if err != nil {
 
-
 		return fmt.Errorf("failed to start container '%s' for server '%s': %w", containerNameToUse, serverKeyName, err)
 	}
 
@@ -532,7 +520,6 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 	}
 
 	m.logger.Info("Container '%s' (ID: %s) for server '%s' started - accessible via Docker network", containerNameToUse, containerID, serverKeyName)
-
 
 	return nil
 }
@@ -571,18 +558,15 @@ func (m *Manager) startProcessServer(serverKeyName, processIdentifier string, sr
 	})
 	if err != nil {
 
-
 		return fmt.Errorf("failed to create process structure for '%s' (server '%s'): %w", processIdentifier, serverKeyName, err)
 	}
 	if err := proc.Start(); err != nil {
-
 
 		return fmt.Errorf("failed to start process '%s' (server '%s'): %w", processIdentifier, serverKeyName, err)
 	}
 
 	m.servers[serverKeyName].Process = proc
 	m.logger.Info("Process '%s' for server '%s' started", processIdentifier, serverKeyName)
-
 
 	return nil
 }
@@ -595,7 +579,6 @@ func (m *Manager) StopServer(name string) error {
 	instance, ok := m.servers[name]
 	if !ok {
 
-
 		return fmt.Errorf("server '%s' not found in manager", name)
 	}
 	srvCfg := instance.Config
@@ -604,7 +587,6 @@ func (m *Manager) StopServer(name string) error {
 	currentStatus, _ := m.getServerStatusUnsafe(name, fixedIdentifier)
 	if currentStatus != "running" {
 		m.logger.Info("Server '%s' (identifier: %s) is not running, nothing to stop", name, fixedIdentifier)
-
 
 		return nil // Or return an error if it was expected to be running
 	}
@@ -653,7 +635,6 @@ func (m *Manager) StopServer(name string) error {
 			m.logger.Warning("Post-stop hook for server '%s' failed: %v", name, err)
 		}
 	}
-
 
 	return stopErr // Return the error from the stop operation, if any
 }
@@ -720,7 +701,6 @@ func (m *Manager) getServerStatusUnsafe(name string, fixedIdentifier string) (st
 	}
 	instance.Status = currentRuntimeStatus // Update cached status
 
-
 	return currentRuntimeStatus, err // Return error from runtime if any
 }
 
@@ -755,7 +735,7 @@ func (m *Manager) getBuiltInServiceStatus(name string, fixedIdentifier string) (
 			m.logger.Debug("Failed to get status by name for built-in service %s (%s), trying by ID %s: %v", name, fixedIdentifier, instance.ContainerID, err)
 			currentRuntimeStatus, err = m.containerRuntime.GetContainerStatus(instance.ContainerID)
 		}
-		
+
 		if err != nil {
 			// For built-in services, if container doesn't exist, it's likely stopped/not started
 			if strings.Contains(strings.ToLower(err.Error()), "no such container") ||
@@ -787,7 +767,7 @@ func (m *Manager) isLikelyContainer(serverName string, serverCfg config.ServerCo
 	if serverCfg.Protocol == "http" && serverCfg.HttpPort > 0 {
 		return true
 	}
-	
+
 	// Check if there's a corresponding container name that exists
 	expectedContainerName := fmt.Sprintf("mcp-compose-%s", serverName)
 	if m.containerRuntime != nil {
@@ -798,7 +778,7 @@ func (m *Manager) isLikelyContainer(serverName string, serverCfg config.ServerCo
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -806,7 +786,6 @@ func (m *Manager) isLikelyContainer(serverName string, serverCfg config.ServerCo
 func (m *Manager) ShowLogs(name string, follow bool) error {
 	instance, ok := m.servers[name]
 	if !ok {
-
 
 		return fmt.Errorf("server '%s' not found for showing logs", name)
 	}
@@ -818,16 +797,13 @@ func (m *Manager) ShowLogs(name string, follow bool) error {
 		// using fixedIdentifier aligns with how the proxy would refer to it and how Start/Stop work.
 		// If the container was recreated with the same fixed name, this would get logs from the new one.
 
-
 		return m.containerRuntime.ShowContainerLogs(fixedIdentifier, follow)
 	} else { // Process-based server
 		proc, err := runtime.FindProcess(fixedIdentifier)
 		if err != nil {
 
-
 			return fmt.Errorf("process for server '%s' (identifier: %s) not found: %w", name, fixedIdentifier, err)
 		}
-
 
 		return proc.ShowLogs(follow)
 	}
@@ -857,10 +833,8 @@ func NewResourcesWatcher(cfg *config.ServerConfig, instance *ServerInstance, log
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 
-
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
-
 
 	return &ResourcesWatcher{
 		config:          cfg,
@@ -879,7 +853,6 @@ func (w *ResourcesWatcher) Start() {
 		w.mu.Unlock()
 		w.logger.Debug("Resource watcher already active.")
 
-
 		return
 	}
 	w.active = true
@@ -894,7 +867,6 @@ func (w *ResourcesWatcher) Start() {
 				if err != nil {
 					w.logger.Error("Error walking path %s for watcher: %v", path, err)
 
-
 					return err // Or return nil to continue walking other parts
 				}
 				if d.IsDir() {
@@ -904,7 +876,6 @@ func (w *ResourcesWatcher) Start() {
 						// Potentially continue to try and watch other directories
 					}
 				}
-
 
 				return nil
 			})
@@ -933,12 +904,10 @@ func (w *ResourcesWatcher) Start() {
 			case <-w.stopCh:
 				w.logger.Info("Resource watcher stop signal received.")
 
-
 				return
 			case event, ok := <-w.fsWatcher.Events:
 				if !ok {
 					w.logger.Info("Watcher events channel closed.")
-
 
 					return
 				}
@@ -948,7 +917,6 @@ func (w *ResourcesWatcher) Start() {
 			case err, ok := <-w.fsWatcher.Errors:
 				if !ok {
 					w.logger.Info("Watcher errors channel closed.")
-
 
 					return
 				}
@@ -978,11 +946,9 @@ func (w *ResourcesWatcher) shouldProcessEvent(event fsnotify.Event) bool {
 	// Basic filtering, can be expanded
 	if strings.HasPrefix(filepath.Base(event.Name), ".") { // Ignore hidden files/dirs
 
-
 		return false
 	}
 	// Only interested in these operations
-
 
 	return event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)
 }
@@ -999,7 +965,6 @@ func (w *ResourcesWatcher) processChanges() {
 	if len(w.changedFiles) == 0 {
 		w.mu.Unlock()
 
-
 		return
 	}
 	// Create a copy to process, then clear the map
@@ -1011,7 +976,6 @@ func (w *ResourcesWatcher) processChanges() {
 	w.mu.Unlock()
 
 	if len(changesToProcess) == 0 {
-
 
 		return
 	}
@@ -1070,7 +1034,6 @@ func (w *ResourcesWatcher) Stop() {
 	if !w.active {
 		w.mu.Unlock()
 
-
 		return
 	}
 	// Set active to false first to prevent new operations from starting
@@ -1112,14 +1075,12 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 	if !ok {
 		m.logger.Error("HealthCheck: Server '%s' not found.", serverName)
 
-
 		return
 	}
 
 	healthCfg := instance.Config.Lifecycle.HealthCheck
 	if healthCfg.Endpoint == "" {
 		m.logger.Debug("HealthCheck: No endpoint for server '%s'.", serverName)
-
 
 		return
 	}
@@ -1175,7 +1136,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 				if !stillExists || targetStatus != "running" {
 					m.logger.Info("HealthCheck: Server '%s' (container: %s) no longer exists or is not running, stopping health checks.", serverName, fixedIdentifier)
 
-
 					return
 				}
 
@@ -1187,7 +1147,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 				if !stillExists {
 					m.mu.Unlock()
 					m.logger.Info("HealthCheck: Server '%s' (container: %s) removed during health check, stopping checks.", serverName, fixedIdentifier)
-
 
 					return
 				}
@@ -1225,7 +1184,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 								}
 							}(serverName, fixedIdentifier) // Pass both parameters
 
-
 							return
 						}
 					}
@@ -1234,7 +1192,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 
 			case <-m.ctx.Done():
 				m.logger.Info("HealthCheck: Manager shutting down, stopping health checks for '%s'", serverName)
-
 
 				return
 			}
@@ -1245,7 +1202,6 @@ func (m *Manager) startHealthCheck(serverName, fixedIdentifier string) {
 func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string, timeout time.Duration) (bool, error) {
 	instance, ok := m.servers[serverName]
 	if !ok {
-
 
 		return false, fmt.Errorf("server '%s' not found for health check", serverName)
 	}
@@ -1344,10 +1300,8 @@ func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string
 		// Provide more detailed error information
 		if strings.Contains(err.Error(), "connection refused") {
 
-
 			return false, fmt.Errorf("server '%s' (%s) not reachable at %s: connection refused", serverName, fixedIdentifier, url)
 		} else if strings.Contains(err.Error(), "timeout") {
-
 
 			return false, fmt.Errorf("server '%s' (%s) health check timed out at %s", serverName, fixedIdentifier, url)
 		} else if strings.Contains(err.Error(), "no such host") {
@@ -1355,10 +1309,8 @@ func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string
 			urlParts := strings.Split(strings.TrimPrefix(url, "http://"), ":")
 			hostFromURL := urlParts[0]
 
-
 			return false, fmt.Errorf("server '%s' (%s) hostname not found: %s", serverName, fixedIdentifier, hostFromURL)
 		}
-
 
 		return false, fmt.Errorf("health check request to %s failed for server '%s' (%s): %w", url, serverName, fixedIdentifier, err)
 	}
@@ -1368,13 +1320,11 @@ func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		m.logger.Debug("HealthCheck: Server '%s' (%s) is healthy (status: %d)", serverName, fixedIdentifier, resp.StatusCode)
 
-
 		return true, nil
 	}
 
 	// Read response body for error details
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, constants.HTTPLogBufferSize))
-
 
 	return false, fmt.Errorf("server '%s' (%s) health check failed: status %d from %s: %s",
 		serverName, fixedIdentifier, resp.StatusCode, url, string(body))
@@ -1383,7 +1333,6 @@ func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string
 // Add this method to validate server configuration
 func (m *Manager) validateServerConfig(name string, config config.ServerConfig) error {
 	if config.Image == "" && config.Command == "" {
-
 
 		return fmt.Errorf("server '%s' must specify either 'image' or 'command'", name)
 	}
@@ -1399,7 +1348,6 @@ func (m *Manager) validateServerConfig(name string, config config.ServerConfig) 
 			}
 		}
 		if !valid {
-
 
 			return fmt.Errorf("server '%s' has invalid protocol '%s', must be one of: %v", name, config.Protocol, validProtocols)
 		}
@@ -1418,11 +1366,9 @@ func (m *Manager) validateServerConfig(name string, config config.ServerConfig) 
 		}
 		if !valid {
 
-
 			return fmt.Errorf("server '%s' has invalid capability '%s', must be one of: %v", name, cap, validCapabilities)
 		}
 	}
-
 
 	return nil
 }
@@ -1469,16 +1415,13 @@ func (m *Manager) runLifecycleHook(hookScript string) error {
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 
-
 			return fmt.Errorf("lifecycle hook '%s' timed out after %v", hookScript, timeout)
 		}
-
 
 		return fmt.Errorf("lifecycle hook '%s' failed: %w. Stderr: %s", hookScript, err, stderr.String())
 	}
 
 	m.logger.Info("Lifecycle hook '%s' completed successfully", hookScript)
-
 
 	return nil
 }
@@ -1495,13 +1438,11 @@ func (m *Manager) ensureNetworkExists(networkName string, lockedByCaller bool) e
 	if m.networks[networkName] {
 		m.logger.Debug("Network '%s' already processed in this session", networkName)
 
-
 		return nil
 	}
 
 	if m.containerRuntime == nil || m.containerRuntime.GetRuntimeName() == "none" {
 		m.logger.Debug("No container runtime, skipping network creation for '%s'", networkName)
-
 
 		return nil
 	}
@@ -1511,14 +1452,12 @@ func (m *Manager) ensureNetworkExists(networkName string, lockedByCaller bool) e
 	exists, err := m.containerRuntime.NetworkExists(networkName)
 	if err != nil {
 
-
 		return fmt.Errorf("failed to check if network '%s' exists: %w", networkName, err)
 	}
 
 	if !exists {
 		m.logger.Info("Creating network '%s'...", networkName)
 		if err := m.containerRuntime.CreateNetwork(networkName); err != nil {
-
 
 			return fmt.Errorf("failed to create network '%s': %w", networkName, err)
 		}
@@ -1529,13 +1468,11 @@ func (m *Manager) ensureNetworkExists(networkName string, lockedByCaller bool) e
 
 	m.networks[networkName] = true
 
-
 	return nil
 }
 
 func (m *Manager) cleanupNetworks() error {
 	if m.containerRuntime == nil || m.containerRuntime.GetRuntimeName() == "none" {
-
 
 		return nil
 	}
@@ -1568,7 +1505,6 @@ func (m *Manager) cleanupNetworks() error {
 		}
 		delete(m.networks, networkName)
 	}
-
 
 	return nil
 }
@@ -1671,12 +1607,10 @@ func (m *Manager) Shutdown() error {
 
 	if stopErr != nil {
 
-
 		return fmt.Errorf("shutdown completed with errors: %w", stopErr)
 	}
 
 	m.logger.Info("MANAGER: Shutdown completed successfully")
-
 
 	return nil
 }
@@ -1684,7 +1618,6 @@ func (m *Manager) Shutdown() error {
 func (m *Manager) initializeServerCapabilities(serverName string) error {
 	instance, ok := m.servers[serverName]
 	if !ok {
-
 
 		return fmt.Errorf("server '%s' not found for capability initialization", serverName)
 	}
@@ -1751,7 +1684,6 @@ func (m *Manager) initializeServerCapabilities(serverName string) error {
 
 	m.logger.Info("Initialized capabilities for server '%s': %v", serverName, instance.Capabilities)
 
-
 	return nil
 }
 
@@ -1760,7 +1692,6 @@ func (m *Manager) GetServerInstance(serverName string) (*ServerInstance, bool) {
 	defer m.mu.Unlock()
 	instance, exists := m.servers[serverName]
 
-
 	return instance, exists
 }
 
@@ -1768,11 +1699,9 @@ func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
 
-
 			return true
 		}
 	}
-
 
 	return false
 }

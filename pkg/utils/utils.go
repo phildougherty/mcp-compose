@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	
+
 	"mcpcompose/internal/constants"
 )
 
@@ -33,7 +33,6 @@ func FindComposeFile(fileName string) (string, error) {
 		return mcpFile, nil
 	}
 
-
 	return "", fmt.Errorf("compose file '%s' not found", fileName)
 }
 
@@ -41,7 +40,6 @@ func FindComposeFile(fileName string) (string, error) {
 func FormatDuration(d time.Duration) string {
 	if d.Hours() > constants.HoursInDay {
 		days := int(d.Hours() / constants.HoursInDay)
-
 
 		return fmt.Sprintf("%d days", days)
 	}
@@ -60,7 +58,6 @@ func FormatDuration(d time.Duration) string {
 
 		return fmt.Sprintf("%.1f seconds", d.Seconds())
 	}
-
 
 	return "less than a second"
 }
@@ -129,7 +126,6 @@ func ParseEnvFile(filePath string) (map[string]string, error) {
 			envVars[key] = value
 		}
 	}
-
 
 	return envVars, nil
 }

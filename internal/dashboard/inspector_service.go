@@ -89,7 +89,6 @@ func (is *InspectorService) CreateSession(serverName string) (*InspectorSession,
 
 	is.logger.Info("Created inspector session %s for server %s", sessionID, serverName)
 
-
 	return session, nil
 }
 
@@ -114,7 +113,6 @@ func (is *InspectorService) ExecuteRequest(sessionID string, req InspectorReques
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			is.logger.Error("Failed to parse request params: %v. Raw params: %s", err, string(req.Params))
 
-
 			return nil, fmt.Errorf("invalid request params: %w", err)
 		}
 		is.logger.Info("Parsed params for %s.%s: %v (type: %T)", session.ServerName, req.Method, params, params)
@@ -129,12 +127,10 @@ func (is *InspectorService) ExecuteRequest(sessionID string, req InspectorReques
 	if err != nil {
 		is.logger.Error("Proxy request failed for %s.%s: %v", session.ServerName, req.Method, err)
 
-
 		return nil, fmt.Errorf("proxy request failed: %w", err)
 	}
 
 	is.logger.Info("Inspector request %s.%s executed successfully", session.ServerName, req.Method)
-
 
 	return response, nil
 }
@@ -149,12 +145,10 @@ func (is *InspectorService) DestroySession(sessionID string) error {
 
 	if !exists {
 
-
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 
 	is.logger.Info("Destroyed inspector session %s for server %s", sessionID, session.ServerName)
-
 
 	return nil
 }
@@ -166,10 +160,8 @@ func (is *InspectorService) GetSession(sessionID string) (*InspectorSession, err
 
 	if !exists {
 
-
 		return nil, fmt.Errorf("session %s not found", sessionID)
 	}
-
 
 	return session, nil
 }
@@ -182,7 +174,6 @@ func (is *InspectorService) ListSessions() []*InspectorSession {
 	for _, session := range is.sessions {
 		sessions = append(sessions, session)
 	}
-
 
 	return sessions
 }
@@ -201,7 +192,6 @@ func (is *InspectorService) CleanupExpiredSessions(maxAge time.Duration) int {
 			is.logger.Info("Cleaned up expired inspector session %s", id)
 		}
 	}
-
 
 	return count
 }
@@ -222,7 +212,6 @@ func (is *InspectorService) getServerCapabilities(serverName string) (map[string
 
 	if err != nil {
 
-
 		return nil, err
 	}
 
@@ -230,12 +219,10 @@ func (is *InspectorService) getServerCapabilities(serverName string) (map[string
 		if result, ok := response.Result.(map[string]interface{}); ok {
 			if caps, ok := result["capabilities"].(map[string]interface{}); ok {
 
-
 				return caps, nil
 			}
 		}
 	}
-
 
 	return nil, fmt.Errorf("no capabilities in response")
 }
@@ -260,7 +247,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	if err != nil {
 		is.logger.Error("Failed to marshal MCP request: %v", err)
 
-
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -269,7 +255,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	// Ensure we're not sending an empty body
 	if len(requestBytes) == 0 {
 		is.logger.Error("Generated empty request body for %s.%s", serverName, method)
-
 
 		return nil, fmt.Errorf("empty request body generated")
 	}
@@ -283,7 +268,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	req, err := http.NewRequest("POST", proxyURL, bodyBuffer)
 	if err != nil {
 		is.logger.Error("Failed to create HTTP request: %v", err)
-
 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -305,7 +289,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	if err != nil {
 		is.logger.Error("HTTP request to proxy failed: %v", err)
 
-
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer func() {
@@ -318,7 +301,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	if err != nil {
 		is.logger.Error("Failed to read response body: %v", err)
 
-
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -327,7 +309,6 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	if resp.StatusCode != http.StatusOK {
 		is.logger.Error("Proxy returned non-200 status %d: %s", resp.StatusCode, string(responseBody))
 
-
 		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
@@ -335,12 +316,10 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 	if err := json.Unmarshal(responseBody, &mcpResponse); err != nil {
 		is.logger.Error("Failed to parse MCP response JSON: %v. Response was: %s", err, string(responseBody))
 
-
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	is.logger.Info("Successfully parsed MCP response for %s.%s", serverName, method)
-
 
 	return &mcpResponse, nil
 }

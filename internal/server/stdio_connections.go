@@ -74,7 +74,6 @@ func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnectio
 		}
 	}
 
-
 	return nil, fmt.Errorf("failed to create STDIO connection after 3 attempts: %w", lastErr)
 }
 
@@ -244,7 +243,6 @@ func (h *ProxyHandler) sendStdioRequestWithoutLock(conn *MCPSTDIOConnection, req
 		return fmt.Errorf("failed to flush request: %w", err)
 	}
 
-
 	return nil
 }
 
@@ -329,7 +327,6 @@ func (h *ProxyHandler) sendStdioRequest(conn *MCPSTDIOConnection, request map[st
 
 		return fmt.Errorf("failed to flush request: %w", err)
 	}
-
 
 	return nil
 }
@@ -472,7 +469,6 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 		return nil, fmt.Errorf("failed to initialize connection: %w", err)
 	}
 
-
 	return conn, nil
 }
 
@@ -545,7 +541,6 @@ func (h *ProxyHandler) sendStdioRequestWithTimeout(conn *MCPSTDIOConnection, req
 		}
 	}()
 
-
 	return h.sendStdioRequestWithoutLock(conn, request)
 }
 
@@ -560,7 +555,6 @@ func (h *ProxyHandler) readStdioResponseWithTimeout(conn *MCPSTDIOConnection, ti
 			h.logger.Warning("Failed to reset read deadline: %v", err)
 		}
 	}()
-
 
 	return h.readStdioResponseWithoutLock(conn)
 }

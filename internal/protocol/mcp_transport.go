@@ -60,14 +60,12 @@ func (h *HTTPTransport) IsConnected() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-
 	return h.healthy && h.initialized
 }
 
 func (h *HTTPTransport) GetLastActivity() time.Time {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-
 
 	return h.lastUsed
 }
@@ -104,7 +102,6 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 	if err != nil {
 		h.healthy = false
 
-
 		return NewTransportError("http", fmt.Sprintf("request failed: %v", err))
 	}
 	defer func() {
@@ -123,12 +120,10 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 		h.healthy = false
 		body, _ := io.ReadAll(resp.Body)
 
-
 		return NewTransportError("http", fmt.Sprintf("bad status %d: %s", resp.StatusCode, string(body)))
 	}
 
 	h.healthy = true
-
 
 	return nil
 }
@@ -161,7 +156,6 @@ func (h *HTTPTransport) Close() error {
 		h.sessionID = ""
 	}
 
-
 	return nil
 }
 
@@ -182,7 +176,6 @@ func (h *HTTPTransport) SendProgress(notification *ProgressNotification) error {
 		return err
 	}
 	msg.Params = params
-
 
 	return h.Send(msg)
 }
@@ -207,7 +200,6 @@ type SSETransport struct {
 func NewSSETransport(sseURL string) *SSETransport {
 	ctx, cancel := context.WithCancel(context.Background())
 
-
 	return &SSETransport{
 		sseURL: sseURL,
 		client: &http.Client{
@@ -229,14 +221,12 @@ func (s *SSETransport) IsConnected() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-
 	return s.healthy && s.initialized && s.sseReader != nil
 }
 
 func (s *SSETransport) GetLastActivity() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 
 	return s.lastUsed
 }
@@ -331,7 +321,6 @@ func (s *SSETransport) Receive() (MCPMessage, error) {
 			s.mu.Lock()
 			s.lastUsed = time.Now()
 			s.mu.Unlock()
-
 
 			return msg, nil
 		}
@@ -436,7 +425,6 @@ func (s *SSETransport) Initialize() error {
 	s.sseReader = bufio.NewScanner(resp.Body)
 	s.initialized = true
 	s.healthy = true
-
 
 	return nil
 }

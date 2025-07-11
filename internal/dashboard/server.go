@@ -127,7 +127,6 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 	// Start cleanup goroutine
 	go server.startInspectorCleanup()
 
-
 	return server
 }
 
@@ -157,13 +156,13 @@ func (d *DashboardServer) Start(port int, host string) error {
 			if strings.HasSuffix(r.URL.Path, ".css") {
 				w.Header().Set("Content-Type", "text/css")
 				if _, err := w.Write([]byte(`/* Basic fallback CSS */`)); err != nil {
-				d.logger.Error("Failed to write CSS fallback: %v", err)
-			}
+					d.logger.Error("Failed to write CSS fallback: %v", err)
+				}
 			} else if strings.HasSuffix(r.URL.Path, ".js") {
 				w.Header().Set("Content-Type", "application/javascript")
 				if _, err := w.Write([]byte(`// Basic fallback JS`)); err != nil {
-				d.logger.Error("Failed to write JS fallback: %v", err)
-			}
+					d.logger.Error("Failed to write JS fallback: %v", err)
+				}
 			} else {
 				http.NotFound(w, r)
 			}
@@ -428,7 +427,6 @@ func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 
 		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
 	}
-
 
 	return io.ReadAll(resp.Body)
 }

@@ -75,7 +75,6 @@ func (lm *LifecycleManager) executeHook(phase, serverName, hook string) error {
 		lm.logger.Info("Hook %s output for %s: %s", phase, serverName, strings.TrimSpace(string(output)))
 	}
 
-
 	return nil
 }
 

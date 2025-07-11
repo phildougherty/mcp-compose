@@ -323,7 +323,6 @@ func ValidateContainerOptions(opts *ContainerOptions) error {
 		}
 	}
 
-
 	return nil
 }
 
@@ -463,7 +462,6 @@ func ConvertConfigToContainerOptions(serverName string, serverCfg config.ServerC
 		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("seccomp:%s", serverCfg.Security.Seccomp))
 	}
 
-
 	return opts
 }
 
@@ -498,7 +496,6 @@ func MergeContainerOptions(opts, defaults *ContainerOptions) *ContainerOptions {
 	if len(merged.Networks) == 0 {
 		merged.Networks = defaults.Networks
 	}
-
 
 	return &merged
 }
