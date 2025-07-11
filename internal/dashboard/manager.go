@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 	"os"
@@ -129,7 +130,7 @@ CMD ["/app/start.sh"]
 `
 
 	dockerfilePath := "Dockerfile.dashboard"
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 	defer func() {

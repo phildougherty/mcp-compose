@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"github.com/gorilla/websocket"
 )
 
@@ -258,7 +259,7 @@ func (d *DashboardServer) handleActivityWebSocket(w http.ResponseWriter, r *http
 		if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 			break
 		}
-		time.Sleep(30 * time.Second)
+		time.Sleep(constants.DefaultReadTimeout)
 	}
 }
 
@@ -1693,7 +1694,7 @@ func (d *DashboardServer) detectContainerRuntime() string {
 }
 
 func (d *DashboardServer) getStaticContainerLogs(w http.ResponseWriter, r *http.Request, containerName string, tail int, timestamps bool, since string) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), constants.DefaultReadTimeout)
 	defer cancel()
 
 	logs, err := d.getLogsFromRuntime(ctx, containerName, tail, timestamps, since, false)
@@ -1933,8 +1934,8 @@ func (d *DashboardServer) streamLogsFromRuntime(ctx context.Context, w http.Resp
 		flusher.Flush()
 
 		// Rate limiting - prevent overwhelming the client
-		if lineCount%50 == 0 {
-			time.Sleep(10 * time.Millisecond)
+		if lineCount%constants.RateLimitInterval == 0 {
+			time.Sleep(constants.RateLimitDelay)
 		}
 	}
 
@@ -1994,7 +1995,7 @@ func (d *DashboardServer) parseLogLine(line string, lineNumber int) string {
 
 	// Try to extract timestamp from Docker/Podman log line
 	if strings.Contains(line, "T") && strings.Contains(line, "Z") {
-		parts := strings.SplitN(line, " ", 2)
+		parts := strings.SplitN(line, " ", constants.StringSplitParts)
 		if len(parts) == 2 {
 			if timestamp, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
 				logEntry["original_timestamp"] = timestamp.Format(time.RFC3339Nano)

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	
+	"mcpcompose/internal/constants"
 )
 
 // DockerRuntime implements container runtime using Docker
@@ -389,7 +391,7 @@ func (d *DockerRuntime) ValidateSecurityContext(opts *ContainerOptions) error {
 
 func (d *DockerRuntime) validateVolumeMount(volume, containerName string, security *SecurityConfig) error {
 	parts := strings.Split(volume, ":")
-	if len(parts) < 2 {
+	if len(parts) < constants.StringSplitParts {
 		// This is a named volume (e.g., "mcp-cron-data:/data") - always allow
 		return nil
 	}

@@ -37,4 +37,8 @@ const (
 	
 	// Percentage multiplier
 	PercentageMultiplier    = 100
+	
+	// Rate limiting constants
+	RateLimitInterval       = 50
+	RateLimitDelay          = 10 * time.Millisecond
 )

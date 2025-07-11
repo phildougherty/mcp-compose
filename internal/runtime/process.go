@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	
+	"mcpcompose/internal/constants"
 )
 
 // ProcessOptions contains options for process start
@@ -32,11 +34,11 @@ func NewProcess(command string, args []string, opts ProcessOptions) (*Process, e
 	runDir := filepath.Join(os.TempDir(), "mcp-compose", "run")
 	logDir := filepath.Join(os.TempDir(), "mcp-compose", "logs")
 
-	if err := os.MkdirAll(runDir, 0755); err != nil {
+	if err := os.MkdirAll(runDir, constants.DefaultDirMode); err != nil {
 		return nil, fmt.Errorf("failed to create run directory: %w", err)
 	}
 
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, constants.DefaultDirMode); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
@@ -60,7 +62,7 @@ func NewProcess(command string, args []string, opts ProcessOptions) (*Process, e
 	}
 
 	// Create log file for output
-	stdout, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	stdout, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.DefaultFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
@@ -89,7 +91,7 @@ func (p *Process) Start() error {
 	}
 
 	// Write PID to file
-	if err := os.WriteFile(p.pidFile, []byte(strconv.Itoa(p.cmd.Process.Pid)), 0644); err != nil {
+	if err := os.WriteFile(p.pidFile, []byte(strconv.Itoa(p.cmd.Process.Pid)), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 
