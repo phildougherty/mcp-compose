@@ -308,11 +308,14 @@ const MemoryViewer = {
         
         // Data loading methods
         async loadAllData() {
+            // Load entities and relations first
             await Promise.all([
                 this.loadEntities(),
-                this.loadRelations(),
-                this.loadStats()
+                this.loadRelations()
             ]);
+            
+            // Then calculate statistics from the loaded data
+            await this.loadStats();
         },
         
         async loadEntities() {
