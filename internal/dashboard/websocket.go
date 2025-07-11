@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"github.com/gorilla/websocket"
 )
 
@@ -91,9 +92,9 @@ type ActivityBroadcaster struct {
 // Global activity broadcaster instance
 var activityBroadcaster = &ActivityBroadcaster{
 	clients:    make(map[*SafeWebSocketConn]bool),
-	register:   make(chan *SafeWebSocketConn, 10),
-	unregister: make(chan *SafeWebSocketConn, 10),
-	broadcast:  make(chan ActivityMessage, 1000),
+	register:   make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
+	unregister: make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
+	broadcast:  make(chan ActivityMessage, constants.ActivityChannelSize),
 	shutdown:   make(chan struct{}),
 }
 
@@ -129,7 +130,7 @@ func (ab *ActivityBroadcaster) start() {
 }
 
 func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour) // Run daily
+	ticker := time.NewTicker(constants.DailyCleanupInterval) // Run daily
 	defer ticker.Stop()
 
 	for {
@@ -152,7 +153,7 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 	}
 
 	// Send last 50 activities to new client
-	activities, err := ab.storage.GetRecentActivities(50, nil)
+	activities, err := ab.storage.GetRecentActivities(constants.RecentActivitiesCount, nil)
 	if err != nil {
 		log.Printf("[ACTIVITY] Failed to get recent activities: %v", err)
 		return
@@ -324,7 +325,7 @@ func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message A
 	select {
 	case success := <-done:
 		return success
-	case <-time.After(3 * time.Second):
+	case <-time.After(constants.DefaultConnectionTimeout):
 		log.Printf("[ACTIVITY] ⏰ Client send timeout, disconnecting slow client")
 		if err := client.Close(); err != nil {
 			log.Printf("[ACTIVITY] Warning: Failed to close slow client connection: %v", err)
@@ -437,7 +438,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 			}
 			return
 		case <-pingTicker.C:
-			if err := safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
 				d.logger.Debug("Failed to set write deadline for ping to client for %s: %v", serverName, err)
 			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -521,7 +522,7 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 		case <-metricsTicker.C:
 			d.sendMetricsUpdate(safeConn)
 		case <-pingTicker.C:
-			if err := safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
 				d.logger.Debug("Failed to set write deadline for ping to metrics client: %v", err)
 			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -646,7 +647,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 
 // Utility functions
 func generateID() string {
-	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(6))
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(constants.RandomStringLength))
 }
 
 func randomString(length int) string {

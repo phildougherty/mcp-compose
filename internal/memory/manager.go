@@ -4,6 +4,7 @@ package memory
 import (
 	"fmt"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"os"
 	"os/exec"
@@ -242,7 +243,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
 CMD ["./mcp-compose-memory", "--host", "0.0.0.0", "--port", "3001"]`
 
 	dockerfileName := "Dockerfile.memory-go"
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 	defer func() {

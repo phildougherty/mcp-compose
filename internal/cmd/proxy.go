@@ -12,13 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
 	"mcpcompose/internal/compose"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/server"
 
@@ -63,7 +63,7 @@ Servers must be configured to run in HTTP mode and expose their ports.`,
 		},
 	}
 
-	cmd.Flags().IntVarP(&port, "port", "p", 9876, "Port to run the proxy server on")
+	cmd.Flags().IntVarP(&port, "port", "p", constants.DefaultProxyPort, "Port to run the proxy server on")
 	cmd.Flags().BoolVarP(&generateConfig, "generate-config", "g", false, "Generate client configuration file only")
 	cmd.Flags().StringVarP(&clientType, "client", "t", "claude", "Client type (claude, openai, anthropic, all)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "client-config", "Output directory for client configuration")
@@ -236,9 +236,9 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	}()
 
 	// Get configurable timeouts or use defaults
-	readTimeout := 5 * time.Minute  // Default for large file operations
-	writeTimeout := 5 * time.Minute // Default for long-running tools
-	idleTimeout := 2 * time.Minute  // Default for connection keepalive
+	readTimeout := constants.FileOperationTimeout  // Default for large file operations
+	writeTimeout := constants.FileOperationTimeout // Default for long-running tools
+	idleTimeout := constants.ConnectionKeepAlive  // Default for connection keepalive
 
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
@@ -291,7 +291,7 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	<-ctx.Done()
 
 	// Graceful shutdown with configurable timeout
-	shutdownTimeout := 30 * time.Second // Default fallback
+	shutdownTimeout := constants.DefaultShutdownTimeout // Default fallback
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
 			shutdownTimeout = conn.Timeouts.GetShutdownTimeout()
@@ -380,7 +380,7 @@ EXPOSE 9876
 CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
 `
 
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write Dockerfile %s: %w", dockerfileName, err)
 	}
 	defer func() { _ = os.Remove(dockerfileName) }()
@@ -400,7 +400,7 @@ CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
 // generateProxyClientConfig remains useful for generating client-side import files
 // It should now generate httpEndpoint based on the proxy's address.
 func generateProxyClientConfig(cfg *config.ComposeConfig, _ string, proxyPort int, clientType string, outputDir string) error {
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, constants.DefaultDirMode); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 

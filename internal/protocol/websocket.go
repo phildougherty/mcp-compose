@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -63,8 +65,8 @@ func NewWebSocketTransport(url string) *WebSocketTransport {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketTransport{
 		url:             url,
-		readChan:        make(chan MCPMessage, 100),
-		writeChan:       make(chan MCPMessage, 100),
+		readChan:        make(chan MCPMessage, constants.DefaultBufferSize),
+		writeChan:       make(chan MCPMessage, constants.DefaultBufferSize),
 		errorChan:       make(chan error, 10),
 		progressManager: NewProgressManager(),
 		lastUsed:        time.Now(),
@@ -301,8 +303,8 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 	ctx, cancel := context.WithCancel(ws.ctx)
 	transport := &WebSocketTransport{
 		conn:            conn,
-		readChan:        make(chan MCPMessage, 100),
-		writeChan:       make(chan MCPMessage, 100),
+		readChan:        make(chan MCPMessage, constants.DefaultBufferSize),
+		writeChan:       make(chan MCPMessage, constants.DefaultBufferSize),
 		errorChan:       make(chan error, 10),
 		progressManager: NewProgressManager(),
 		lastUsed:        time.Now(),

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ This makes it easy to use your MCP servers with popular LLM client applications.
 			if outputDir == "" {
 				outputDir = "client-configs"
 			}
-			if err := os.MkdirAll(outputDir, 0755); err != nil {
+			if err := os.MkdirAll(outputDir, constants.DefaultDirMode); err != nil {
 				return fmt.Errorf("failed to create output directory: %w", err)
 			}
 			// Load the MCP compose configuration
@@ -121,7 +122,7 @@ docker run --rm -i \
 			}
 
 			// Write the script
-			if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			if err := os.WriteFile(scriptPath, []byte(script), constants.ExecutableFileMode); err != nil {
 				return fmt.Errorf("failed to write script file: %w", err)
 			}
 
@@ -140,7 +141,7 @@ docker run --rm -i \
 		return fmt.Errorf("failed to marshal Claude Desktop config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write Claude Desktop config file: %w", err)
 	}
 
@@ -270,7 +271,7 @@ if __name__ == "__main__":
 
 	// Write the Python script
 	pythonPath := filepath.Join(outputDir, "anthropic_mcp_example.py")
-	if err := os.WriteFile(pythonPath, []byte(pythonCode), 0644); err != nil {
+	if err := os.WriteFile(pythonPath, []byte(pythonCode), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write Anthropic example script: %w", err)
 	}
 
@@ -411,7 +412,7 @@ main();
 
 	// Write the JS script
 	jsPath := filepath.Join(outputDir, "openai_mcp_example.js")
-	if err := os.WriteFile(jsPath, []byte(jsCode), 0644); err != nil {
+	if err := os.WriteFile(jsPath, []byte(jsCode), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write OpenAI example script: %w", err)
 	}
 
@@ -431,7 +432,7 @@ main();
 `
 
 	packagePath := filepath.Join(outputDir, "package.json")
-	if err := os.WriteFile(packagePath, []byte(packageJSON), 0644); err != nil {
+	if err := os.WriteFile(packagePath, []byte(packageJSON), constants.DefaultFileMode); err != nil {
 		return fmt.Errorf("failed to write package.json file: %w", err)
 	}
 

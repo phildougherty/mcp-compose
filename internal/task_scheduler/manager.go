@@ -3,6 +3,7 @@ package task_scheduler
 import (
 	"fmt"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/dashboard" // Add this import for BroadcastActivity
 	"time"
@@ -217,7 +218,7 @@ func (m *Manager) Restart() error {
 	_ = m.Stop()
 
 	// Wait a moment
-	time.Sleep(2 * time.Second)
+	time.Sleep(constants.DefaultRetryDelay)
 
 	// Start again
 	if err := m.Start(); err != nil {

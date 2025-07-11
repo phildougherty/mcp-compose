@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"mcpcompose/internal/constants"
+
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +24,7 @@ This will refresh the proxy's server list without restarting the proxy.`,
 		},
 	}
 
-	cmd.Flags().IntP("port", "p", 9876, "Proxy server port")
+	cmd.Flags().IntP("port", "p", constants.DefaultProxyPort, "Proxy server port")
 	cmd.Flags().String("api-key", "", "API key for proxy authentication")
 
 	return cmd

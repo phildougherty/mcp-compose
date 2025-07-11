@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"mcpcompose/internal/constants"
 	"sync"
 	"time"
 
@@ -51,7 +53,7 @@ func NewInspectorService(logger *logging.Logger, proxyURL, apiKey string) *Inspe
 		apiKey:   apiKey,
 		sessions: make(map[string]*InspectorSession),
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: constants.DefaultReadTimeout,
 		},
 	}
 }

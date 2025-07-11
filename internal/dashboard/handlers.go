@@ -82,7 +82,7 @@ func (d *DashboardServer) handleContainers(w http.ResponseWriter, r *http.Reques
 	// Extract container name from path
 	path := strings.TrimPrefix(r.URL.Path, "/api/containers/")
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
+	if len(parts) < constants.StringSplitParts {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 
 		return
@@ -659,7 +659,7 @@ func (d *DashboardServer) handleAuditStats(w http.ResponseWriter, r *http.Reques
 		// Return empty audit stats if proxy doesn't have this endpoint
 		response := map[string]interface{}{
 			"total_entries": 0,
-			"success_rate":  100.0,
+			"success_rate":  constants.PercentageMultiplierFloat,
 			"event_counts":  map[string]int{},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1996,7 +1996,7 @@ func (d *DashboardServer) parseLogLine(line string, lineNumber int) string {
 	// Try to extract timestamp from Docker/Podman log line
 	if strings.Contains(line, "T") && strings.Contains(line, "Z") {
 		parts := strings.SplitN(line, " ", constants.StringSplitParts)
-		if len(parts) == 2 {
+		if len(parts) == constants.StringSplitParts {
 			if timestamp, err := time.Parse(time.RFC3339Nano, parts[0]); err == nil {
 				logEntry["original_timestamp"] = timestamp.Format(time.RFC3339Nano)
 				logEntry["content"] = parts[1]
@@ -2063,7 +2063,7 @@ func (d *DashboardServer) handleContainerStats(w http.ResponseWriter, _ *http.Re
 	var stats map[string]interface{}
 	if len(lines) >= 2 && lines[1] != "" {
 		fields := strings.Fields(lines[1])
-		if len(fields) >= 6 {
+		if len(fields) >= constants.LogFieldCount {
 			stats = map[string]interface{}{
 				"name":      fields[0],
 				"cpu_perc":  fields[1],

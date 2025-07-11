@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 )
 
@@ -35,7 +36,7 @@ type Entry struct {
 func NewLogger(maxEntries int, maxAge string, events []string, logger *logging.Logger) *Logger {
 	maxAgeDuration, _ := time.ParseDuration(maxAge)
 	if maxAgeDuration == 0 {
-		maxAgeDuration = DefaultAuditRetentionDays * 24 * time.Hour
+		maxAgeDuration = DefaultAuditRetentionDays * constants.HoursInDay * time.Hour
 	}
 
 	eventMap := make(map[string]bool)

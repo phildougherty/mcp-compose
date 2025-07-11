@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 
 	"github.com/spf13/cobra"
@@ -573,7 +574,7 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 	}
 
 	// Start container with retry logic
-	containerID, err := startContainerWithRetry(runtime, opts, 3)
+	containerID, err := startContainerWithRetry(runtime, opts, constants.DefaultRetryAttempts)
 	if err != nil {
 		return fmt.Errorf("failed to start task scheduler container: %w", err)
 	}
@@ -610,7 +611,7 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 }
 
 func buildTaskSchedulerImageWithRetry(debug bool) error {
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= constants.DefaultRetryLimit; attempt++ {
 		fmt.Printf("Building task scheduler image (attempt %d/3)...\n", attempt)
 
 		if err := buildTaskSchedulerImage(debug); err == nil {
@@ -618,7 +619,7 @@ func buildTaskSchedulerImageWithRetry(debug bool) error {
 			return nil
 		} else {
 			fmt.Printf("Build attempt %d failed: %v\n", attempt, err)
-			if attempt < 3 {
+			if attempt < constants.DefaultRetryLimit {
 				fmt.Printf("Retrying in 5 seconds...\n")
 				time.Sleep(5 * time.Second)
 			}
@@ -724,7 +725,7 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 
 		if attempt < maxRetries {
 			fmt.Printf("Retrying in 2 seconds...\n")
-			time.Sleep(2 * time.Second)
+			time.Sleep(constants.DefaultRetryDelay)
 		}
 	}
 
@@ -742,7 +743,7 @@ func waitForContainerHealth(runtime container.Runtime, containerName string, tim
 
 		if status == "running" {
 			// Give it a moment to start up before considering it healthy
-			time.Sleep(2 * time.Second)
+			time.Sleep(constants.DefaultRetryDelay)
 			return nil
 		}
 
@@ -750,7 +751,7 @@ func waitForContainerHealth(runtime container.Runtime, containerName string, tim
 			return fmt.Errorf("container exited unexpectedly")
 		}
 
-		time.Sleep(2 * time.Second)
+		time.Sleep(constants.DefaultRetryDelay)
 	}
 
 	return fmt.Errorf("container did not become healthy within %v", timeout)

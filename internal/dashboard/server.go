@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 
@@ -97,8 +98,8 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		apiKey:    apiKey,
 		templates: tmpl,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:  constants.WebSocketBufferSize,
+			WriteBufferSize: constants.WebSocketBufferSize,
 			CheckOrigin: func(r *http.Request) bool {
 				return true // In production, implement proper origin checking
 			},
@@ -111,7 +112,7 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 						return conn.Timeouts.GetConnectTimeout()
 					}
 				}
-				return 10 * time.Second // Default fallback
+				return constants.DefaultStatsTimeout // Default fallback
 			}(),
 		},
 	}
@@ -126,11 +127,11 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 }
 
 func (d *DashboardServer) startInspectorCleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(constants.DefaultCleanupInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		count := d.inspectorService.CleanupExpiredSessions(30 * time.Minute)
+		count := d.inspectorService.CleanupExpiredSessions(constants.DefaultSessionCleanupTime)
 		if count > 0 {
 			d.logger.Info("Cleaned up %d expired inspector sessions", count)
 		}
@@ -334,9 +335,9 @@ func (d *DashboardServer) Start(port int, host string) error {
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
 
 	// Get configurable timeouts or use defaults
-	readTimeout := 15 * time.Second
-	writeTimeout := 15 * time.Second
-	idleTimeout := 60 * time.Second
+	readTimeout := constants.ShortTimeout
+	writeTimeout := constants.ShortTimeout
+	idleTimeout := constants.DefaultIdleTimeout
 
 	if len(d.config.Connections) > 0 {
 		for _, conn := range d.config.Connections {

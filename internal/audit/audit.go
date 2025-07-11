@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 )
 
@@ -53,7 +54,7 @@ type AuditEntry struct {
 func NewAuditLogger(auditConfig *config.AuditConfig, logger *logging.Logger) *AuditLogger {
 	maxAge, _ := time.ParseDuration(auditConfig.Retention.MaxAge)
 	if maxAge == 0 {
-		maxAge = DefaultAuditRetentionDays * 24 * time.Hour // Default 7 days
+		maxAge = DefaultAuditRetentionDays * constants.HoursInDay * time.Hour // Default 7 days
 	}
 
 	events := make(map[string]bool)

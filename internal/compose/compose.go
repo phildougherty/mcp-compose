@@ -14,6 +14,7 @@ import (
 	"golang.org/x/text/language"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 	"mcpcompose/internal/protocol"
@@ -532,7 +533,7 @@ func ShortDuration(d time.Duration) string {
 		return fmt.Sprintf("%dns", d.Nanoseconds())
 	}
 	if d < time.Second {
-		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/1e6)
+		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/constants.NanosecondsToMilliseconds)
 	}
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
@@ -632,7 +633,7 @@ func List(configFile string) error {
 		fmt.Printf("Warning: failed to detect container runtime: %v. Container statuses will be 'Unknown'.\n", err)
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, constants.TableColumnSpacing, ' ', 0)
 	if _, err := fmt.Fprintln(w, "SERVER NAME\tSTATUS\tTRANSPORT\tCONTAINER/PROCESS NAME\tPORTS\tCAPABILITIES"); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}

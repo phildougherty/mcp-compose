@@ -4,6 +4,7 @@ package cmd
 import (
 	"fmt"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/memory"
 
@@ -139,7 +140,7 @@ func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
 		Command:      "./mcp-compose-memory",
 		Args:         []string{"--host", "0.0.0.0", "--port", "3001"},
 		Protocol:     "http",
-		HttpPort:     3001,
+		HttpPort:     constants.DefaultMemoryHTTPPort,
 		User:         "root",
 		ReadOnly:     false,
 		Privileged:   false,
@@ -178,7 +179,7 @@ func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
 			Test:        []string{"CMD-SHELL", "pg_isready -U postgres"},
 			Interval:    "10s",
 			Timeout:     "5s",
-			Retries:     5,
+			Retries:     constants.DefaultRetryCount,
 			StartPeriod: "30s",
 		},
 	}

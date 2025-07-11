@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 )
 
@@ -95,7 +96,7 @@ func (hc *HealthChecker) Check() error {
 
 	timeout, err := time.ParseDuration(hc.config.Timeout)
 	if err != nil {
-		timeout = 5 * time.Second
+		timeout = constants.DefaultHealthTimeout
 	}
 
 	// Implementation depends on check type
