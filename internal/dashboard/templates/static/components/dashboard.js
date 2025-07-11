@@ -594,6 +594,8 @@ const DashboardApp = {
                             </svg>
                         </div>
                         <h1 class="text-base font-semibold text-gray-900 dark:text-white hidden sm:block">MCP Dashboard</h1>
+                        <div class="md:hidden text-xs text-red-400" v-if="mobileMenuOpen">Menu: Open</div>
+                        <div class="md:hidden text-xs text-gray-400" v-else>Menu: Closed</div>
                     </div>
 
                     <!-- Desktop Controls -->
@@ -718,8 +720,10 @@ const DashboardApp = {
         </header>
 
         <!-- Mobile Menu Dropdown -->
-        <div v-if="mobileMenuOpen" class="md:hidden bg-gray-800 border-b border-gray-700 sticky top-12 z-40 mobile-menu-container">
+        <div v-if="mobileMenuOpen" class="md:hidden bg-gray-800 border-b border-gray-700 fixed top-12 left-0 right-0 z-50 mobile-menu-container">
             <div class="px-4 py-3 space-y-3">
+                <!-- Debug indicator -->
+                <div class="text-green-400 text-sm">Mobile Menu Open (Debug)</div>
                 <!-- Mobile Actions -->
                 <div class="space-y-2">
                     <button
@@ -770,7 +774,7 @@ const DashboardApp = {
         </div>
 
         <!-- Compact Navigation Pills -->
-        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'top-32': mobileMenuOpen }">
+        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'mt-20': mobileMenuOpen }">
             <div class="px-4 sm:px-6 lg:px-8">
                 <div class="flex items-center py-2 space-x-1 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
                     <button
