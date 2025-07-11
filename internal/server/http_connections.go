@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/config"
 	"mcpcompose/internal/constants"
 )
 
@@ -608,4 +609,106 @@ func (h *ProxyHandler) getConnectionHealthStatus(conn *MCPHTTPConnection) string
 
 
 	return "Unhealthy / MCP Session Not Initialized"
+}
+
+// establishInitialHTTPConnections proactively establishes HTTP connections to all configured HTTP servers
+func (h *ProxyHandler) establishInitialHTTPConnections() {
+	if h.Manager == nil || h.Manager.config == nil {
+
+		return
+	}
+
+	// Wait a moment for containers to fully start up
+	time.Sleep(2 * time.Second)
+
+	h.logger.Info("Establishing initial HTTP connections to configured servers")
+	
+	for serverName, serverConfig := range h.Manager.config.Servers {
+		// Only establish connections for HTTP servers
+		if serverConfig.Protocol == "http" || serverConfig.HttpPort > 0 {
+			go func(name string, cfg config.ServerConfig) {
+				// Check if server is likely to be running
+				instance, exists := h.Manager.GetServerInstance(name)
+				if !exists {
+					h.logger.Debug("Server %s not found in manager instances, skipping initial connection", name)
+
+					return
+				}
+				
+				// Check if container is running (if it's a container)
+				if instance.IsContainer && instance.ContainerID != "" {
+					status, err := h.Manager.containerRuntime.GetContainerStatus(instance.ContainerID)
+					if err != nil || status != "running" {
+						h.logger.Debug("Server %s container not running (%s), skipping initial connection", name, status)
+
+						return
+					}
+				}
+				
+				h.logger.Debug("Attempting to establish initial HTTP connection to %s", name)
+				_, err := h.getServerConnection(name)
+				if err != nil {
+					h.logger.Debug("Initial connection to %s failed: %v", name, err)
+				} else {
+					h.logger.Info("Successfully established initial HTTP connection to %s", name)
+				}
+			}(serverName, serverConfig)
+		}
+	}
+}
+
+// ensureHTTPConnectionsEstablished ensures HTTP connections are established for all configured HTTP servers
+// This can be called on-demand (e.g., from API endpoints) to refresh connections
+func (h *ProxyHandler) ensureHTTPConnectionsEstablished() {
+	if h.Manager == nil || h.Manager.config == nil {
+
+		return
+	}
+
+	h.logger.Debug("Ensuring HTTP connections are established for all configured servers")
+	
+	for serverName, serverConfig := range h.Manager.config.Servers {
+		// Only establish connections for HTTP servers
+		if serverConfig.Protocol == "http" || serverConfig.HttpPort > 0 {
+			// Check if we already have a healthy connection
+			h.ConnectionMutex.RLock()
+			conn, exists := h.ServerConnections[serverName]
+			h.ConnectionMutex.RUnlock()
+			
+			if exists && h.isConnectionHealthy(conn) {
+				h.logger.Debug("HTTP connection to %s already exists and is healthy", serverName)
+
+				continue
+			}
+			
+			// Establish connection if we don't have one or it's unhealthy
+			go func(name string, cfg config.ServerConfig) {
+				// Check if server is likely to be running
+				instance, exists := h.Manager.GetServerInstance(name)
+				if !exists {
+					h.logger.Debug("Server %s not found in manager instances, skipping connection", name)
+
+					return
+				}
+				
+				// Check if container is running (if it's a container)
+				if instance.IsContainer && instance.ContainerID != "" {
+					status, err := h.Manager.containerRuntime.GetContainerStatus(instance.ContainerID)
+					if err != nil || status != "running" {
+						h.logger.Debug("Server %s container not running (%s), skipping connection", name, status)
+
+						return
+					}
+				}
+				
+				h.logger.Debug("Establishing HTTP connection to %s", name)
+				_, err := h.getServerConnection(name)
+				if err != nil {
+					h.logger.Debug("Connection to %s failed: %v", name, err)
+				} else {
+					h.logger.Debug("Successfully established HTTP connection to %s", name)
+				}
+			}(serverName, serverConfig)
+		}
+	}
 }
