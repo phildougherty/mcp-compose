@@ -222,21 +222,86 @@ button, .btn, .touch-target, a[role="button"] {
     border: 1px solid rgb(75, 85, 99) !important;
 }
 
-/* Responsive grid */
+/* Responsive grid - enhanced for better mobile stacking */
 .responsive-grid {
     display: grid;
     gap: 1rem;
     grid-template-columns: 1fr;
+    width: 100%;
 }
+
+/* Mobile: always single column for better readability */
+.responsive-grid.cols-2,
+.responsive-grid.cols-3,
+.responsive-grid.cols-4,
+.responsive-grid.cols-5 {
+    grid-template-columns: 1fr;
+}
+
+/* Small screens: 2 columns for compact cards */
 @media (min-width: 640px) {
     .responsive-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .responsive-grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
+    .responsive-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+    .responsive-grid.cols-5 { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Medium screens: 3 columns for balanced layout */
 @media (min-width: 768px) {
     .responsive-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
-    .responsive-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .responsive-grid.cols-4 { grid-template-columns: repeat(3, 1fr); }
+    .responsive-grid.cols-5 { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Large screens: full layout */
 @media (min-width: 1024px) {
+    .responsive-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
     .responsive-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+}
+
+/* Extra large screens: maintain max 5 columns for readability */
+@media (min-width: 1280px) {
+    .responsive-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+}
+
+/* Ensure all grid items have consistent sizing */
+.responsive-grid > * {
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Card content should be flexible and properly sized */
+.responsive-grid .enhanced-card {
+    min-height: 120px; /* Ensure minimum height for consistency */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.responsive-grid .enhanced-card .flex {
+    flex: 1;
+    min-width: 0; /* Allow text truncation */
+}
+
+/* Prevent text overflow in stat cards */
+.responsive-grid .enhanced-card .text-2xl,
+.responsive-grid .enhanced-card .text-lg {
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Ensure consistent spacing on mobile */
+@media (max-width: 639px) {
+    .responsive-grid {
+        gap: 0.75rem;
+    }
+    
+    .responsive-grid .enhanced-card {
+        min-height: 100px;
+        padding: 0.75rem !important;
+    }
 }
 
 /* Status indicators */

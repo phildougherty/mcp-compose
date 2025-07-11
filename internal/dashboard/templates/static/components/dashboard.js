@@ -810,7 +810,7 @@ const DashboardApp = {
                 <!-- Overview Tab Content -->
                 <div v-if="activeTab === 'overview'" class="space-y-6 animate-fade-in">
                     <!-- Enhanced Stats Overview -->
-                    <div class="responsive-grid cols-2 sm:cols-3 lg:cols-5 gap-3 sm:gap-4">
+                    <div class="responsive-grid cols-5 gap-3 sm:gap-4">
                         <!-- Total Servers -->
                         <div class="enhanced-card p-3 sm:p-4">
                             <div class="flex items-center">
@@ -863,7 +863,7 @@ const DashboardApp = {
                         </div>
                         
                         <!-- Proxy Uptime -->
-                        <div class="col-span-2 sm:col-span-1 enhanced-card p-3 sm:p-4">
+                        <div class="enhanced-card p-3 sm:p-4">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
                                     <div class="w-8 h-8 bg-gradient-to-r from-purple-400 to-purple-600 rounded-lg flex items-center justify-center">
@@ -880,7 +880,7 @@ const DashboardApp = {
                         </div>
                         
                         <!-- Active Connections -->
-                        <div class="col-span-2 sm:col-span-2 lg:col-span-1 enhanced-card p-3 sm:p-4">
+                        <div class="enhanced-card p-3 sm:p-4">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
                                     <div class="w-8 h-8 bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-lg flex items-center justify-center">
