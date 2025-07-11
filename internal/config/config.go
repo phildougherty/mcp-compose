@@ -627,8 +627,57 @@ type DashboardAdminLogin struct {
 	SessionTimeout string `yaml:"session_timeout"`
 }
 
+// loadDotEnv loads environment variables from .env file in the same directory as the config file
+func loadDotEnv(configFilePath string) {
+	// Get the directory of the config file
+	configDir := filepath.Dir(configFilePath)
+	envFilePath := filepath.Join(configDir, ".env")
+	
+	// Check if .env file exists
+	if _, err := os.Stat(envFilePath); os.IsNotExist(err) {
+
+		return // No .env file, that's okay
+	}
+	
+	// Read .env file
+	data, err := os.ReadFile(envFilePath)
+	if err != nil {
+
+		return // Could not read .env file, continue without it
+	}
+	
+	// Parse .env file and set environment variables
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+
+			continue
+		}
+		
+		// Split on first = sign
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+
+			continue
+		}
+		
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		
+		// Only set if not already set in environment
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
+}
+
 // LoadConfig loads and parses the compose file with environment support
 func LoadConfig(filePath string) (*ComposeConfig, error) {
+	// Load .env file if it exists
+	loadDotEnv(filePath)
+	
 	// Read file
 	data, err := os.ReadFile(filePath)
 	if err != nil {

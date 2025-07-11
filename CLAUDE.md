@@ -146,6 +146,11 @@ Always use environment variables for sensitive data:
 - Makefile provides common build tasks
 - Binary output: `build/mcp-compose`
 
+### Coding Standards
+- **Linting**: Always add empty lines before `continue`, `break`, and `return` statements for linting compliance
+- **Comments**: Do not add comments unless explicitly requested
+- **Go Style**: Follow standard Go conventions and formatting
+
 ### Protocol Implementation
 - Full MCP JSON-RPC 2.0 compliance
 - Supports all MCP capabilities: tools, resources, prompts
