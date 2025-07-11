@@ -577,7 +577,7 @@ func (h *ProxyHandler) establishInitialHTTPConnections() {
 	}
 
 	// Wait a moment for containers to fully start up
-	time.Sleep(2 * time.Second)
+	time.Sleep(constants.ContainerStartupWait)
 
 	h.logger.Info("Establishing initial HTTP connections to configured servers")
 

@@ -97,7 +97,7 @@ func (m *Manager) buildDashboardImage() error {
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
+		return fmt.Errorf("dockerfile not found at %s", dockerfilePath)
 	}
 
 	// Build the image

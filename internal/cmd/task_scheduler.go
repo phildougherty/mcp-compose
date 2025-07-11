@@ -654,7 +654,7 @@ func buildTaskSchedulerImage(debug bool) error {
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
+		return fmt.Errorf("dockerfile not found at %s", dockerfilePath)
 	}
 
 	args := []string{"build", "-f", dockerfilePath, "-t", "mcp-compose-task-scheduler:latest", "."}

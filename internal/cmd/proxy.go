@@ -347,7 +347,7 @@ func buildGoProxyImage(httpProxy bool) error {
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
+		return fmt.Errorf("dockerfile not found at %s", dockerfilePath)
 	}
 
 	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", imageName, ".")

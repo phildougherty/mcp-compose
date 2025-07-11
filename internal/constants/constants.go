@@ -237,4 +237,11 @@ const (
 
 	// Enhanced performance constants
 	PerformanceShortSleep = 100 * time.Millisecond
+	
+	// Configuration parsing constants
+	EnvVarSplitParts = 2
+	
+	// Connection establishment wait times
+	ConnectionEstablishmentWait = 100 * time.Millisecond
+	ContainerStartupWait       = 2 * time.Second
 )

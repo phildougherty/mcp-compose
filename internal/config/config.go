@@ -657,8 +657,8 @@ func loadDotEnv(configFilePath string) {
 		}
 
 		// Split on first = sign
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "=", constants.EnvVarSplitParts)
+		if len(parts) != constants.EnvVarSplitParts {
 
 			continue
 		}
@@ -668,7 +668,7 @@ func loadDotEnv(configFilePath string) {
 
 		// Only set if not already set in environment
 		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
+			_ = os.Setenv(key, value)
 		}
 	}
 }

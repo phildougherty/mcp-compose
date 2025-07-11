@@ -198,7 +198,7 @@ func (m *Manager) buildMemoryImage() error {
 	// Check if Dockerfile exists
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 
-		return fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
+		return fmt.Errorf("dockerfile not found at %s", dockerfilePath)
 	}
 
 	fmt.Println("Building Go memory server image with fresh dependencies...")

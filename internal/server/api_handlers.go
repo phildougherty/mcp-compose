@@ -253,7 +253,7 @@ func (h *ProxyHandler) handleConnectionsAPI(w http.ResponseWriter, _ *http.Reque
 	h.ensureHTTPConnectionsEstablished()
 
 	// Give connections a moment to be established
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(constants.ConnectionEstablishmentWait)
 
 	h.ConnectionMutex.RLock()
 	connectionsSnapshot := make(map[string]interface{})

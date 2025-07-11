@@ -484,6 +484,7 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		d.logger.Error("Failed to create proxy request: %v", err)
+
 		return false
 	}
 
@@ -494,12 +495,16 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
 		d.logger.Error("Failed to make proxy request: %v", err)
+
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		d.logger.Error("Proxy request failed: %d %s", resp.StatusCode, resp.Status)
+
 		return false
 	}
 
