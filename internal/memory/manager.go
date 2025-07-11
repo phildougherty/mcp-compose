@@ -31,10 +31,20 @@ func (m *Manager) SetConfigFile(configFile string) {
 func (m *Manager) Start() error {
 	fmt.Println("Starting MCP memory server...")
 
+	// Get PostgreSQL password from config or environment first
+	pgPassword := "password"
+	if m.cfg.Memory.PostgresPassword != "" {
+		pgPassword = m.cfg.Memory.PostgresPassword
+	}
+	// Also check environment variable directly
+	if envPassword := os.Getenv("POSTGRES_PASSWORD"); envPassword != "" {
+		pgPassword = envPassword
+	}
+
 	// Check if postgres-memory is running first
 	postgresStatus, err := m.runtime.GetContainerStatus("mcp-compose-postgres-memory")
 	if err != nil || postgresStatus != "running" {
-		if err := m.startPostgres(); err != nil {
+		if err := m.startPostgres(pgPassword); err != nil {
 
 			return fmt.Errorf("failed to start postgres-memory: %w", err)
 		}
@@ -60,7 +70,7 @@ func (m *Manager) Start() error {
 	}
 
 	// Get configuration values with defaults
-	dbURL := "postgresql://postgres:password@mcp-compose-postgres-memory:5432/memory_graph?sslmode=disable"
+	dbURL := fmt.Sprintf("postgresql://postgres:%s@mcp-compose-postgres-memory:5432/memory_graph?sslmode=disable", pgPassword)
 	if m.cfg.Memory.DatabaseURL != "" {
 		dbURL = m.cfg.Memory.DatabaseURL
 		// Ensure sslmode=disable is included if not present
@@ -91,8 +101,9 @@ func (m *Manager) Start() error {
 		Ports:    []string{"3001:3001"},
 		Networks: []string{"mcp-net"},
 		Env: map[string]string{
-			"NODE_ENV":     "production",
-			"DATABASE_URL": dbURL,
+			"NODE_ENV":          "production",
+			"DATABASE_URL":      dbURL,
+			"POSTGRES_PASSWORD": pgPassword,
 		},
 		User:        "root",
 		CPUs:        cpus,
@@ -118,7 +129,7 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-func (m *Manager) startPostgres() error {
+func (m *Manager) startPostgres(pgPassword string) error {
 	fmt.Println("Starting postgres-memory database...")
 
 	// Get postgres configuration with defaults
@@ -140,11 +151,6 @@ func (m *Manager) startPostgres() error {
 	pgUser := "postgres"
 	if m.cfg.Memory.PostgresUser != "" {
 		pgUser = m.cfg.Memory.PostgresUser
-	}
-
-	pgPassword := "password"
-	if m.cfg.Memory.PostgresPassword != "" {
-		pgPassword = m.cfg.Memory.PostgresPassword
 	}
 
 	// Get volumes with defaults
