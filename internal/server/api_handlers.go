@@ -996,7 +996,7 @@ func (h *ProxyHandler) getStaticContainerLogs(w http.ResponseWriter, r *http.Req
 
 	// Parse output into lines
 	lines := strings.Split(string(output), "\n")
-	var filteredLines []string
+	filteredLines := make([]string, 0) // Initialize as empty slice instead of nil
 	for _, line := range lines {
 		if strings.TrimSpace(line) != "" {
 			filteredLines = append(filteredLines, line)
