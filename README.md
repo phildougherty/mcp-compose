@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/phildougherty/mcp-compose/branch/main/graph/badge.svg)](https://codecov.io/gh/phildougherty/mcp-compose)
 [![Go Report Card](https://goreportcard.com/badge/github.com/phildougherty/mcp-compose)](https://goreportcard.com/report/github.com/phildougherty/mcp-compose)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 A comprehensive orchestration tool for managing Model Context Protocol (MCP) servers with container and proxy capabilities. MCP-Compose provides a Docker Compose-style interface for deploying, configuring, and managing multiple MCP servers through a unified HTTP proxy.
 
@@ -615,4 +615,4 @@ golangci-lint run
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GNU Affero General Public License v3.0 - see the LICENSE file for details.
