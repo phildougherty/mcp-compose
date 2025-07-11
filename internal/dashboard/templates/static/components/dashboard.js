@@ -382,10 +382,15 @@ const DashboardApp = {
         },
         
         isServerHealthy(server) {
-            // A server is healthy if both:
-            // 1. Container is running
-            // 2. Proxy connection is established and healthy
-            return this.isContainerRunning(server) && this.getConnectionStatus(server) === 'Connected';
+            // A server is healthy if the proxy connection is established and healthy
+            // This is the primary indicator of MCP server health
+            const connectionStatus = this.getConnectionStatus(server);
+            if (connectionStatus === 'Connected') {
+                return true;
+            }
+            
+            // Fallback: if no HTTP connection but container is running, it might be a STDIO server
+            return this.isContainerRunning(server) && server.configProtocol !== 'http';
         },
         
         getHttpConnection(server) {

@@ -172,6 +172,9 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	// Start connection monitoring
 	handler.connectionManager.StartMonitoring(constants.MonitoringInterval)
 
+	// Establish initial HTTP connections to all configured HTTP servers
+	go handler.establishInitialHTTPConnections()
+
 
 	return handler
 }
