@@ -1,5 +1,9 @@
 # MCP-Compose
 
+[![codecov](https://codecov.io/gh/phildougherty/mcp-compose/branch/main/graph/badge.svg)](https://codecov.io/gh/phildougherty/mcp-compose)
+[![Go Report Card](https://goreportcard.com/badge/github.com/phildougherty/mcp-compose)](https://goreportcard.com/report/github.com/phildougherty/mcp-compose)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A comprehensive orchestration tool for managing Model Context Protocol (MCP) servers with container and proxy capabilities. MCP-Compose provides a Docker Compose-style interface for deploying, configuring, and managing multiple MCP servers through a unified HTTP proxy.
 
 ## Overview
