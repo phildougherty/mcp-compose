@@ -43,14 +43,19 @@ const LogViewer = {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 const data = await response.json();
-                this.logs = data.logs.map((line, index) => ({
-                    id: index,
-                    timestamp: new Date().toISOString(),
-                    server: this.selectedServer,
-                    level: this.detectLogLevel(line),
-                    message: line,
-                    raw: line
-                }));
+                if (data.logs && Array.isArray(data.logs)) {
+                    this.logs = data.logs.map((line, index) => ({
+                        id: index,
+                        timestamp: new Date().toISOString(),
+                        server: this.selectedServer,
+                        level: this.detectLogLevel(line),
+                        message: line,
+                        raw: line
+                    }));
+                } else {
+                    this.logs = [];
+                    console.warn('No logs data received or logs is not an array:', data);
+                }
                 this.scrollToBottom();
                 this.showToast('Logs loaded successfully', 'success');
             } catch (err) {

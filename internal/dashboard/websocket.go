@@ -397,6 +397,14 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Try to use proxy endpoint for streaming logs first
+	endpoint := fmt.Sprintf("/api/containers/%s/logs?follow=true&tail=50", containerName)
+	if d.streamLogsViaProxyEndpoint(safeConn, endpoint, serverName, ctx) {
+		return
+	}
+
+	// Fallback to direct docker command if proxy fails
+	d.logger.Info("Proxy streaming failed, falling back to direct docker command for %s", containerName)
 	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "50", containerName)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -469,6 +477,70 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
+}
+
+func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn, endpoint, serverName string, ctx context.Context) bool {
+	url := d.proxyURL + endpoint
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		d.logger.Error("Failed to create proxy request: %v", err)
+		return false
+	}
+
+	if d.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiKey)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		d.logger.Error("Failed to make proxy request: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		d.logger.Error("Proxy request failed: %d %s", resp.StatusCode, resp.Status)
+		return false
+	}
+
+	d.logger.Info("Successfully connected to proxy logs stream for %s", serverName)
+
+	// Stream logs from proxy response
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return true
+		default:
+		}
+
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		msg := LogMessage{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Server:    serverName,
+			Level:     d.parseLogLevel(line),
+			Message:   line,
+		}
+
+		if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
+			d.logger.Debug("Failed to set write deadline: %v", err)
+		}
+		if err := safeConn.WriteJSON(msg); err != nil {
+			d.logger.Debug("Failed to write log message: %v", err)
+			return true
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		d.logger.Error("Error reading proxy logs: %v", err)
+		return false
+	}
+
+	return true
 }
 
 func (d *DashboardServer) streamLogs(safeConn *SafeWebSocketConn, reader io.Reader, serverName, source string, cancel context.CancelFunc) {
