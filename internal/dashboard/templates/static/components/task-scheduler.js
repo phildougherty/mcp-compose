@@ -811,7 +811,7 @@ const TaskScheduler = {
             </div>
         </div>
         <!-- Enhanced Stats Overview -->
-        <div class="responsive-grid cols-2 lg:cols-5 gap-3 sm:gap-4" role="region" aria-label="Task statistics">
+        <div class="responsive-grid cols-5 gap-3 sm:gap-4" role="region" aria-label="Task statistics">
             <div class="enhanced-card p-4">
                 <div class="flex items-center">
                     <div class="flex-shrink-0">
