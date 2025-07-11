@@ -72,6 +72,9 @@ const MemoryViewer = {
             selectedItems: new Set(),
             bulkActionType: '',
             
+            // UI state
+            newObservation: '',
+            
             // Statistics
             stats: {
                 totalEntities: 0,
@@ -1275,6 +1278,137 @@ const MemoryViewer = {
                                 <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ count }}</span>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graph Tab -->
+        <div v-if="activeTab === 'visualization'" class="space-y-4">
+            <div class="enhanced-card p-6">
+                <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Memory Graph Visualization</h2>
+                <p class="text-gray-600 dark:text-gray-400 mb-6">
+                    Interactive network showing entities and their relationships
+                </p>
+                
+                <!-- Graph Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-purple-700 dark:text-purple-300">Entities</span>
+                            <span class="text-2xl font-bold text-purple-900 dark:text-purple-100">{{ stats.totalEntities }}</span>
+                        </div>
+                    </div>
+                    <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-blue-700 dark:text-blue-300">Relationships</span>
+                            <span class="text-2xl font-bold text-blue-900 dark:text-blue-100">{{ stats.totalRelations }}</span>
+                        </div>
+                    </div>
+                    <div class="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-green-700 dark:text-green-300">Entity Types</span>
+                            <span class="text-2xl font-bold text-green-900 dark:text-green-100">{{ Object.keys(stats.entityTypes).length }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Network Overview -->
+                <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Network Overview</h3>
+                    
+                    <!-- Entity Type Distribution -->
+                    <div class="mb-6">
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Entity Types</h4>
+                        <div class="space-y-2">
+                            <div v-for="(count, type) in stats.entityTypes" :key="type" class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600 dark:text-gray-400">{{ type }}</span>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-32 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                        <div 
+                                            class="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                                            :style="{ width: `${(count / stats.totalEntities) * 100}%` }"
+                                        ></div>
+                                    </div>
+                                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-8">{{ count }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Relationship Type Distribution -->
+                    <div class="mb-6">
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Relationship Types</h4>
+                        <div class="space-y-2">
+                            <div v-for="(count, type) in stats.relationTypes" :key="type" class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600 dark:text-gray-400">{{ type }}</span>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-32 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                        <div 
+                                            class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                            :style="{ width: `${(count / stats.totalRelations) * 100}%` }"
+                                        ></div>
+                                    </div>
+                                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-8">{{ count }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Key Relationships -->
+                    <div v-if="relations.length > 0" class="mb-6">
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Relationships</h4>
+                        <div class="space-y-3">
+                            <div 
+                                v-for="relation in relations.slice(0, 5)" 
+                                :key="`${relation.from}-${relation.to}`"
+                                class="flex items-center space-x-3 p-3 bg-white dark:bg-gray-700 rounded-lg"
+                            >
+                                <div class="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full"></div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center space-x-2 text-sm">
+                                        <span class="font-medium text-gray-900 dark:text-white truncate">{{ relation.from }}</span>
+                                        <span class="text-gray-500 dark:text-gray-400">→</span>
+                                        <span class="font-medium text-gray-900 dark:text-white truncate">{{ relation.to }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        {{ relation.relationType }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-wrap gap-3">
+                        <button
+                            @click="activeTab = 'browse'"
+                            class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                        >
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            Browse Entities
+                        </button>
+                        <button
+                            @click="activeTab = 'analytics'"
+                            class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                            View Analytics
+                        </button>
+                        <button
+                            @click="loadAllData"
+                            :disabled="loadingState.entities || loadingState.relations"
+                            class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                            <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loadingState.entities || loadingState.relations }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Refresh Data
+                        </button>
                     </div>
                 </div>
             </div>
