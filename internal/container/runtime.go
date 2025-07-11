@@ -4,7 +4,7 @@ package container
 import (
 	"fmt"
 	"io"
-	"mcpcompose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/config"
 	"os/exec"
 )
 

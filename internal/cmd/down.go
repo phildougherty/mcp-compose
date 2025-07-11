@@ -3,12 +3,12 @@ package cmd
 
 import (
 	"fmt"
-	"mcpcompose/internal/compose"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/dashboard"
-	"mcpcompose/internal/memory"
-	"mcpcompose/internal/task_scheduler"
+	"github.com/phildougherty/mcp-compose/internal/compose"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/dashboard"
+	"github.com/phildougherty/mcp-compose/internal/memory"
+	"github.com/phildougherty/mcp-compose/internal/task_scheduler"
 
 	"github.com/spf13/cobra"
 )

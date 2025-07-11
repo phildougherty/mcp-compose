@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/dashboard"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/dashboard"
 )
 
 // mcpResponseRecorder captures HTTP responses for MCP tool calls

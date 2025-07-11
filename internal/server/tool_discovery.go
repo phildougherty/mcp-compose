@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/openapi"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/openapi"
 )
 
 func (h *ProxyHandler) refreshToolCache() {

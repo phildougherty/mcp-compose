@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/logging"
 )
 
 type Logger struct {

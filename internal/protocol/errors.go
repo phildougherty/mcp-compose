@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // Standard JSON-RPC 2.0 error codes

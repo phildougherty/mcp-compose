@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // MCPSTDIOConnection represents a STDIO connection to an MCP server

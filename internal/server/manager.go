@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/logging"
-	"mcpcompose/internal/protocol"
-	"mcpcompose/internal/runtime"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/protocol"
+	"github.com/phildougherty/mcp-compose/internal/runtime"
 
 	"github.com/fsnotify/fsnotify" // Keep if ResourcesWatcher uses it
 )

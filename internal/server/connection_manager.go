@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // ConnectionManager manages enhanced SSE connection lifecycle

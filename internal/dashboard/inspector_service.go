@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"strings"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 	"sync"
 	"time"
 
-	"mcpcompose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/logging"
 )
 
 type InspectorService struct {

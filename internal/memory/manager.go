@@ -3,8 +3,8 @@ package memory
 
 import (
 	"fmt"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/container"
 	"os"
 	"os/exec"
 	"strings"

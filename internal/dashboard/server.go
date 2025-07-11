@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/logging"
 
 	"github.com/gorilla/websocket"
 )

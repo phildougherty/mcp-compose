@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // MCPSSEConnection represents a Server-Sent Events connection to an MCP server

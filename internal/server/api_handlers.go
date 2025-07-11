@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/protocol"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/protocol"
 )
 
 func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {

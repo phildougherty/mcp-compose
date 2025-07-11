@@ -3,10 +3,10 @@ package cmd
 
 import (
 	"fmt"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/memory"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/memory"
 
 	"github.com/spf13/cobra"
 )

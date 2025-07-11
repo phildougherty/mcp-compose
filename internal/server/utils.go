@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/auth"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/auth"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/logging"
 )
 
 func (h *ProxyHandler) startConnectionMaintenance() {

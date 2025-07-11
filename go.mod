@@ -1,5 +1,5 @@
 // go.mod
-module mcpcompose
+module github.com/phildougherty/mcp-compose
 
 go 1.24.0
 

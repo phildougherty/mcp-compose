@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/dashboard"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/dashboard"
 
 	"github.com/spf13/cobra"
 )

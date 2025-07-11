@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"mcpcompose/internal/cmd"
+	"github.com/phildougherty/mcp-compose/internal/cmd"
 )
 
 var version = "0.0.4"

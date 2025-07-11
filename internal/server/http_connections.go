@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // MCPHTTPConnection represents a persistent HTTP connection to an MCP server

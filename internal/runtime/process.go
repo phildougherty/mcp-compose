@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // ProcessOptions contains options for process start

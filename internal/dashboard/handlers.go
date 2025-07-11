@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 
 	"github.com/gorilla/websocket"
 )

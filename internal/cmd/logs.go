@@ -3,8 +3,8 @@ package cmd
 
 import (
 	"fmt"
-	"mcpcompose/internal/compose"
-	"mcpcompose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/compose"
+	"github.com/phildougherty/mcp-compose/internal/container"
 
 	"github.com/spf13/cobra"
 )

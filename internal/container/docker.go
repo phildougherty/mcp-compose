@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // DockerRuntime implements container runtime using Docker

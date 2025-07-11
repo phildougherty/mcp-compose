@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
 // EnhancedMCPSSEConnection represents a high-performance Server-Sent Events connection to an MCP server

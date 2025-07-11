@@ -3,8 +3,8 @@ package server
 
 import (
 	"encoding/json"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/protocol"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/protocol"
 	"net/http"
 	"strings"
 	"time"

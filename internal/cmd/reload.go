@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 
 	"github.com/spf13/cobra"
 )

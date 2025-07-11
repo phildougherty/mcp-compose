@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"mcpcompose/internal/auth"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
-	"mcpcompose/internal/logging"
-	"mcpcompose/internal/protocol"
+	"github.com/phildougherty/mcp-compose/internal/auth"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/protocol"
 )
 
 // ProxyHandler manages HTTP proxy connections to MCP servers

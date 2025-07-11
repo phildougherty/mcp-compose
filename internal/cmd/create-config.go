@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/constants"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/constants"
 
 	"github.com/spf13/cobra"
 )

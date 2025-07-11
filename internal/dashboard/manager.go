@@ -2,9 +2,9 @@ package dashboard
 
 import (
 	"fmt"
-	"mcpcompose/internal/config"
-	"mcpcompose/internal/container"
-	"mcpcompose/internal/logging"
+	"github.com/phildougherty/mcp-compose/internal/config"
+	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/logging"
 	"os"
 	"os/exec"
 	"path/filepath"

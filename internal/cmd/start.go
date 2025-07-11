@@ -2,7 +2,7 @@
 package cmd
 
 import (
-	"mcpcompose/internal/compose"
+	"github.com/phildougherty/mcp-compose/internal/compose"
 
 	"github.com/spf13/cobra"
 )
