@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcpcompose/internal/constants"
 )
 
 // MCPSTDIOConnection represents a STDIO connection to an MCP server
@@ -38,6 +40,7 @@ func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnectio
 		conn.LastUsed = time.Now()
 		conn.mu.Unlock()
 		h.logger.Debug("Reusing healthy STDIO connection for %s", serverName)
+
 		return conn, nil
 	}
 
@@ -61,14 +64,16 @@ func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnectio
 	for attempt := 1; attempt <= 3; attempt++ {
 		conn, err := h.createStdioConnection(serverName)
 		if err == nil {
+
 			return conn, nil
 		}
 		lastErr = err
 		h.logger.Warning("STDIO connection attempt %d/3 failed for %s: %v", attempt, serverName, err)
-		if attempt < 3 {
+		if attempt < constants.RetryAttemptThreshold {
 			time.Sleep(time.Duration(attempt) * time.Second)
 		}
 	}
+
 
 	return nil, fmt.Errorf("failed to create STDIO connection after 3 attempts: %w", lastErr)
 }
@@ -76,6 +81,7 @@ func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnectio
 func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnection, error) {
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
+
 		return nil, fmt.Errorf("server %s not found in config", serverName)
 	}
 
@@ -85,11 +91,12 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 
 	// Use shorter connection timeout
 	var d net.Dialer
-	ctx, cancel := context.WithTimeout(h.ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(h.ctx, constants.HTTPContextTimeout)
 	defer cancel()
 
 	netConn, err := d.DialContext(ctx, "tcp", address)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
 	}
 
@@ -98,7 +105,7 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 		if err := tcpConn.SetKeepAlive(true); err != nil {
 			h.logger.Warning("Failed to enable TCP keepalive for %s: %v", serverName, err)
 		}
-		if err := tcpConn.SetKeepAlivePeriod(15 * time.Second); err != nil {
+		if err := tcpConn.SetKeepAlivePeriod(constants.KeepAlivePeriod); err != nil {
 			h.logger.Warning("Failed to set TCP keepalive period for %s: %v", serverName, err)
 		}
 		if err := tcpConn.SetNoDelay(true); err != nil {
@@ -112,8 +119,8 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 		Host:        containerName,
 		Port:        port,
 		Connection:  netConn,
-		Reader:      bufio.NewReaderSize(netConn, 8192),
-		Writer:      bufio.NewWriterSize(netConn, 8192),
+		Reader:      bufio.NewReaderSize(netConn, constants.STDIOBufferSize),
+		Writer:      bufio.NewWriterSize(netConn, constants.STDIOBufferSize),
 		LastUsed:    time.Now(),
 		Healthy:     true,
 		Initialized: false,
@@ -124,6 +131,7 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 		if closeErr := conn.Connection.Close(); closeErr != nil {
 			h.logger.Warning("Failed to close connection after init failure for %s: %v", serverName, closeErr)
 		}
+
 		return nil, fmt.Errorf("failed to initialize STDIO connection to %s: %w", serverName, err)
 	}
 
@@ -135,6 +143,7 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 	h.StdioMutex.Unlock()
 
 	h.logger.Info("Successfully created and initialized STDIO connection for %s", serverName)
+
 	return conn, nil
 }
 
@@ -157,24 +166,27 @@ func (h *ProxyHandler) initializeStdioConnection(conn *MCPSTDIOConnection) error
 	}
 
 	// Set initial deadline for initialization
-	if err := conn.Connection.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.Connection.SetWriteDeadline(time.Now().Add(constants.HTTPRequestTimeout)); err != nil {
 		h.logger.Warning("Failed to set write deadline for %s: %v", conn.ServerName, err)
 	}
-	if err := conn.Connection.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.Connection.SetReadDeadline(time.Now().Add(constants.HTTPRequestTimeout)); err != nil {
 		h.logger.Warning("Failed to set read deadline for %s: %v", conn.ServerName, err)
 	}
 
 	if err := h.sendStdioRequestWithoutLock(conn, initRequest); err != nil {
+
 		return fmt.Errorf("failed to send initialize request: %w", err)
 	}
 
 	// Read initialize response
 	response, err := h.readStdioResponseWithoutLock(conn)
 	if err != nil {
+
 		return fmt.Errorf("failed to read initialize response: %w", err)
 	}
 
 	if mcpError, hasError := response["error"]; hasError {
+
 		return fmt.Errorf("initialize failed: %v", mcpError)
 	}
 
@@ -204,12 +216,14 @@ func (h *ProxyHandler) initializeStdioConnection(conn *MCPSTDIOConnection) error
 	conn.mu.Unlock()
 
 	h.logger.Info("STDIO connection to %s initialized successfully", conn.ServerName)
+
 	return nil
 }
 
 func (h *ProxyHandler) sendStdioRequestWithoutLock(conn *MCPSTDIOConnection, request map[string]interface{}) error {
 	requestData, err := json.Marshal(request)
 	if err != nil {
+
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -219,14 +233,17 @@ func (h *ProxyHandler) sendStdioRequestWithoutLock(conn *MCPSTDIOConnection, req
 	_, err = conn.Writer.WriteString(string(requestData) + "\n")
 	if err != nil {
 		conn.Healthy = false
+
 		return fmt.Errorf("failed to write request: %w", err)
 	}
 
 	err = conn.Writer.Flush()
 	if err != nil {
 		conn.Healthy = false
+
 		return fmt.Errorf("failed to flush request: %w", err)
 	}
+
 
 	return nil
 }
@@ -236,6 +253,7 @@ func (h *ProxyHandler) readStdioResponseWithoutLock(conn *MCPSTDIOConnection) (m
 		line, err := conn.Reader.ReadString('\n')
 		if err != nil {
 			conn.Healthy = false
+
 			return nil, fmt.Errorf("failed to read line: %w", err)
 		}
 
@@ -249,6 +267,7 @@ func (h *ProxyHandler) readStdioResponseWithoutLock(conn *MCPSTDIOConnection) (m
 		var response map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &response); err != nil {
 			h.logger.Debug("Skipping non-JSON line from %s: %s", conn.ServerName, line)
+
 			continue
 		}
 
@@ -258,12 +277,15 @@ func (h *ProxyHandler) readStdioResponseWithoutLock(conn *MCPSTDIOConnection) (m
 
 		if (hasResult || hasError) && !hasMethod {
 			h.logger.Debug("Found valid JSON-RPC response from %s", conn.ServerName)
+
 			return response, nil
 		} else if hasMethod {
 			h.logger.Debug("Skipping echoed request/notification from %s: %s", conn.ServerName, line)
+
 			continue
 		} else {
 			h.logger.Debug("Skipping unknown JSON structure from %s: %s", conn.ServerName, line)
+
 			continue
 		}
 	}
@@ -275,14 +297,16 @@ func (h *ProxyHandler) sendStdioRequest(conn *MCPSTDIOConnection, request map[st
 
 	requestData, err := json.Marshal(request)
 	if err != nil {
+
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	h.logger.Debug("Sending STDIO request to %s: %s", conn.ServerName, string(requestData))
 
 	// Set reasonable write deadline - longer than before
-	writeDeadline := time.Now().Add(60 * time.Second)
+	writeDeadline := time.Now().Add(constants.WriteDeadlineTimeout)
 	if err := conn.Connection.SetWriteDeadline(writeDeadline); err != nil {
+
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 	defer func() {
@@ -295,14 +319,17 @@ func (h *ProxyHandler) sendStdioRequest(conn *MCPSTDIOConnection, request map[st
 	_, err = conn.Writer.WriteString(string(requestData) + "\n")
 	if err != nil {
 		conn.Healthy = false
+
 		return fmt.Errorf("failed to write request: %w", err)
 	}
 
 	err = conn.Writer.Flush()
 	if err != nil {
 		conn.Healthy = false
+
 		return fmt.Errorf("failed to flush request: %w", err)
 	}
+
 
 	return nil
 }
@@ -312,8 +339,9 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 	defer conn.mu.Unlock()
 
 	// Set reasonable read deadline - longer for complex operations
-	readDeadline := time.Now().Add(60 * time.Second)
+	readDeadline := time.Now().Add(constants.WriteDeadlineTimeout)
 	if err := conn.Connection.SetReadDeadline(readDeadline); err != nil {
+
 		return nil, fmt.Errorf("failed to set read deadline: %w", err)
 	}
 	defer func() {
@@ -326,6 +354,7 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 		line, err := conn.Reader.ReadString('\n')
 		if err != nil {
 			conn.Healthy = false
+
 			return nil, fmt.Errorf("failed to read line: %w", err)
 		}
 
@@ -339,6 +368,7 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 		var response map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &response); err != nil {
 			h.logger.Debug("Skipping non-JSON line from %s: %s", conn.ServerName, line)
+
 			continue
 		}
 
@@ -348,12 +378,15 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 
 		if (hasResult || hasError) && !hasMethod {
 			h.logger.Debug("Found valid JSON-RPC response from %s", conn.ServerName)
+
 			return response, nil
 		} else if hasMethod {
 			h.logger.Debug("Skipping echoed request/notification from %s: %s", conn.ServerName, line)
+
 			continue
 		} else {
 			h.logger.Debug("Skipping unknown JSON structure from %s: %s", conn.ServerName, line)
+
 			continue
 		}
 	}
@@ -361,11 +394,13 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 
 func (h *ProxyHandler) isStdioConnectionReallyHealthy(conn *MCPSTDIOConnection) bool {
 	if conn == nil || conn.Connection == nil {
+
 		return false
 	}
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	// Simply check the flags, don't do active probing
+
 	return conn.Healthy && conn.Initialized
 }
 
@@ -379,7 +414,7 @@ func (h *ProxyHandler) maintainStdioConnections() {
 		}
 
 		// Increase idle time back to reasonable levels
-		maxIdleTime := 15 * time.Minute
+		maxIdleTime := constants.IdleTimeoutExtended
 		if time.Since(conn.LastUsed) > maxIdleTime {
 			h.logger.Info("Closing idle STDIO connection to %s (idle for %v)",
 				serverName, time.Since(conn.LastUsed))
@@ -396,6 +431,7 @@ func (h *ProxyHandler) maintainStdioConnections() {
 func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout time.Duration) (*MCPSTDIOConnection, error) {
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
+
 		return nil, fmt.Errorf("server %s not found in config", serverName)
 	}
 
@@ -410,6 +446,7 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 
 	netConn, err := d.DialContext(ctx, "tcp", address)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
 	}
 
@@ -419,8 +456,8 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 		Host:        containerName,
 		Port:        port,
 		Connection:  netConn,
-		Reader:      bufio.NewReaderSize(netConn, 8192),
-		Writer:      bufio.NewWriterSize(netConn, 8192),
+		Reader:      bufio.NewReaderSize(netConn, constants.STDIOBufferSize),
+		Writer:      bufio.NewWriterSize(netConn, constants.STDIOBufferSize),
 		LastUsed:    time.Now(),
 		Healthy:     true,
 		Initialized: false,
@@ -431,8 +468,10 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 		if closeErr := conn.Connection.Close(); closeErr != nil {
 			h.logger.Warning("Failed to close connection after quick init failure for %s: %v", serverName, closeErr)
 		}
+
 		return nil, fmt.Errorf("failed to initialize connection: %w", err)
 	}
+
 
 	return conn, nil
 }
@@ -441,9 +480,11 @@ func (h *ProxyHandler) quickInitializeStdioConnection(conn *MCPSTDIOConnection, 
 	// Set deadline for entire initialization
 	deadline := time.Now().Add(timeout)
 	if err := conn.Connection.SetWriteDeadline(deadline); err != nil {
+
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 	if err := conn.Connection.SetReadDeadline(deadline); err != nil {
+
 		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 	defer func() {
@@ -471,26 +512,31 @@ func (h *ProxyHandler) quickInitializeStdioConnection(conn *MCPSTDIOConnection, 
 	}
 
 	if err := h.sendStdioRequestWithoutLock(conn, initRequest); err != nil {
+
 		return err
 	}
 
 	response, err := h.readStdioResponseWithoutLock(conn)
 	if err != nil {
+
 		return err
 	}
 
 	if mcpError, hasError := response["error"]; hasError {
+
 		return fmt.Errorf("initialize failed: %v", mcpError)
 	}
 
 	conn.Initialized = true
 	conn.Healthy = true
+
 	return nil
 }
 
 func (h *ProxyHandler) sendStdioRequestWithTimeout(conn *MCPSTDIOConnection, request map[string]interface{}, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	if err := conn.Connection.SetWriteDeadline(deadline); err != nil {
+
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 	defer func() {
@@ -499,12 +545,14 @@ func (h *ProxyHandler) sendStdioRequestWithTimeout(conn *MCPSTDIOConnection, req
 		}
 	}()
 
+
 	return h.sendStdioRequestWithoutLock(conn, request)
 }
 
 func (h *ProxyHandler) readStdioResponseWithTimeout(conn *MCPSTDIOConnection, timeout time.Duration) (map[string]interface{}, error) {
 	deadline := time.Now().Add(timeout)
 	if err := conn.Connection.SetReadDeadline(deadline); err != nil {
+
 		return nil, fmt.Errorf("failed to set read deadline: %w", err)
 	}
 	defer func() {
@@ -512,6 +560,7 @@ func (h *ProxyHandler) readStdioResponseWithTimeout(conn *MCPSTDIOConnection, ti
 			h.logger.Warning("Failed to reset read deadline: %v", err)
 		}
 	}()
+
 
 	return h.readStdioResponseWithoutLock(conn)
 }
@@ -522,6 +571,7 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 	if !cfgExists {
 		h.logger.Error("Config not found for STDIO server %s", serverName)
 		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: missing server config")
+
 		return
 	}
 
@@ -531,6 +581,7 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 	if err != nil {
 		h.logger.Error("Failed to marshal request for STDIO server %s: %v", serverName, err)
 		h.sendMCPError(w, reqIDVal, -32700, "Failed to marshal request")
+
 		return
 	}
 
@@ -541,13 +592,14 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 	if serverCfg.Command == "" {
 		h.logger.Error("STDIO Server '%s' has no command defined in config. Cannot execute.", serverName)
 		h.sendMCPError(w, reqIDVal, -32603, "Internal server error: STDIO server has no command")
+
 		return
 	}
 
 	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Command)
 	execCmdAndArgs = append(execCmdAndArgs, serverCfg.Args...)
 
-	ctx, cancel := context.WithTimeout(h.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(h.ctx, constants.HTTPRequestTimeout)
 	defer cancel()
 
 	cmd := exec.Command("docker", execCmdAndArgs...)
@@ -565,11 +617,13 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 			h.logger.Error("Docker exec for STDIO server %s timed out. Stderr: %s. Stdout: %s", serverName, stderr.String(), stdout.String())
 			h.recordConnectionEvent(serverName, false, true)
 			h.sendMCPError(w, reqIDVal, -32000, fmt.Sprintf("Timeout communicating with STDIO server '%s'", serverName))
+
 			return
 		}
 		h.logger.Error("Docker exec for STDIO server %s failed: %v. Stderr: %s. Stdout: %s", serverName, err, stderr.String(), stdout.String())
 		h.recordConnectionEvent(serverName, false, false)
 		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Failed to execute command in STDIO server '%s'", serverName))
+
 		return
 	}
 
@@ -577,6 +631,7 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 	if len(responseData) == 0 {
 		h.logger.Error("No stdout response from STDIO server %s. Stderr: %s", serverName, stderr.String())
 		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("No stdout from STDIO server '%s'", serverName))
+
 		return
 	}
 
@@ -588,6 +643,7 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 	if err := json.Unmarshal(trimmedResponseData, &response); err != nil {
 		h.logger.Error("Invalid JSON response from STDIO server %s: %v. Raw: %s", serverName, err, string(trimmedResponseData))
 		h.sendMCPError(w, reqIDVal, -32700, fmt.Sprintf("Invalid response from STDIO server '%s'", serverName))
+
 		return
 	}
 
@@ -607,11 +663,12 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 		} else {
 			h.sendMCPError(w, reqIDVal, -32001, fmt.Sprintf("Cannot connect to server '%s'", serverName))
 		}
+
 		return
 	}
 
 	// Increase timeout for complex operations
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), constants.HTTPStreamTimeout)
 	defer cancel()
 
 	// Create channels to handle the response
@@ -622,6 +679,7 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 		// Send the request
 		if err := h.sendStdioRequest(conn, requestPayload); err != nil {
 			errorChan <- err
+
 			return
 		}
 
@@ -629,6 +687,7 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 		response, err := h.readStdioResponse(conn)
 		if err != nil {
 			errorChan <- err
+
 			return
 		}
 
@@ -663,11 +722,13 @@ func (h *ProxyHandler) sendRawTCPRequestWithRetry(host string, port int, request
 		containerName := fmt.Sprintf("mcp-compose-%s", name)
 		if containerName == host && config.StdioHosterPort == port {
 			serverName = name
+
 			break
 		}
 	}
 
 	if serverName == "" {
+
 		return nil, fmt.Errorf("could not identify server for host %s:%d", host, port)
 	}
 
@@ -676,6 +737,7 @@ func (h *ProxyHandler) sendRawTCPRequestWithRetry(host string, port int, request
 	// For tool discovery, create a fresh connection each time to avoid stale connection issues
 	conn, err := h.createFreshStdioConnection(serverName, timeout)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 	defer func() {
@@ -688,9 +750,11 @@ func (h *ProxyHandler) sendRawTCPRequestWithRetry(host string, port int, request
 
 	// Send request with the specified timeout
 	if err := h.sendStdioRequestWithTimeout(conn, requestPayload, timeout); err != nil {
+
 		return nil, err
 	}
 
 	// Read response with the specified timeout
+
 	return h.readStdioResponseWithTimeout(conn, timeout)
 }

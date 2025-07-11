@@ -53,6 +53,7 @@ type RootsListResponse struct {
 
 // NewRootManager creates a new root manager
 func NewRootManager() *RootManager {
+
 	return &RootManager{
 		roots:    make(map[string]*RootEntry),
 		watchers: make(map[string]*RootWatcher),
@@ -66,6 +67,7 @@ func (rm *RootManager) AddRoot(root Root, permissions *RootPermissions) error {
 
 	// Validate root URI
 	if err := rm.validateRootURI(root.URI); err != nil {
+
 		return NewValidationError("uri", root.URI, err.Error())
 	}
 
@@ -87,6 +89,7 @@ func (rm *RootManager) AddRoot(root Root, permissions *RootPermissions) error {
 	}
 
 	rm.roots[root.URI] = entry
+
 	return nil
 }
 
@@ -96,6 +99,7 @@ func (rm *RootManager) RemoveRoot(uri string) error {
 	defer rm.mu.Unlock()
 
 	if _, exists := rm.roots[uri]; !exists {
+
 		return NewResourceError(uri, "remove", "root not found")
 	}
 
@@ -106,6 +110,7 @@ func (rm *RootManager) RemoveRoot(uri string) error {
 	}
 
 	delete(rm.roots, uri)
+
 	return nil
 }
 
@@ -116,11 +121,13 @@ func (rm *RootManager) GetRoot(uri string) (*RootEntry, error) {
 
 	entry, exists := rm.roots[uri]
 	if !exists {
+
 		return nil, NewResourceError(uri, "get", "root not found")
 	}
 
 	// Update last used time
 	entry.LastUsed = time.Now()
+
 	return entry, nil
 }
 
@@ -133,6 +140,7 @@ func (rm *RootManager) ListRoots() []Root {
 	for _, entry := range rm.roots {
 		roots = append(roots, entry.Root)
 	}
+
 
 	return roots
 }
@@ -150,13 +158,16 @@ func (rm *RootManager) CheckRootAccess(path string, operation string) (*RootEntr
 		if rm.isPathInRoot(normalizedPath, entry.Root.URI) {
 			// Check permissions
 			if !rm.hasPermission(entry.Permissions, operation) {
+
 				return nil, NewAuthorizationError(path, operation)
 			}
 
 			entry.LastUsed = time.Now()
+
 			return entry, nil
 		}
 	}
+
 
 	return nil, NewAuthorizationError(path, "not within any managed root")
 }
@@ -169,11 +180,13 @@ func (rm *RootManager) WatchRoot(uri string, callback func(uri string, event str
 	// Check if root exists
 	entry, exists := rm.roots[uri]
 	if !exists {
+
 		return NewResourceError(uri, "watch", "root not found")
 	}
 
 	// Check watch permission
 	if !entry.Permissions.Watch {
+
 		return NewAuthorizationError(uri, "watch")
 	}
 
@@ -186,6 +199,7 @@ func (rm *RootManager) WatchRoot(uri string, callback func(uri string, event str
 	}
 
 	rm.watchers[uri] = watcher
+
 	return nil
 }
 
@@ -196,23 +210,27 @@ func (rm *RootManager) UnwatchRoot(uri string) error {
 
 	watcher, exists := rm.watchers[uri]
 	if !exists {
+
 		return NewResourceError(uri, "unwatch", "watcher not found")
 	}
 
 	watcher.Active = false
 	delete(rm.watchers, uri)
+
 	return nil
 }
 
 // validateRootURI validates a root URI according to MCP specification
 func (rm *RootManager) validateRootURI(uri string) error {
 	if uri == "" {
+
 		return fmt.Errorf("URI cannot be empty")
 	}
 
 	// Parse as URL to validate format
 	parsedURL, err := url.Parse(uri)
 	if err != nil {
+
 		return fmt.Errorf("invalid URI format: %v", err)
 	}
 
@@ -221,22 +239,26 @@ func (rm *RootManager) validateRootURI(uri string) error {
 	case "file":
 		// Validate file path
 		if parsedURL.Path == "" {
+
 			return fmt.Errorf("file URI must have a path")
 		}
 	case "http", "https":
 		// Validate HTTP URL
 		if parsedURL.Host == "" {
+
 			return fmt.Errorf("HTTP URI must have a host")
 		}
 	case "":
 		// Relative path - treat as file
 		if !filepath.IsAbs(uri) {
+
 			return fmt.Errorf("relative paths not supported as roots")
 		}
 	default:
 		// Custom schemes are allowed but should be documented
 		// Consider logging a warning for unknown schemes
 	}
+
 
 	return nil
 }
@@ -251,6 +273,7 @@ func (rm *RootManager) normalizePath(path string) string {
 	}
 
 	// Clean the path
+
 	return filepath.Clean(path)
 }
 
@@ -260,35 +283,44 @@ func (rm *RootManager) isPathInRoot(path string, rootURI string) bool {
 
 	// For file paths, check if path is under root directory
 	if !strings.HasPrefix(path, normalizedRoot) {
+
 		return false
 	}
 
 	// Ensure it's actually a subdirectory, not just a prefix match
 	if len(path) > len(normalizedRoot) {
 		// The next character should be a path separator
+
 		return path[len(normalizedRoot)] == filepath.Separator
 	}
 
 	// Exact match is allowed
+
 	return true
 }
 
 // hasPermission checks if a permission is granted
 func (rm *RootManager) hasPermission(permissions *RootPermissions, operation string) bool {
 	if permissions == nil {
+
 		return false
 	}
 
 	switch operation {
 	case "read":
+
 		return permissions.Read
 	case "write", "create", "update", "delete":
+
 		return permissions.Write
 	case "list":
+
 		return permissions.List
 	case "watch":
+
 		return permissions.Watch
 	default:
+
 		return false
 	}
 }
@@ -321,6 +353,7 @@ func (rm *RootManager) GetRootStats() map[string]interface{} {
 		stats["roots"] = append(stats["roots"].([]map[string]interface{}), rootStat)
 	}
 
+
 	return stats
 }
 
@@ -343,6 +376,7 @@ func (rm *RootManager) CreateDefaultRoots() error {
 	// Add current working directory as default read-only root
 	workingDir, err := filepath.Abs(".")
 	if err != nil {
+
 		return fmt.Errorf("failed to get working directory: %v", err)
 	}
 
@@ -359,8 +393,10 @@ func (rm *RootManager) CreateDefaultRoots() error {
 	}
 
 	if err := rm.AddRoot(workingRoot, workingPermissions); err != nil {
+
 		return fmt.Errorf("failed to add working directory root: %v", err)
 	}
+
 
 	return nil
 }

@@ -77,16 +77,19 @@ func NewAuditLogger(auditConfig *config.AuditConfig, logger *logging.Logger) *Au
 	al.wg.Add(1)
 	go al.cleanupOldEntries()
 
+
 	return al
 }
 
 func (al *AuditLogger) Log(event, userID, clientID, ip, userAgent string, success bool, details map[string]interface{}, err error) {
 	if !al.enabled {
+
 		return
 	}
 
 	// Check if this event type should be logged
 	if !al.events[event] {
+
 		return
 	}
 
@@ -174,6 +177,7 @@ func (al *AuditLogger) GetEntries(limit int, offset int, filter *AuditFilter) ([
 		end = len(filtered)
 	}
 
+
 	return filtered[start:end], total, nil
 }
 
@@ -187,6 +191,7 @@ type AuditFilter struct {
 }
 
 func (al *AuditLogger) matchesFilter(entry AuditEntry, filter *AuditFilter) bool {
+
 	return al.matchesEvent(entry, filter) &&
 		al.matchesUser(entry, filter) &&
 		al.matchesClient(entry, filter) &&
@@ -195,28 +200,36 @@ func (al *AuditLogger) matchesFilter(entry AuditEntry, filter *AuditFilter) bool
 }
 
 func (al *AuditLogger) matchesEvent(entry AuditEntry, filter *AuditFilter) bool {
+
 	return filter.Event == "" || entry.Event == filter.Event
 }
 
 func (al *AuditLogger) matchesUser(entry AuditEntry, filter *AuditFilter) bool {
+
 	return filter.UserID == "" || entry.UserID == filter.UserID
 }
 
 func (al *AuditLogger) matchesClient(entry AuditEntry, filter *AuditFilter) bool {
+
 	return filter.ClientID == "" || entry.ClientID == filter.ClientID
 }
 
 func (al *AuditLogger) matchesSuccess(entry AuditEntry, filter *AuditFilter) bool {
+
 	return filter.Success == nil || entry.Success == *filter.Success
 }
 
 func (al *AuditLogger) matchesTimeRange(entry AuditEntry, filter *AuditFilter) bool {
 	if !filter.StartTime.IsZero() && entry.Timestamp.Before(filter.StartTime) {
+
 		return false
 	}
 	if !filter.EndTime.IsZero() && entry.Timestamp.After(filter.EndTime) {
+
 		return false
 	}
+
+
 	return true
 }
 
@@ -230,6 +243,8 @@ func (al *AuditLogger) cleanupOldEntries() {
 		select {
 		case <-al.stopCh:
 			al.logger.Debug("Audit logger cleanup goroutine stopping")
+
+
 			return
 		case <-ticker.C:
 			al.mu.Lock()
@@ -267,9 +282,13 @@ func (al *AuditLogger) Shutdown() error {
 	select {
 	case <-done:
 		al.logger.Debug("Audit logger shutdown completed")
+
+
 		return nil
 	case <-time.After(DefaultAuditStatsTimeout * time.Second):
 		al.logger.Warning("Audit logger shutdown timeout")
+
+
 		return ErrAuditShutdownTimeout
 	}
 }
@@ -296,6 +315,7 @@ func (al *AuditLogger) GetStats() AuditStats {
 		stats.SuccessRate = float64(successCount) / float64(len(al.entries)) * PercentageMultiplier
 	}
 
+
 	return stats
 }
 
@@ -306,6 +326,7 @@ type AuditStats struct {
 }
 
 func generateAuditID() string {
+
 	return fmt.Sprintf("audit_%d", time.Now().UnixNano())
 }
 

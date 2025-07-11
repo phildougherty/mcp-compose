@@ -24,16 +24,19 @@ func NewDashboardCommand() *cobra.Command {
 			configFile, _ := cmd.Flags().GetString("file")
 			cfg, err := config.LoadConfig(configFile)
 			if err != nil {
+
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			runtime, err := container.DetectRuntime()
 			if err != nil {
+
 				return fmt.Errorf("failed to detect container runtime: %w", err)
 			}
 
 			if enable {
 				cfg.Dashboard.Enabled = true
+
 				return config.SaveConfig(configFile, cfg)
 			}
 
@@ -44,6 +47,7 @@ func NewDashboardCommand() *cobra.Command {
 				if err := dashManager.Stop(); err != nil {
 					fmt.Printf("Warning: %v\n", err)
 				}
+
 				return config.SaveConfig(configFile, cfg)
 			}
 
@@ -65,8 +69,10 @@ func NewDashboardCommand() *cobra.Command {
 
 			// Choose mode: native or containerized
 			if native {
+
 				return runNativeDashboard(cfg, runtime)
 			} else {
+
 				return runContainerizedDashboard(cfg, runtime, configFile) // Pass configFile
 			}
 		},
@@ -77,6 +83,7 @@ func NewDashboardCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the dashboard in config")
 	cmd.Flags().BoolVar(&disable, "disable", false, "Disable the dashboard")
 	cmd.Flags().BoolVar(&native, "native", false, "Run dashboard natively (requires proxy to be native too)")
+
 
 	return cmd
 }
@@ -89,12 +96,14 @@ func runNativeDashboard(cfg *config.ComposeConfig, runtime container.Runtime) er
 	fmt.Printf("Connecting to native proxy at: %s\n", proxyURL)
 
 	server := dashboard.NewDashboardServer(cfg, runtime, proxyURL, cfg.ProxyAuth.APIKey)
+
 	return server.Start(cfg.Dashboard.Port, cfg.Dashboard.Host)
 }
 
 func runContainerizedDashboard(cfg *config.ComposeConfig, runtime container.Runtime, configFile string) error {
 	// Check if proxy container is running
 	if !isProxyContainerRunning(runtime) {
+
 		return fmt.Errorf(`
 Dashboard requires the proxy container to be running.
 Please start the proxy with:
@@ -106,13 +115,16 @@ Then try starting the dashboard again`, cfg.ProxyAuth.APIKey)
 	dashManager.SetConfigFile(configFile)
 
 	// Just use the regular Start method - security will be handled internally
+
 	return dashManager.Start()
 }
 
 func isProxyContainerRunning(runtime container.Runtime) bool {
 	status, err := runtime.GetContainerStatus("mcp-compose-http-proxy")
 	if err != nil {
+
 		return false
 	}
+
 	return status == "running"
 }

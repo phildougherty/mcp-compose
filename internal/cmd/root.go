@@ -33,5 +33,6 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewTaskSchedulerCommand())
 	rootCmd.AddCommand(NewMemoryCommand())
 
+
 	return rootCmd
 }

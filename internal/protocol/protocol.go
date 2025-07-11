@@ -194,11 +194,13 @@ func NewStdioTransport(r io.Reader, w io.Writer) *StdioTransport {
 			fmt.Printf("Warning: failed to send progress notification: %v\n", err)
 		}
 	}
+
 	return transport
 }
 
 // Send sends an MCP message via stdio
 func (t *StdioTransport) Send(msg MCPMessage) error {
+
 	return t.writer.Encode(msg)
 }
 
@@ -206,28 +208,34 @@ func (t *StdioTransport) Send(msg MCPMessage) error {
 func (t *StdioTransport) Receive() (MCPMessage, error) {
 	var msg MCPMessage
 	if err := t.reader.Decode(&msg); err != nil {
+
 		return msg, err
 	}
+
 	return msg, nil
 }
 
 // Close closes the stdio transport
 func (t *StdioTransport) Close() error {
+
 	return nil // Nothing to close for stdio
 }
 
 // SupportsProgress returns true since stdio supports progress notifications
 func (t *StdioTransport) SupportsProgress() bool {
+
 	return true
 }
 
 // SendProgress sends a progress notification
 func (t *StdioTransport) SendProgress(notification *ProgressNotification) error {
+
 	return t.writer.Encode(notification)
 }
 
 // GetProgressManager returns the progress manager
 func (t *StdioTransport) GetProgressManager() *ProgressManager {
+
 	return t.progressManager
 }
 
@@ -238,6 +246,7 @@ func NewRequest(id interface{}, method string, params interface{}, progressToken
 		var err error
 		paramsBytes, err = json.Marshal(params)
 		if err != nil {
+
 			return nil, err
 		}
 	}
@@ -253,6 +262,7 @@ func NewRequest(id interface{}, method string, params interface{}, progressToken
 		req.ProgressToken = progressToken[0]
 	}
 
+
 	return req, nil
 }
 
@@ -263,6 +273,7 @@ func NewResponse(id interface{}, result interface{}, err *MCPError, progressToke
 		var marshalErr error
 		resultBytes, marshalErr = json.Marshal(result)
 		if marshalErr != nil {
+
 			return nil, marshalErr
 		}
 	}
@@ -278,6 +289,7 @@ func NewResponse(id interface{}, result interface{}, err *MCPError, progressToke
 		resp.ProgressToken = progressToken[0]
 	}
 
+
 	return resp, nil
 }
 
@@ -288,9 +300,11 @@ func NewNotification(method string, params interface{}) (*MCPNotification, error
 		var err error
 		paramsBytes, err = json.Marshal(params)
 		if err != nil {
+
 			return nil, err
 		}
 	}
+
 
 	return &MCPNotification{
 		JSONRPC: "2.0",
@@ -305,35 +319,43 @@ func ValidateCapabilities(serverCapabilities CapabilitiesOpts, requiredCapabilit
 		switch cap {
 		case "resources":
 			if serverCapabilities.Resources == nil {
+
 				return NewCapabilityError("resources", "server does not support resources capability")
 			}
 		case "tools":
 			if serverCapabilities.Tools == nil {
+
 				return NewCapabilityError("tools", "server does not support tools capability")
 			}
 		case "prompts":
 			if serverCapabilities.Prompts == nil {
+
 				return NewCapabilityError("prompts", "server does not support prompts capability")
 			}
 		case "sampling":
 			if serverCapabilities.Sampling == nil {
+
 				return NewCapabilityError("sampling", "server does not support sampling capability")
 			}
 		case "logging":
 			if serverCapabilities.Logging == nil {
+
 				return NewCapabilityError("logging", "server does not support logging capability")
 			}
 		case "roots":
 			if serverCapabilities.Roots == nil {
+
 				return NewCapabilityError("roots", "server does not support roots capability")
 			}
 		}
 	}
+
 	return nil
 }
 
 // CapabilityOptsFromConfig converts capability configuration to MCP capability options
 func CapabilityOptsFromConfig(capOpt interface{}) CapabilitiesOpts {
+
 	return CapabilitiesOpts{
 		Resources: &ResourcesOpts{
 			ListChanged: true,
@@ -356,6 +378,7 @@ func CapabilityOptsFromConfig(capOpt interface{}) CapabilitiesOpts {
 // ValidateMessage performs comprehensive MCP message validation
 func ValidateMessage(msg MCPMessage) error {
 	if msg.JSONRPC != "2.0" {
+
 		return NewInvalidRequest("jsonrpc field must be '2.0'")
 	}
 
@@ -364,29 +387,36 @@ func ValidateMessage(msg MCPMessage) error {
 		if msg.Method != "" {
 			// It's a request
 			if msg.Result != nil || msg.Error != nil {
+
 				return NewInvalidRequest("request cannot have result or error fields")
 			}
 		} else {
 			// It's a response
 			if msg.Method != "" || msg.Params != nil {
+
 				return NewInvalidRequest("response cannot have method or params fields")
 			}
 			if msg.Result != nil && msg.Error != nil {
+
 				return NewInvalidRequest("response cannot have both result and error")
 			}
 			if msg.Result == nil && msg.Error == nil {
+
 				return NewInvalidRequest("response must have either result or error")
 			}
 		}
 	} else {
 		// It's a notification
 		if msg.Method == "" {
+
 			return NewInvalidRequest("notification must have method field")
 		}
 		if msg.Result != nil || msg.Error != nil {
+
 			return NewInvalidRequest("notification cannot have result or error fields")
 		}
 	}
+
 
 	return nil
 }
@@ -401,6 +431,7 @@ func IsProgressSupported(method string) bool {
 		"sampling/create": true,
 		// Add other long-running methods as needed
 	}
+
 	return progressSupportedMethods[method]
 }
 
@@ -457,5 +488,6 @@ func IsStandardMethod(method string) bool {
 		NotificationPromptsListChanged:   true,
 		NotificationRootsListChanged:     true,
 	}
+
 	return standardMethods[method]
 }

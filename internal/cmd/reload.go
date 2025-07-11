@@ -20,12 +20,14 @@ This will refresh the proxy's server list without restarting the proxy.`,
 			port, _ := cmd.Flags().GetInt("port")
 			apiKey, _ := cmd.Flags().GetString("api-key")
 
+
 			return reloadProxy(port, apiKey)
 		},
 	}
 
 	cmd.Flags().IntP("port", "p", constants.DefaultProxyPort, "Proxy server port")
 	cmd.Flags().String("api-key", "", "API key for proxy authentication")
+
 
 	return cmd
 }
@@ -36,6 +38,7 @@ func reloadProxy(port int, apiKey string) error {
 	// Create HTTP request
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
+
 		return fmt.Errorf("failed to create reload request: %w", err)
 	}
 
@@ -48,14 +51,17 @@ func reloadProxy(port int, apiKey string) error {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
+
 		return fmt.Errorf("failed to send reload request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+
 		return fmt.Errorf("reload failed with status: %d", resp.StatusCode)
 	}
 
 	fmt.Println("✅ Proxy configuration reloaded successfully")
+
 	return nil
 }

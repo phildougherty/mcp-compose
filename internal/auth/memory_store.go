@@ -26,6 +26,7 @@ func NewMemoryTokenStore() *MemoryTokenStore {
 	// Start cleanup routine
 	go ts.cleanupExpiredTokens()
 
+
 	return ts
 }
 
@@ -33,6 +34,8 @@ func (ts *MemoryTokenStore) StoreAccessToken(token *AccessToken) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.accessTokens[token.Token] = token
+
+
 	return nil
 }
 
@@ -42,16 +45,23 @@ func (ts *MemoryTokenStore) GetAccessToken(token string) (*AccessToken, error) {
 
 	accessToken, exists := ts.accessTokens[token]
 	if !exists {
+
+
 		return nil, fmt.Errorf("token not found")
 	}
 
 	if accessToken.Revoked {
+
+
 		return nil, fmt.Errorf("token revoked")
 	}
 
 	if time.Now().After(accessToken.ExpiresAt) {
+
+
 		return nil, fmt.Errorf("token expired")
 	}
+
 
 	return accessToken, nil
 }
@@ -62,10 +72,14 @@ func (ts *MemoryTokenStore) RevokeAccessToken(token string) error {
 
 	accessToken, exists := ts.accessTokens[token]
 	if !exists {
+
+
 		return fmt.Errorf("token not found")
 	}
 
 	accessToken.Revoked = true
+
+
 	return nil
 }
 
@@ -103,6 +117,8 @@ func (ts *MemoryTokenStore) cleanupExpiredTokens() {
 		case <-ticker.C:
 			ts.CleanupExpiredTokens()
 		case <-ts.cleanup:
+
+
 			return
 		}
 	}
@@ -135,6 +151,7 @@ func (ts *MemoryTokenStore) GetStats() (int, int, int) {
 			activeCodes++
 		}
 	}
+
 
 	return activeAccess, activeRefresh, activeCodes
 }

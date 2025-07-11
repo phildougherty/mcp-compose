@@ -18,6 +18,7 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.ComposeConfig, runtime container.Runtime) *Manager {
+
 	return &Manager{
 		cfg:     cfg,
 		runtime: runtime,
@@ -35,12 +36,14 @@ func (m *Manager) Start() error {
 	postgresStatus, err := m.runtime.GetContainerStatus("mcp-compose-postgres-memory")
 	if err != nil || postgresStatus != "running" {
 		if err := m.startPostgres(); err != nil {
+
 			return fmt.Errorf("failed to start postgres-memory: %w", err)
 		}
 	}
 
 	// Build memory server image
 	if err := m.buildMemoryImage(); err != nil {
+
 		return fmt.Errorf("failed to build memory image: %w", err)
 	}
 
@@ -51,6 +54,7 @@ func (m *Manager) Start() error {
 	networkExists, _ := m.runtime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := m.runtime.CreateNetwork("mcp-net"); err != nil {
+
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
 		fmt.Println("Created mcp-net network for memory server.")
@@ -104,11 +108,14 @@ func (m *Manager) Start() error {
 
 	containerID, err := m.runtime.StartContainer(opts)
 	if err != nil {
+
 		return fmt.Errorf("failed to start memory container: %w", err)
 	}
 
 	fmt.Printf("Memory server container started with ID: %s\n", containerID[:12])
 	fmt.Printf("Memory server is running at http://localhost:3001\n")
+
+
 	return nil
 }
 
@@ -170,10 +177,13 @@ func (m *Manager) startPostgres() error {
 
 	containerID, err := m.runtime.StartContainer(opts)
 	if err != nil {
+
 		return fmt.Errorf("failed to start postgres container: %w", err)
 	}
 
 	fmt.Printf("Postgres-memory container started with ID: %s\n", containerID[:12])
+
+
 	return nil
 }
 
@@ -244,6 +254,7 @@ CMD ["./mcp-compose-memory", "--host", "0.0.0.0", "--port", "3001"]`
 
 	dockerfileName := "Dockerfile.memory-go"
 	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 	defer func() {
@@ -260,10 +271,13 @@ CMD ["./mcp-compose-memory", "--host", "0.0.0.0", "--port", "3001"]`
 	buildCmd.Stderr = os.Stderr
 
 	if err := buildCmd.Run(); err != nil {
+
 		return fmt.Errorf("failed to build Go memory image: %w", err)
 	}
 
 	fmt.Println("✅ Go memory server image built successfully")
+
+
 	return nil
 }
 
@@ -279,6 +293,8 @@ func (m *Manager) Stop() error {
 	}
 
 	fmt.Println("✅ Memory server stopped successfully.")
+
+
 	return nil
 }
 
@@ -289,9 +305,12 @@ func (m *Manager) Restart() error {
 		fmt.Printf("Warning: Error during memory server shutdown: %v\n", err)
 	}
 
+
 	return m.Start()
 }
 
 func (m *Manager) Status() (string, error) {
+
+
 	return m.runtime.GetContainerStatus("mcp-compose-memory")
 }

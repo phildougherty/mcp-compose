@@ -18,6 +18,7 @@ type Manager struct {
 
 // NewManager creates a new task scheduler manager
 func NewManager(cfg *config.ComposeConfig, runtime container.Runtime) *Manager {
+
 	return &Manager{
 		config:  cfg,
 		runtime: runtime,
@@ -47,6 +48,8 @@ func (m *Manager) Start() error {
 			map[string]interface{}{
 				"status": status,
 			})
+
+
 		return fmt.Errorf("task scheduler is already running")
 	}
 
@@ -78,6 +81,8 @@ func (m *Manager) Start() error {
 			map[string]interface{}{
 				"error": err.Error(),
 			})
+
+
 		return fmt.Errorf("failed to build task scheduler image: %w", err)
 	}
 
@@ -94,6 +99,8 @@ func (m *Manager) Start() error {
 				map[string]interface{}{
 					"error": err.Error(),
 				})
+
+
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
 	}
@@ -151,6 +158,8 @@ func (m *Manager) Start() error {
 			map[string]interface{}{
 				"error": err.Error(),
 			})
+
+
 		return fmt.Errorf("failed to start task scheduler container: %w", err)
 	}
 
@@ -166,13 +175,15 @@ func (m *Manager) Start() error {
 		"Waiting for task scheduler to become healthy...",
 		nil)
 
-	if err := m.waitForHealthy(30 * time.Second); err != nil {
+	if err := m.waitForHealthy(constants.DefaultReadTimeout); err != nil {
 		dashboard.BroadcastActivity("ERROR", "service", "task-scheduler", "",
 			"Task scheduler failed health check",
 			map[string]interface{}{
 				"error":   err.Error(),
 				"timeout": "30s",
 			})
+
+
 		return fmt.Errorf("task scheduler failed to start properly: %w", err)
 	}
 
@@ -182,6 +193,7 @@ func (m *Manager) Start() error {
 			"port":        m.config.TaskScheduler.Port,
 			"containerId": containerID[:12],
 		})
+
 
 	return nil
 }
@@ -198,12 +210,15 @@ func (m *Manager) Stop() error {
 			map[string]interface{}{
 				"error": err.Error(),
 			})
+
+
 		return fmt.Errorf("failed to stop task scheduler container: %w", err)
 	}
 
 	dashboard.BroadcastActivity("INFO", "service", "task-scheduler", "",
 		"Task scheduler stopped successfully",
 		nil)
+
 
 	return nil
 }
@@ -227,12 +242,14 @@ func (m *Manager) Restart() error {
 			map[string]interface{}{
 				"error": err.Error(),
 			})
+
 		return err
 	}
 
 	dashboard.BroadcastActivity("INFO", "service", "task-scheduler", "",
 		"Task scheduler restarted successfully",
 		nil)
+
 
 	return nil
 }
@@ -241,14 +258,17 @@ func (m *Manager) Restart() error {
 func (m *Manager) Status() (string, error) {
 	status, err := m.runtime.GetContainerStatus("mcp-compose-task-scheduler")
 	if err != nil {
+
 		return "stopped", nil
 	}
+
 	return status, nil
 }
 
 // IsRunning checks if the task scheduler is currently running
 func (m *Manager) IsRunning() bool {
 	status, err := m.runtime.GetContainerStatus("mcp-compose-task-scheduler")
+
 	return err == nil && status == "running"
 }
 
@@ -257,6 +277,7 @@ func (m *Manager) buildImage() error {
 	fmt.Println("Building task scheduler image...")
 	// Implementation would build from Dockerfile.task-scheduler
 	// For now, assume it exists or will be built externally
+
 	return nil
 }
 
@@ -315,6 +336,7 @@ func (m *Manager) buildEnvironment() map[string]string {
 		env[key] = value
 	}
 
+
 	return env
 }
 
@@ -323,14 +345,17 @@ func (m *Manager) waitForHealthy(timeout time.Duration) error {
 	start := time.Now()
 	for time.Since(start) < timeout {
 		if m.IsRunning() {
+
 			return nil
 		}
 		time.Sleep(1 * time.Second)
 	}
+
 	return fmt.Errorf("timeout waiting for task scheduler to become healthy")
 }
 
 // GetLogs retrieves logs from the task scheduler container
 func (m *Manager) GetLogs(follow bool) error {
+
 	return m.runtime.ShowContainerLogs("mcp-compose-task-scheduler", follow)
 }

@@ -29,16 +29,22 @@ const (
 func (l LogLevel) String() string {
 	switch l {
 	case DEBUG:
+
 		return "DEBUG"
 	case INFO:
+
 		return "INFO"
 	case WARNING:
+
 		return "WARNING"
 	case ERROR:
+
 		return "ERROR"
 	case FATAL:
+
 		return "FATAL"
 	default:
+
 		return "UNKNOWN"
 	}
 }
@@ -68,6 +74,7 @@ func NewLogger(level string) *Logger {
 		logLevel = INFO
 	}
 
+
 	return &Logger{
 		level:      logLevel,
 		writer:     os.Stdout,
@@ -87,12 +94,14 @@ func (l *Logger) SetJSONFormat(useJSON bool) {
 
 // shouldLog determines if a message at the given level should be logged
 func (l *Logger) shouldLog(level LogLevel) bool {
+
 	return level >= l.level
 }
 
 // log logs a message at the given level with optional format arguments
 func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 	if !l.shouldLog(level) {
+
 		return
 	}
 
@@ -153,6 +162,7 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 
 // WithFields creates a new logger with the specified fields
 func (l *Logger) WithFields(fields map[string]interface{}) *FieldLogger {
+
 	return &FieldLogger{
 		logger: l,
 		fields: fields,
@@ -168,6 +178,7 @@ type FieldLogger struct {
 // Debug logs a debug message with fields
 func (fl *FieldLogger) Debug(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(DEBUG) {
+
 		return
 	}
 	fl.logWithFields(DEBUG, format, args...)
@@ -176,6 +187,7 @@ func (fl *FieldLogger) Debug(format string, args ...interface{}) {
 // Info logs an informational message with fields
 func (fl *FieldLogger) Info(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(INFO) {
+
 		return
 	}
 	fl.logWithFields(INFO, format, args...)
@@ -184,6 +196,7 @@ func (fl *FieldLogger) Info(format string, args ...interface{}) {
 // Warning logs a warning message with fields
 func (fl *FieldLogger) Warning(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(WARNING) {
+
 		return
 	}
 	fl.logWithFields(WARNING, format, args...)
@@ -192,6 +205,7 @@ func (fl *FieldLogger) Warning(format string, args ...interface{}) {
 // Error logs an error message with fields
 func (fl *FieldLogger) Error(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(ERROR) {
+
 		return
 	}
 	fl.logWithFields(ERROR, format, args...)
@@ -200,6 +214,7 @@ func (fl *FieldLogger) Error(format string, args ...interface{}) {
 // Fatal logs a fatal message with fields and exits the program
 func (fl *FieldLogger) Fatal(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(FATAL) {
+
 		return
 	}
 	fl.logWithFields(FATAL, format, args...)

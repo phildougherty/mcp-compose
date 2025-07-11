@@ -33,11 +33,13 @@ Examples:
 			configFile, _ := cmd.Flags().GetString("file")
 			cfg, err := config.LoadConfig(configFile)
 			if err != nil {
+
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			runtime, err := container.DetectRuntime()
 			if err != nil {
+
 				return fmt.Errorf("failed to detect container runtime: %w", err)
 			}
 
@@ -45,10 +47,12 @@ Examples:
 			memoryManager.SetConfigFile(configFile)
 
 			if enable {
+
 				return enableMemoryServer(configFile, cfg)
 			}
 
 			if disable {
+
 				return disableMemoryServer(configFile, cfg, memoryManager)
 			}
 
@@ -56,16 +60,19 @@ Examples:
 			if !cfg.Memory.Enabled {
 				fmt.Println("Memory server is not enabled in configuration.")
 				fmt.Println("Use --enable flag to enable it first.")
+
 				return nil
 			}
 
 			// Start the memory server
+
 			return memoryManager.Start()
 		},
 	}
 
 	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the memory server in config")
 	cmd.Flags().BoolVar(&disable, "disable", false, "Disable the memory server")
+
 
 	return cmd
 }
@@ -185,6 +192,7 @@ func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
 	}
 
 	fmt.Printf("Memory server enabled in both built-in config and servers list (port: %d).\n", cfg.Memory.Port)
+
 	return config.SaveConfig(configFile, cfg)
 }
 
@@ -200,5 +208,6 @@ func disableMemoryServer(configFile string, cfg *config.ComposeConfig, memoryMan
 	cfg.Memory.Enabled = false
 
 	fmt.Println("Memory server disabled.")
+
 	return config.SaveConfig(configFile, cfg)
 }

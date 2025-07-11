@@ -62,14 +62,17 @@ Examples:
 			configFile, _ := cmd.Flags().GetString("file")
 			cfg, err := config.LoadConfig(configFile)
 			if err != nil {
+
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			if enable {
+
 				return enableTaskScheduler(configFile, cfg)
 			}
 
 			if disable {
+
 				return disableTaskScheduler(configFile, cfg)
 			}
 
@@ -108,10 +111,10 @@ Examples:
 				if openrouterModel == "" && cfg.TaskScheduler.OpenRouterModel != "" {
 					openrouterModel = cfg.TaskScheduler.OpenRouterModel
 				}
-				if cpus == "2.0" && cfg.TaskScheduler.CPUs != "" {
+				if cpus == constants.ResourceLimitCPUs && cfg.TaskScheduler.CPUs != "" {
 					cpus = cfg.TaskScheduler.CPUs
 				}
-				if memory == "1g" && cfg.TaskScheduler.Memory != "" {
+				if memory == constants.ResourceLimitMemory && cfg.TaskScheduler.Memory != "" {
 					memory = cfg.TaskScheduler.Memory
 				}
 			}
@@ -156,24 +159,26 @@ Examples:
 
 			// Set final defaults
 			if port == 0 {
-				port = 8080
+				port = constants.TaskSchedulerDefaultPort
 			}
 			if host == "" {
-				host = "0.0.0.0"
+				host = constants.DefaultHostInterface
 			}
 			if workspace == "" {
-				workspace = "/home/phil" // Default workspace
+				workspace = constants.DefaultWorkspacePath // Default workspace
 			}
 			if dbPath == "" {
-				dbPath = "/data/task-scheduler.db"
+				dbPath = constants.DefaultDatabasePath
 			}
 
 			fmt.Printf("Starting task scheduler with port: %d\n", port)
 
 			// Choose mode: native or containerized
 			if native {
+
 				return runNativeTaskScheduler(cfg, port, host, dbPath, workspace, logLevel, debug)
 			} else {
+
 				return runContainerizedTaskScheduler(cfg, configFile, port, host, dbPath, workspace, logLevel, mcpProxyURL, mcpProxyAPIKey, ollamaURL, ollamaModel, openrouterAPIKey, openrouterModel, cpus, memory, healthCheck, debug)
 			}
 		},
@@ -194,10 +199,11 @@ Examples:
 	cmd.Flags().StringVar(&ollamaModel, "ollama-model", "", "Ollama model")
 	cmd.Flags().StringVar(&openrouterAPIKey, "openrouter-api-key", "", "OpenRouter API key")
 	cmd.Flags().StringVar(&openrouterModel, "openrouter-model", "", "OpenRouter model")
-	cmd.Flags().StringVar(&cpus, "cpus", "2.0", "CPU limit")
-	cmd.Flags().StringVar(&memory, "memory", "1g", "Memory limit")
+	cmd.Flags().StringVar(&cpus, "cpus", constants.ResourceLimitCPUs, "CPU limit")
+	cmd.Flags().StringVar(&memory, "memory", constants.ResourceLimitMemory, "Memory limit")
 	cmd.Flags().BoolVar(&healthCheck, "health-check", true, "Enable health checks")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug mode")
+
 
 	return cmd
 }
@@ -218,13 +224,13 @@ func enableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 
 	// Set defaults if not already configured
 	if cfg.TaskScheduler.Port == 0 {
-		cfg.TaskScheduler.Port = 8080
+		cfg.TaskScheduler.Port = constants.TaskSchedulerDefaultPort
 	}
 	if cfg.TaskScheduler.Host == "" {
-		cfg.TaskScheduler.Host = "0.0.0.0"
+		cfg.TaskScheduler.Host = constants.DefaultHostInterface
 	}
 	if cfg.TaskScheduler.DatabasePath == "" {
-		cfg.TaskScheduler.DatabasePath = "/data/task-scheduler.db"
+		cfg.TaskScheduler.DatabasePath = constants.DefaultDatabasePath
 	}
 
 	// Add task-scheduler to servers config using values from TaskScheduler section
@@ -285,12 +291,14 @@ func enableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 		for i, vol := range cfg.Servers["task-scheduler"].Volumes {
 			if strings.Contains(vol, ":/workspace") {
 				cfg.Servers["task-scheduler"].Volumes[i] = cfg.TaskScheduler.Workspace + ":/workspace:rw"
+
 				break
 			}
 		}
 	}
 
 	fmt.Printf("Task scheduler configuration added to config (port: %d).\n", cfg.TaskScheduler.Port)
+
 	return config.SaveConfig(configFile, cfg)
 }
 
@@ -299,6 +307,7 @@ func disableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -313,6 +322,7 @@ func disableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 	}
 
 	fmt.Println("Task scheduler removed from configuration.")
+
 	return config.SaveConfig(configFile, cfg)
 }
 
@@ -332,11 +342,13 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 	for _, path := range mcpCronPaths {
 		if _, err := os.Stat(path); err == nil {
 			mcpCronPath = path
+
 			break
 		}
 	}
 
 	if mcpCronPath == "" {
+
 		return fmt.Errorf("mcp-cron binary not found. Please build it first:\n" +
 			"cd ../mcp-cron-persistent && go build -o mcp-cron ./cmd/mcp-cron")
 	}
@@ -398,6 +410,7 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+
 		return fmt.Errorf("failed to start task scheduler: %w", err)
 	}
 
@@ -409,8 +422,10 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 
 	select {
 	case <-ctx.Done():
+
 		return nil
 	case err := <-done:
+
 		return err
 	}
 }
@@ -420,11 +435,13 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
 	// Build the image with better error handling
 	if err := buildTaskSchedulerImageWithRetry(debug); err != nil {
+
 		return fmt.Errorf("failed to build task scheduler image: %w", err)
 	}
 
@@ -435,6 +452,7 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 	networkExists, _ := runtime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := runtime.CreateNetwork("mcp-net"); err != nil {
+
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
 		fmt.Println("Created mcp-net network for task scheduler.")
@@ -574,18 +592,19 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 	}
 
 	// Start container with retry logic
-	containerID, err := startContainerWithRetry(runtime, opts, constants.DefaultRetryAttempts)
+	containerID, err := startContainerWithRetry(runtime, opts, constants.DefaultRetryLimit)
 	if err != nil {
+
 		return fmt.Errorf("failed to start task scheduler container: %w", err)
 	}
 
-	fmt.Printf("Task scheduler container started with ID: %s\n", containerID[:12])
+	fmt.Printf("Task scheduler container started with ID: %s\n", containerID[:constants.ContainerIDDisplayLength])
 	fmt.Printf("Container using port mapping: %d:%d\n", port, port)
 
 	// Wait for container to be healthy
 	if healthCheck {
 		fmt.Printf("Waiting for task scheduler to become healthy...\n")
-		if err := waitForContainerHealth(runtime, "mcp-compose-task-scheduler", 30*time.Second); err != nil {
+		if err := waitForContainerHealth(runtime, "mcp-compose-task-scheduler", constants.ContainerHealthTimeout); err != nil {
 			fmt.Printf("Warning: Health check failed: %v\n", err)
 			// Show logs to help debug
 			showRecentLogs(runtime, "mcp-compose-task-scheduler")
@@ -607,26 +626,29 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 	fmt.Printf("  → OpenRouter Gateway: %s\n", env["MCP_OPENROUTER_GATEWAY_URL"])
 	fmt.Printf("\nTo stop the task scheduler: mcp-compose stop task-scheduler\n")
 
+
 	return nil
 }
 
 func buildTaskSchedulerImageWithRetry(debug bool) error {
 	for attempt := 1; attempt <= constants.DefaultRetryLimit; attempt++ {
-		fmt.Printf("Building task scheduler image (attempt %d/3)...\n", attempt)
+		fmt.Printf("Building task scheduler image (attempt %d/%d)...\n", attempt, constants.DefaultRetryLimit)
 
 		if err := buildTaskSchedulerImage(debug); err == nil {
 			fmt.Println("Task scheduler image built successfully.")
+
 			return nil
 		} else {
 			fmt.Printf("Build attempt %d failed: %v\n", attempt, err)
 			if attempt < constants.DefaultRetryLimit {
-				fmt.Printf("Retrying in 5 seconds...\n")
-				time.Sleep(5 * time.Second)
+				fmt.Printf("Retrying in %v...\n", constants.ImageBuildDelay)
+				time.Sleep(constants.ImageBuildDelay)
 			}
 		}
 	}
 
-	return fmt.Errorf("failed to build task scheduler image after 3 attempts")
+
+	return fmt.Errorf("failed to build task scheduler image after %d attempts", constants.DefaultRetryLimit)
 }
 
 func buildTaskSchedulerImage(debug bool) error {
@@ -692,7 +714,8 @@ CMD ["sh", "-c", "./mcp-cron --transport=$MCP_CRON_SERVER_TRANSPORT --address=$M
 `
 
 	dockerfileName := "Dockerfile.task-scheduler"
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 	defer func() { _ = os.Remove(dockerfileName) }()
@@ -708,6 +731,7 @@ CMD ["sh", "-c", "./mcp-cron --transport=$MCP_CRON_SERVER_TRANSPORT --address=$M
 		cmd.Stderr = os.Stderr
 	}
 
+
 	return cmd.Run()
 }
 
@@ -717,6 +741,7 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		containerID, err := runtime.StartContainer(opts)
 		if err == nil {
+
 			return containerID, nil
 		}
 
@@ -729,6 +754,7 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 		}
 	}
 
+
 	return "", fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -738,21 +764,25 @@ func waitForContainerHealth(runtime container.Runtime, containerName string, tim
 	for time.Now().Before(deadline) {
 		status, err := runtime.GetContainerStatus(containerName)
 		if err != nil {
+
 			return fmt.Errorf("failed to get container status: %w", err)
 		}
 
 		if status == "running" {
 			// Give it a moment to start up before considering it healthy
 			time.Sleep(constants.DefaultRetryDelay)
+
 			return nil
 		}
 
 		if status == "exited" || status == "stopped" {
+
 			return fmt.Errorf("container exited unexpectedly")
 		}
 
 		time.Sleep(constants.DefaultRetryDelay)
 	}
+
 
 	return fmt.Errorf("container did not become healthy within %v", timeout)
 }

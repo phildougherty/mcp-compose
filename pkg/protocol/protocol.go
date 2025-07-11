@@ -96,26 +96,32 @@ func ValidateCapabilities(serverCapabilities MCPCapabilities, requiredCapabiliti
 		switch cap {
 		case "resources":
 			if serverCapabilities.Resources == nil {
+
 				return fmt.Errorf("server does not support resources capability")
 			}
 		case "tools":
 			if serverCapabilities.Tools == nil {
+
 				return fmt.Errorf("server does not support tools capability")
 			}
 		case "prompts":
 			if serverCapabilities.Prompts == nil {
+
 				return fmt.Errorf("server does not support prompts capability")
 			}
 		case "sampling":
 			if serverCapabilities.Sampling == nil {
+
 				return fmt.Errorf("server does not support sampling capability")
 			}
 		case "logging":
 			if serverCapabilities.Logging == nil {
+
 				return fmt.Errorf("server does not support logging capability")
 			}
 		}
 	}
+
 
 	return nil
 }

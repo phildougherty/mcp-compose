@@ -54,24 +54,28 @@ type SafeWebSocketConn struct {
 func (s *SafeWebSocketConn) WriteJSON(v interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.WriteJSON(v)
 }
 
 func (s *SafeWebSocketConn) WriteMessage(messageType int, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.WriteMessage(messageType, data)
 }
 
 func (s *SafeWebSocketConn) SetWriteDeadline(t time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.SetWriteDeadline(t)
 }
 
 func (s *SafeWebSocketConn) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.Close()
 }
 
@@ -121,6 +125,7 @@ func (ab *ActivityBroadcaster) start() {
 	ab.runMutex.Lock()
 	if ab.running {
 		ab.runMutex.Unlock()
+
 		return
 	}
 	ab.running = true
@@ -142,6 +147,7 @@ func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 			}
 		case <-ctx.Done():
 			log.Printf("[ACTIVITY] Cleanup goroutine shutting down")
+
 			return
 		}
 	}
@@ -149,6 +155,7 @@ func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 
 func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 	if ab.storage == nil {
+
 		return
 	}
 
@@ -156,6 +163,7 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 	activities, err := ab.storage.GetRecentActivities(constants.RecentActivitiesCount, nil)
 	if err != nil {
 		log.Printf("[ACTIVITY] Failed to get recent activities: %v", err)
+
 		return
 	}
 
@@ -173,11 +181,12 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 		}
 
 		// Send directly to the client using WriteJSON
-		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
 			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
 		}
 		if err := client.WriteJSON(activityMsg); err != nil {
 			log.Printf("[ACTIVITY] Failed to send historical activity to client: %v", err)
+
 			return // Client disconnected
 		}
 	}
@@ -220,6 +229,7 @@ func (ab *ActivityBroadcaster) run() {
 
 		case <-ab.shutdown:
 			ab.handleShutdown()
+
 			return
 		}
 	}
@@ -253,7 +263,7 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 	}
 
 	go func() {
-		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
 			log.Printf("[ACTIVITY] Failed to set write deadline for client #%d: %v", clientID, err)
 		}
 		if err := client.WriteJSON(welcomeMsg); err != nil {
@@ -284,6 +294,7 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 
 	if clientCount == 0 {
 		log.Printf("[ACTIVITY] 📭 No clients to broadcast to: %s", message.Message)
+
 		return
 	}
 
@@ -309,7 +320,7 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message ActivityMessage) bool {
 	done := make(chan bool, 1)
 	go func() {
-		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
 			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
 		}
 		err := client.WriteJSON(message)
@@ -324,12 +335,14 @@ func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message A
 
 	select {
 	case success := <-done:
+
 		return success
 	case <-time.After(constants.DefaultConnectionTimeout):
 		log.Printf("[ACTIVITY] ⏰ Client send timeout, disconnecting slow client")
 		if err := client.Close(); err != nil {
 			log.Printf("[ACTIVITY] Warning: Failed to close slow client connection: %v", err)
 		}
+
 		return false
 	}
 }
@@ -352,12 +365,14 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	serverName := r.URL.Query().Get("server")
 	if serverName == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
+
 		return
 	}
 
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		d.logger.Error("Failed to upgrade websocket connection: %v", err)
+
 		return
 	}
 
@@ -374,6 +389,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 
 	conn.SetPongHandler(func(string) error {
 		d.logger.Debug("Received pong from client for server: %s", serverName)
+
 		return nil
 	})
 
@@ -390,6 +406,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 		}); writeErr != nil {
 			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 		}
+
 		return
 	}
 
@@ -401,6 +418,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 		}); writeErr != nil {
 			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 		}
+
 		return
 	}
 
@@ -411,6 +429,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 		}); writeErr != nil {
 			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 		}
+
 		return
 	}
 
@@ -422,7 +441,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	go d.streamLogs(safeConn, stdout, serverName, "stdout", cancel)
 	go d.streamLogs(safeConn, stderr, serverName, "stderr", cancel)
 
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(constants.WebSocketPingInterval)
 	defer pingTicker.Stop()
 
 	for {
@@ -436,6 +455,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 					d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 				}
 			}
+
 			return
 		case <-pingTicker.C:
 			if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
@@ -444,6 +464,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to client for %s: %v", serverName, err)
 				cancel()
+
 				return
 			}
 		}
@@ -465,7 +486,7 @@ func (d *DashboardServer) streamLogs(safeConn *SafeWebSocketConn, reader io.Read
 			Message:   line,
 		}
 
-		if err := safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
 			d.logger.Debug("Failed to set write deadline for log message to WebSocket for %s: %v", serverName, err)
 		}
 		if err := safeConn.WriteJSON(msg); err != nil {
@@ -490,6 +511,7 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		d.logger.Error("Failed to upgrade metrics websocket connection: %v", err)
+
 		return
 	}
 
@@ -506,13 +528,14 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 
 	conn.SetPongHandler(func(string) error {
 		d.logger.Debug("Received pong from metrics client")
+
 		return nil
 	})
 
-	metricsTicker := time.NewTicker(5 * time.Second)
+	metricsTicker := time.NewTicker(constants.MetricsUpdateInterval)
 	defer metricsTicker.Stop()
 
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(constants.WebSocketPingInterval)
 	defer pingTicker.Stop()
 
 	d.sendMetricsUpdate(safeConn)
@@ -527,6 +550,7 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to metrics client: %v", err)
+
 				return
 			}
 		}
@@ -542,6 +566,7 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 		}); writeErr != nil {
 			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 		}
+
 		return
 	}
 
@@ -553,6 +578,7 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 		}); writeErr != nil {
 			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
 		}
+
 		return
 	}
 
@@ -575,7 +601,7 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 		Connections: connections,
 	}
 
-	if err := safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
 		d.logger.Debug("Failed to set write deadline for metrics WebSocket: %v", err)
 	}
 	if err := safeConn.WriteJSON(metrics); err != nil {
@@ -588,17 +614,22 @@ func (d *DashboardServer) parseLogLevel(message string) string {
 	msg := strings.ToUpper(message)
 
 	if strings.Contains(msg, "ERROR") || strings.Contains(msg, "FATAL") || strings.Contains(msg, "PANIC") {
+
 		return "ERROR"
 	}
 	if strings.Contains(msg, "WARN") || strings.Contains(msg, "WARNING") {
+
 		return "WARN"
 	}
 	if strings.Contains(msg, "INFO") {
+
 		return "INFO"
 	}
 	if strings.Contains(msg, "DEBUG") || strings.Contains(msg, "TRACE") {
+
 		return "DEBUG"
 	}
+
 
 	return "INFO"
 }
@@ -628,6 +659,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 	// Also send to dashboard service if running in distributed mode
 	jsonData, err := json.Marshal(activity)
 	if err != nil {
+
 		return
 	}
 
@@ -635,6 +667,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 		resp, err := http.Post("http://mcp-compose-dashboard:3001/api/activity", "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
 			log.Printf("[ACTIVITY] Failed to send to dashboard service: %v", err)
+
 			return
 		}
 		defer func() {
@@ -647,6 +680,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 
 // Utility functions
 func generateID() string {
+
 	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(constants.RandomStringLength))
 }
 
@@ -662,5 +696,6 @@ func randomString(length int) string {
 			bytes[i] = charset[b%byte(len(charset))]
 		}
 	}
+
 	return string(bytes)
 }

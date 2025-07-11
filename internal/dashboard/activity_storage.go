@@ -35,6 +35,8 @@ func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
 	// Parse the database URL to extract database name
 	dbName, err := extractDatabaseName(dbURL)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
 
@@ -42,16 +44,22 @@ func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
 
 	// Create database if it doesn't exist
 	if err := createDatabaseIfNotExists(dbURL, dbName); err != nil {
+
+
 		return nil, fmt.Errorf("failed to ensure database exists: %w", err)
 	}
 
 	// Now connect to the target database
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	if err := db.Ping(); err != nil {
+
+
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -59,10 +67,14 @@ func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
 
 	// Create tables if they don't exist
 	if err := storage.initTables(); err != nil {
+
+
 		return nil, fmt.Errorf("failed to initialize tables: %w", err)
 	}
 
 	log.Printf("[ACTIVITY] Activity storage initialized successfully")
+
+
 	return storage, nil
 }
 
@@ -70,12 +82,16 @@ func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
 func extractDatabaseName(dbURL string) (string, error) {
 	u, err := url.Parse(dbURL)
 	if err != nil {
+
+
 		return "", err
 	}
 
 	// Database name is the path without the leading slash
 	dbName := strings.TrimPrefix(u.Path, "/")
 	if dbName == "" {
+
+
 		return "", fmt.Errorf("no database name found in URL")
 	}
 
@@ -83,6 +99,7 @@ func extractDatabaseName(dbURL string) (string, error) {
 	if idx := strings.Index(dbName, "?"); idx >= 0 {
 		dbName = dbName[:idx]
 	}
+
 
 	return dbName, nil
 }
@@ -94,6 +111,8 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	// Parse the original URL
 	u, err := url.Parse(dbURL)
 	if err != nil {
+
+
 		return err
 	}
 
@@ -105,6 +124,8 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	// Connect to the PostgreSQL system database
 	db, err := sql.Open("postgres", systemConnection)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to connect to postgres system database: %w", err)
 	}
 	defer func() {
@@ -118,11 +139,15 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	checkQuery := "SELECT EXISTS(SELECT datname FROM pg_database WHERE datname = $1)"
 	err = db.QueryRow(checkQuery, targetDB).Scan(&exists)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to check if database exists: %w", err)
 	}
 
 	if exists {
 		log.Printf("[ACTIVITY] Database '%s' already exists", targetDB)
+
+
 		return nil
 	}
 
@@ -131,10 +156,14 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	createQuery := fmt.Sprintf("CREATE DATABASE %s", targetDB)
 	_, err = db.Exec(createQuery)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to create database '%s': %w", targetDB, err)
 	}
 
 	log.Printf("[ACTIVITY] Database '%s' created successfully", targetDB)
+
+
 	return nil
 }
 
@@ -164,16 +193,22 @@ func (s *ActivityStorage) initTables() error {
 
 	_, err := s.db.Exec(query)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
 	log.Printf("[ACTIVITY] Activity tables initialized successfully")
+
+
 	return nil
 }
 
 func (s *ActivityStorage) StoreActivity(activity ActivityMessage) error {
 	detailsJSON, err := json.Marshal(activity.Details)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to marshal details: %w", err)
 	}
 
@@ -191,8 +226,11 @@ func (s *ActivityStorage) StoreActivity(activity ActivityMessage) error {
 		activity.Server, activity.Client, activity.Message, string(detailsJSON))
 
 	if err != nil {
+
+
 		return fmt.Errorf("failed to store activity: %w", err)
 	}
+
 
 	return nil
 }
@@ -225,6 +263,8 @@ func (s *ActivityStorage) GetRecentActivities(limit int, since *time.Time) ([]St
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
+
+
 		return nil, err
 	}
 	defer func() {
@@ -242,6 +282,8 @@ func (s *ActivityStorage) GetRecentActivities(limit int, since *time.Time) ([]St
 			&activity.Level, &activity.Type, &activity.Server, &activity.Client,
 			&activity.Message, &detailsJSON, &activity.CreatedAt)
 		if err != nil {
+
+
 			return nil, err
 		}
 
@@ -257,6 +299,7 @@ func (s *ActivityStorage) GetRecentActivities(limit int, since *time.Time) ([]St
 		activities = append(activities, activity)
 	}
 
+
 	return activities, rows.Err()
 }
 
@@ -266,6 +309,8 @@ func (s *ActivityStorage) CleanupOldActivities(olderThan time.Duration) error {
 	query := "DELETE FROM activity_events WHERE created_at < $1"
 	result, err := s.db.Exec(query, cutoff)
 	if err != nil {
+
+
 		return err
 	}
 
@@ -273,6 +318,7 @@ func (s *ActivityStorage) CleanupOldActivities(olderThan time.Duration) error {
 	if rowsAffected > 0 {
 		log.Printf("[ACTIVITY] Cleaned up %d old activity records", rowsAffected)
 	}
+
 
 	return nil
 }
@@ -312,10 +358,14 @@ func (s *ActivityStorage) GetActivityStats() (map[string]interface{}, error) {
 	err := s.db.QueryRow(query).Scan(&stats.Total, &stats.Errors, &stats.Warnings,
 		&stats.Info, &stats.Requests, &stats.ToolCalls, &stats.Last24h, &stats.Last1h)
 	if err != nil {
+
+
 		return nil, err
 	}
 
 	// Return in the format the frontend expects
+
+
 	return map[string]interface{}{
 		"totalToday":     stats.Total,
 		"requestsToday":  stats.Requests,
@@ -339,7 +389,11 @@ func (s *ActivityStorage) GetActivityStats() (map[string]interface{}, error) {
 func (s *ActivityStorage) Close() error {
 	if s.db != nil {
 		log.Printf("[ACTIVITY] Closing activity storage connection")
+
+
 		return s.db.Close()
 	}
+
+
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 
 	"mcpcompose/internal/auth"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 	"mcpcompose/internal/protocol"
 )
@@ -69,27 +70,27 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	// Regular HTTP client for short requests
 	customTransport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          50,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConns:          constants.HTTPTransportMaxIdleConns,
+		MaxIdleConnsPerHost:   constants.HTTPTransportMaxIdleConnsPerHost,
+		IdleConnTimeout:       constants.HTTPTransportIdleConnTimeout,
+		TLSHandshakeTimeout:   constants.HTTPTransportTLSHandshakeTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableKeepAlives:     false,
-		MaxConnsPerHost:       20,
-		WriteBufferSize:       4096,
-		ReadBufferSize:        4096,
+		MaxConnsPerHost:       constants.HTTPTransportMaxConnsPerHost,
+		WriteBufferSize:       constants.HTTPTransportBufferSize,
+		ReadBufferSize:        constants.HTTPTransportBufferSize,
 	}
 
 	// SSE client with no timeout for persistent connections
 	sseTransport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          10,
-		MaxIdleConnsPerHost:   5,
-		IdleConnTimeout:       5 * time.Minute,
-		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConns:          constants.HTTP2TransportMaxIdleConns,
+		MaxIdleConnsPerHost:   constants.HTTP2TransportMaxIdleConnsPerHost,
+		IdleConnTimeout:       constants.HTTP2TransportIdleConnTimeout,
+		TLSHandshakeTimeout:   constants.HTTPTransportTLSHandshakeTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableKeepAlives:     false,
-		MaxConnsPerHost:       5,
+		MaxConnsPerHost:       constants.HTTP2TransportMaxConnsPerHost,
 	}
 
 	logLvl := "info"
@@ -136,7 +137,7 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		StdioConnections:       make(map[string]*MCPSTDIOConnection),
 		httpClient: &http.Client{
 			Transport: customTransport,
-			Timeout:   60 * time.Second,
+			Timeout:   constants.HTTPClientTimeout,
 		},
 		sseClient: &http.Client{
 			Transport: sseTransport,
@@ -169,7 +170,8 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	handler.initializeNotificationSupport()
 
 	// Start connection monitoring
-	handler.connectionManager.StartMonitoring(2 * time.Minute)
+	handler.connectionManager.StartMonitoring(constants.MonitoringInterval)
+
 
 	return handler
 }
@@ -178,6 +180,7 @@ func (h *ProxyHandler) getNextRequestID() int {
 	h.GlobalIDMutex.Lock()
 	defer h.GlobalIDMutex.Unlock()
 	h.GlobalRequestID++
+
 	return h.GlobalRequestID
 }
 
@@ -251,6 +254,7 @@ func (h *ProxyHandler) Shutdown() error {
 	h.wg.Wait()
 
 	h.logger.Info("Proxy handler shutdown complete.")
+
 	return nil
 }
 
@@ -323,7 +327,7 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 			for _, portMapping := range serverConfig.Ports {
 				parts := strings.Split(portMapping, ":")
 				var containerPortStr string
-				if len(parts) == 2 {
+				if len(parts) == constants.ServerNameParts {
 					containerPortStr = parts[1]
 				} else if len(parts) == 1 {
 					containerPortStr = parts[0]
@@ -331,6 +335,7 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 				if p, err := strconv.Atoi(containerPortStr); err == nil && p > 0 {
 					targetPort = p
 					h.logger.Info("Server %s: Inferred internal http_port %d from 'ports' mapping ('%s'). Consider defining 'http_port' explicitly.", serverName, targetPort, portMapping)
+
 					break
 				}
 			}
@@ -339,11 +344,15 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 
 	if targetPort == 0 && serverConfig.Protocol == "http" {
 		h.logger.Error("Server %s (HTTP): 'http_port' is 0 and could not be inferred from 'ports'. This is a critical configuration error for HTTP communication within Docker network.", serverName)
+
+
 		return fmt.Sprintf("http://%s:INVALID_PORT_CONFIG_FOR_HTTP_SERVER", targetHost)
 	}
 
 	if targetPort == 0 && serverConfig.Protocol != "http" {
 		h.logger.Debug("Server %s is likely STDIO (http_port is 0 and protocol is not http). URL constructed for display purposes only if needed.", serverName)
+
+
 		return fmt.Sprintf("http://%s:0/ (STDIO server, no HTTP port)", targetHost)
 	}
 
@@ -369,17 +378,23 @@ func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.S
 	}
 
 	h.logger.Debug("Resolved internal HTTP URL (MCP Endpoint for containerized proxy) for server %s: %s", serverName, baseURL)
+
+
 	return baseURL
 }
 
 // Helper function to check if task-scheduler is running as container
 func (h *ProxyHandler) isTaskSchedulerContainer() bool {
 	if h.Manager == nil || h.Manager.containerRuntime == nil {
+
+
 		return false
 	}
 
 	// Check if container exists
 	status, err := h.Manager.containerRuntime.GetContainerStatus("mcp-compose-task-scheduler")
+
+
 	return err == nil && status == "running"
 }
 
@@ -415,6 +430,8 @@ func isProxyStandardMethod(method string) bool {
 		"ping":                      true,
 		"notifications/cancelled":   true,
 	}
+
+
 	return proxyMethods[method]
 }
 
@@ -422,6 +439,8 @@ func isProxyStandardMethod(method string) bool {
 func (h *ProxyHandler) useEnhancedSSE(_serverName string) bool {
 	// For now, enable enhanced SSE for all servers
 	// In the future, this could be configuration-driven
+
+
 	return true
 }
 
@@ -429,9 +448,13 @@ func (h *ProxyHandler) useEnhancedSSE(_serverName string) bool {
 func (h *ProxyHandler) getOptimalSSEConnection(serverName string) (interface{}, error) {
 	if h.useEnhancedSSE(serverName) {
 		h.logger.Debug("Using enhanced SSE connection for server %s", serverName)
+
+
 		return h.getEnhancedSSEConnection(serverName)
 	} else {
 		h.logger.Debug("Using standard SSE connection for server %s", serverName)
+
+
 		return h.getSSEConnection(serverName)
 	}
 }
@@ -446,6 +469,8 @@ func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[stri
 		if h.connectionManager != nil {
 			h.connectionManager.RecordRequest(serverName, false, time.Since(start))
 		}
+
+
 		return nil, err
 	}
 
@@ -468,10 +493,14 @@ func (h *ProxyHandler) sendOptimalSSERequest(serverName string, request map[stri
 
 	if requestErr != nil {
 		h.logger.Debug("Enhanced SSE request to %s failed in %v: %v", serverName, responseTime, requestErr)
+
+
 		return nil, requestErr
 	}
 
 	h.logger.Debug("Enhanced SSE request to %s completed successfully in %v", serverName, responseTime)
+
+
 	return response, nil
 }
 
@@ -485,7 +514,7 @@ func (h *ProxyHandler) maintainEnhancedSSEConnections() {
 			continue
 		}
 
-		maxIdleTime := 15 * time.Minute
+		maxIdleTime := constants.IdleTimeoutExtended
 		if time.Since(conn.LastUsed) > maxIdleTime {
 			h.logger.Info("Removing idle enhanced SSE connection to %s (idle for %v)",
 				serverName, time.Since(conn.LastUsed))

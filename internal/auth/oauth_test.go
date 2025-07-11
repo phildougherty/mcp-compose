@@ -422,6 +422,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			userID, ok := GetUserFromContext(r.Context())
 			if !ok {
 				t.Error("Expected user ID in context")
+
 				return
 			}
 
@@ -432,6 +433,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			authType, ok := GetAuthTypeFromContext(r.Context())
 			if !ok {
 				t.Error("Expected auth type in context")
+
 				return
 			}
 
@@ -463,6 +465,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			authType, ok := GetAuthTypeFromContext(r.Context())
 			if !ok {
 				t.Error("Expected auth type in context")
+
 				return
 			}
 
@@ -620,6 +623,7 @@ type RBACManager struct {
 }
 
 func NewRBACManager() *RBACManager {
+
 	return &RBACManager{
 		roles: make(map[string]*RBACRole),
 		users: make(map[string]*RBACUser),
@@ -635,6 +639,7 @@ func (r *RBACManager) CreateRole(name string, permissions []string) *RBACRole {
 		Permissions: permissions,
 	}
 	r.roles[name] = role
+
 	return role
 }
 
@@ -643,6 +648,7 @@ func (r *RBACManager) AssignRole(userID, roleName string) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.roles[roleName]; !exists {
+
 		return fmt.Errorf("role not found: %s", roleName)
 	}
 
@@ -658,11 +664,13 @@ func (r *RBACManager) AssignRole(userID, roleName string) error {
 	// Check if role is already assigned
 	for _, role := range user.Roles {
 		if role == roleName {
+
 			return nil // Already assigned
 		}
 	}
 
 	user.Roles = append(user.Roles, roleName)
+
 	return nil
 }
 
@@ -672,6 +680,7 @@ func (r *RBACManager) HasPermission(userID, permission string) bool {
 
 	user, exists := r.users[userID]
 	if !exists {
+
 		return false
 	}
 
@@ -683,10 +692,12 @@ func (r *RBACManager) HasPermission(userID, permission string) bool {
 
 		for _, perm := range role.Permissions {
 			if perm == permission || perm == "*" {
+
 				return true
 			}
 		}
 	}
+
 
 	return false
 }
@@ -697,8 +708,10 @@ func (r *RBACManager) GetUserRoles(userID string) []string {
 
 	user, exists := r.users[userID]
 	if !exists {
+
 		return []string{}
 	}
+
 
 	return user.Roles
 }
@@ -709,8 +722,10 @@ func (r *RBACManager) GetRolePermissions(roleName string) []string {
 
 	role, exists := r.roles[roleName]
 	if !exists {
+
 		return []string{}
 	}
+
 
 	return role.Permissions
 }

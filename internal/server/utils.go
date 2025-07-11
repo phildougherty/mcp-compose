@@ -11,6 +11,7 @@ import (
 
 	"mcpcompose/internal/auth"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 )
 
@@ -18,7 +19,7 @@ func (h *ProxyHandler) startConnectionMaintenance() {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(constants.HTTP2TransportIdleConnTimeout)
 		defer ticker.Stop()
 
 		for {
@@ -29,6 +30,7 @@ func (h *ProxyHandler) startConnectionMaintenance() {
 				h.maintainSSEConnections()
 				h.maintainEnhancedSSEConnections()
 			case <-h.ctx.Done():
+
 				return
 			}
 		}
@@ -37,13 +39,14 @@ func (h *ProxyHandler) startConnectionMaintenance() {
 
 func (h *ProxyHandler) startOAuthTokenCleanup() {
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(constants.HTTP2TransportIdleConnTimeout)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
 				h.authServer.CleanupExpiredTokens()
 			case <-h.ctx.Done():
+
 				return
 			}
 		}
@@ -56,28 +59,34 @@ func getClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		// Take the first IP in the list
 		if ips := strings.Split(xff, ","); len(ips) > 0 {
+
 			return strings.TrimSpace(ips[0])
 		}
 	}
 
 	// Try X-Real-IP header
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+
 		return xri
 	}
 
 	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+
 		return r.RemoteAddr
 	}
+
 	return host
 }
 
 func getServerNameFromPath(path string) string {
-	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", constants.ServerNameParts)
 	if len(parts) > 0 && parts[0] != "" && parts[0] != "api" {
+
 		return parts[0]
 	}
+
 	return "proxy"
 }
 
@@ -118,6 +127,7 @@ func initializeOAuth(oauthConfig *config.OAuthConfig, logger *logging.Logger) (*
 	authServers := []string{serverConfig.Issuer}
 	resourceMeta := auth.NewResourceMetadataHandler(authServers, serverConfig.ScopesSupported)
 
+
 	return authServer, authMiddleware, resourceMeta
 }
 
@@ -125,6 +135,7 @@ func initializeOAuth(oauthConfig *config.OAuthConfig, logger *logging.Logger) (*
 func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) bool {
 	// Skip authentication for OPTIONS requests
 	if r.Method == "OPTIONS" {
+
 		return true
 	}
 
@@ -142,6 +153,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 
 	// If no authentication is configured, allow access
 	if !requiresAuth {
+
 		return true
 	}
 
@@ -150,8 +162,10 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 	if token == "" {
 		if requiresAuth && (instance.Config.Authentication == nil || !instance.Config.Authentication.OptionalAuth) {
 			h.sendAuthenticationError(w, "missing_token", "Access token required")
+
 			return false
 		}
+
 		return true // Allow if no auth required or optional auth
 	}
 
@@ -164,6 +178,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 			if instance.Config.Authentication != nil && instance.Config.Authentication.RequiredScope != "" {
 				if !h.hasRequiredScope(accessToken.Scope, instance.Config.Authentication.RequiredScope) {
 					h.sendOAuthError(w, "insufficient_scope", "Required scope not granted: "+instance.Config.Authentication.RequiredScope)
+
 					return false
 				}
 			}
@@ -176,6 +191,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 			ctx = context.WithValue(ctx, auth.AuthTypeContextKey, "oauth")
 			*r = *r.WithContext(ctx)
 			h.logger.Debug("Request authenticated via OAuth for server %s (scope: %s)", serverName, accessToken.Scope)
+
 			return true
 		}
 		// OAuth validation failed, but don't return error yet - try API key fallback
@@ -188,6 +204,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 			ctx := context.WithValue(r.Context(), auth.AuthTypeContextKey, "api_key")
 			*r = *r.WithContext(ctx)
 			h.logger.Debug("Request authenticated via API key for server %s", serverName)
+
 			return true
 		}
 	}
@@ -201,6 +218,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 
 		if !allowAPIKey {
 			h.sendOAuthError(w, "invalid_token", "OAuth authentication required (API key not allowed)")
+
 			return false
 		}
 	}
@@ -212,14 +230,17 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 		} else {
 			h.sendAuthenticationError(w, "invalid_token", "Invalid API key")
 		}
+
 		return false
 	}
 
 	// Check if server requires authentication but none was provided
 	if oauthRequired && !instance.Config.Authentication.OptionalAuth && !authenticatedViaOAuth && !authenticatedViaAPIKey {
 		h.sendOAuthError(w, "access_denied", "Authentication required for this server")
+
 		return false
 	}
+
 
 	return true
 }
@@ -228,26 +249,33 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 func (h *ProxyHandler) extractBearerToken(r *http.Request) string {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+
 		return ""
 	}
-	parts := strings.SplitN(authHeader, " ", 2)
+	parts := strings.SplitN(authHeader, " ", constants.ServerNameParts)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+
 		return ""
 	}
+
 	return parts[1]
 }
 
 func (h *ProxyHandler) validateOAuthToken(token string) (*auth.AccessToken, error) {
 	if h.authServer == nil {
+
 		return nil, fmt.Errorf("OAuth not enabled")
 	}
+
 	return h.authServer.ValidateAccessToken(token)
 }
 
 func (h *ProxyHandler) hasRequiredScope(tokenScope, requiredScope string) bool {
 	if h.authServer == nil {
+
 		return false
 	}
+
 	return h.authServer.HasScope(tokenScope, requiredScope)
 }
 
@@ -259,6 +287,7 @@ func (h *ProxyHandler) getAPIKeyToCheck() string {
 	if h.APIKey != "" {
 		apiKeyToCheck = h.APIKey
 	}
+
 	return apiKeyToCheck
 }
 
@@ -288,6 +317,7 @@ func (h *ProxyHandler) sendAuthenticationError(w http.ResponseWriter, errorCode,
 
 func (h *ProxyHandler) registerDefaultOAuthClients() {
 	if !h.oauthEnabled || h.authServer == nil {
+
 		return
 	}
 

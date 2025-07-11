@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/dashboard"
 )
 
@@ -22,6 +23,8 @@ func (r *mcpResponseRecorder) Header() http.Header {
 	if r.headers == nil {
 		r.headers = make(http.Header)
 	}
+
+
 	return r.headers
 }
 
@@ -31,6 +34,7 @@ func (r *mcpResponseRecorder) WriteHeader(statusCode int) {
 
 func (r *mcpResponseRecorder) Write(body []byte) (int, error) {
 	r.body = append(r.body, body...)
+
 	return len(body), nil
 }
 
@@ -46,6 +50,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if token != apiKeyToCheck {
 			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
+
 			return
 		}
 	}
@@ -57,6 +62,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 	if err := json.NewDecoder(r.Body).Decode(&arguments); err != nil {
 		h.logger.Error("Failed to decode request body for tool %s: %v", toolName, err)
 		h.corsError(w, "Invalid request body", http.StatusBadRequest)
+
 		return
 	}
 
@@ -65,6 +71,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 	if !found {
 		h.logger.Warning("Tool %s not found in any server", toolName)
 		h.corsError(w, "Tool not found", http.StatusNotFound)
+
 		return
 	}
 
@@ -92,6 +99,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			h.logger.Error("Failed to marshal MCP request for tool %s: %v", toolName, err)
 			h.corsError(w, "Internal server error", http.StatusInternalServerError)
+
 			return
 		}
 
@@ -102,7 +110,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 
 		// Create a simple response recorder
 		recorder := &mcpResponseRecorder{
-			statusCode: 200,
+			statusCode: constants.HTTPStatusSuccess,
 			headers:    make(http.Header),
 		}
 
@@ -123,6 +131,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
 					_ = json.NewEncoder(w).Encode(errorResponse)
+
 					return
 				}
 
@@ -134,6 +143,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 							cleanResult := h.processMCPContent(content)
 							w.Header().Set("Content-Type", "application/json")
 							_ = json.NewEncoder(w).Encode(cleanResult)
+
 							return
 						}
 					}
@@ -153,6 +163,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {
 	// Authentication check - validate before processing the request
 	if !h.authenticateRequest(w, r, serverName, instance) {
+
 		return // Authentication failed, response already sent
 	}
 
@@ -163,6 +174,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		h.logger.Error("Failed to read request body for %s: %v", serverName, err)
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
+
 		return
 	}
 
@@ -171,6 +183,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
 		h.logger.Error("Invalid JSON in request for %s: %v. Body: %s", serverName, err, string(body))
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
+
 		return
 	}
 
@@ -188,6 +201,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	// ONLY handle proxy-specific standard methods, NOT server methods
 	if isProxyStandardMethod(reqMethodVal) {
 		h.handleProxyStandardMethod(w, r, requestPayload, reqIDVal, reqMethodVal)
+
 		return
 	}
 
@@ -197,6 +211,7 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 	if !exists {
 		h.logger.Error("Server config not found for %s", serverName)
 		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
+
 		return
 	}
 
@@ -271,9 +286,12 @@ func (h *ProxyHandler) processMCPContent(content interface{}) interface{} {
 
 		// Return single item if array has only one element
 		if len(processed) == 1 {
+
 			return processed[0]
 		}
+
 		return processed
 	}
+
 	return content
 }

@@ -32,10 +32,12 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
 			follow, _ := cmd.Flags().GetBool("follow")
+
 			return runLogsCommand(file, args, follow)
 		},
 	}
 	cmd.Flags().BoolP("follow", "f", false, "Follow log output")
+
 	return cmd
 }
 
@@ -63,12 +65,14 @@ func runLogsCommand(configFile string, serverNames []string, follow bool) error 
 
 	// If we only have special containers, handle them directly
 	if len(specialContainers) > 0 && len(regularServers) == 0 {
+
 		return handleSpecialContainerLogs(specialContainers, follow)
 	}
 
 	// If we have a mix or only regular servers, use the compose logs function
 	if len(regularServers) > 0 {
 		if err := compose.Logs(configFile, regularServers, follow); err != nil {
+
 			return err
 		}
 	}
@@ -78,13 +82,16 @@ func runLogsCommand(configFile string, serverNames []string, follow bool) error 
 		if len(regularServers) > 0 {
 			fmt.Println() // Add spacing between regular and special logs
 		}
+
 		return handleSpecialContainerLogs(specialContainers, follow)
 	}
 
 	// If no specific servers requested, default to compose.Logs behavior
 	if len(serverNames) == 0 {
+
 		return compose.Logs(configFile, serverNames, follow)
 	}
+
 
 	return nil
 }
@@ -92,11 +99,13 @@ func runLogsCommand(configFile string, serverNames []string, follow bool) error 
 func handleSpecialContainerLogs(containers map[string]string, follow bool) error {
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
 	if runtime.GetRuntimeName() == "none" {
 		fmt.Println("No container runtime detected. Cannot show logs for built-in service containers.")
+
 		return nil
 	}
 
@@ -108,6 +117,7 @@ func handleSpecialContainerLogs(containers map[string]string, follow bool) error
 		status, err := runtime.GetContainerStatus(containerName)
 		if err != nil || status == "stopped" {
 			fmt.Printf("Warning: Container '%s' (%s) not found or not running\n", displayName, containerName)
+
 			continue
 		}
 		containerNames = append(containerNames, containerName)
@@ -115,6 +125,7 @@ func handleSpecialContainerLogs(containers map[string]string, follow bool) error
 	}
 
 	if len(containerNames) == 0 {
+
 		return fmt.Errorf("no running containers found for the requested services")
 	}
 
@@ -136,9 +147,11 @@ func handleSpecialContainerLogs(containers map[string]string, follow bool) error
 		// Docker/Podman doesn't support multiplexed following easily
 		if follow && len(containerNames) > 1 {
 			fmt.Printf("\nNote: Following logs for %s only. Use separate commands to follow multiple containers.\n", displayNames[0])
+
 			break
 		}
 	}
+
 
 	return nil
 }

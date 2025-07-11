@@ -19,6 +19,7 @@ type StandardMethodHandler struct {
 
 // NewStandardMethodHandler creates a new standard method handler
 func NewStandardMethodHandler(serverInfo ServerInfo, capabilities CapabilitiesOpts, logger *logging.Logger) *StandardMethodHandler {
+
 	return &StandardMethodHandler{
 		capabilities: capabilities,
 		serverInfo:   serverInfo,
@@ -32,12 +33,16 @@ func NewStandardMethodHandler(serverInfo ServerInfo, capabilities CapabilitiesOp
 func (h *StandardMethodHandler) HandleStandardMethod(method string, params json.RawMessage, requestID interface{}) (*MCPResponse, error) {
 	switch method {
 	case MethodInitialize:
+
 		return h.handleInitialize(params, requestID)
 	case MethodPing:
+
 		return h.handlePing(requestID)
 	case MethodRootsList:
+
 		return h.handleRootsList(params, requestID)
 	default:
+
 		return nil, NewMethodNotFound(method)
 	}
 }
@@ -46,10 +51,13 @@ func (h *StandardMethodHandler) HandleStandardMethod(method string, params json.
 func (h *StandardMethodHandler) HandleStandardNotification(method string, params json.RawMessage) error {
 	switch method {
 	case MethodInitialized:
+
 		return h.handleInitialized(params)
 	case NotificationCancelled:
+
 		return h.handleCancelled(params)
 	default:
+
 		return NewMethodNotFound(method)
 	}
 }
@@ -58,11 +66,13 @@ func (h *StandardMethodHandler) HandleStandardNotification(method string, params
 func (h *StandardMethodHandler) handleInitialize(params json.RawMessage, requestID interface{}) (*MCPResponse, error) {
 	var initParams InitializeParams
 	if err := json.Unmarshal(params, &initParams); err != nil {
+
 		return nil, NewInvalidParams("failed to parse initialize parameters", string(params))
 	}
 
 	// Validate protocol version
 	if initParams.ProtocolVersion != MCPVersion {
+
 		return nil, NewProtocolError(MCPVersion, initParams.ProtocolVersion)
 	}
 
@@ -101,6 +111,7 @@ func (h *StandardMethodHandler) handleInitialize(params json.RawMessage, request
 	// Mark as initialized
 	h.initialized = true
 
+
 	return NewResponse(requestID, result, nil)
 }
 
@@ -108,6 +119,7 @@ func (h *StandardMethodHandler) handleInitialize(params json.RawMessage, request
 func (h *StandardMethodHandler) handleInitialized(params json.RawMessage) error {
 	// Client has acknowledged initialization
 	if !h.initialized {
+
 		return NewStateError("initialized", "not_initialized")
 	}
 
@@ -123,6 +135,7 @@ func (h *StandardMethodHandler) handleInitialized(params json.RawMessage) error 
 	}
 
 	h.logger.Info("Client initialization acknowledged")
+
 	return nil
 }
 
@@ -134,12 +147,14 @@ func (h *StandardMethodHandler) handlePing(requestID interface{}) (*MCPResponse,
 		"status":    "ok",
 	}
 
+
 	return NewResponse(requestID, result, nil)
 }
 
 // handleRootsList handles the roots/list method
 func (h *StandardMethodHandler) handleRootsList(params json.RawMessage, requestID interface{}) (*MCPResponse, error) {
 	if !h.initialized {
+
 		return nil, NewStateError("initialized", "not_initialized")
 	}
 
@@ -147,6 +162,7 @@ func (h *StandardMethodHandler) handleRootsList(params json.RawMessage, requestI
 	var listParams RootsListRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &listParams); err != nil {
+
 			return nil, NewInvalidParams("failed to parse roots/list parameters", string(params))
 		}
 	}
@@ -157,6 +173,7 @@ func (h *StandardMethodHandler) handleRootsList(params json.RawMessage, requestI
 	result := RootsListResponse{
 		Roots: roots,
 	}
+
 
 	return NewResponse(requestID, result, nil)
 }
@@ -170,6 +187,7 @@ func (h *StandardMethodHandler) handleCancelled(params json.RawMessage) error {
 	}
 
 	if err := json.Unmarshal(params, &cancelParams); err != nil {
+
 		return NewInvalidParams("failed to parse cancel parameters", string(params))
 	}
 
@@ -178,26 +196,31 @@ func (h *StandardMethodHandler) handleCancelled(params json.RawMessage) error {
 	// For now, just acknowledge the cancellation
 	fmt.Printf("Request %v cancelled: %s\n", cancelParams.RequestID, cancelParams.Reason)
 
+
 	return nil
 }
 
 // IsInitialized returns whether the handler has been initialized
 func (h *StandardMethodHandler) IsInitialized() bool {
+
 	return h.initialized
 }
 
 // GetCapabilities returns the server capabilities
 func (h *StandardMethodHandler) GetCapabilities() CapabilitiesOpts {
+
 	return h.capabilities
 }
 
 // GetServerInfo returns the server information
 func (h *StandardMethodHandler) GetServerInfo() ServerInfo {
+
 	return h.serverInfo
 }
 
 // GetRootManager returns the root manager
 func (h *StandardMethodHandler) GetRootManager() *RootManager {
+
 	return h.rootManager
 }
 
@@ -262,14 +285,17 @@ func (h *StandardMethodHandler) SetCapability(capability string, enabled bool, o
 			h.capabilities.Roots = nil
 		}
 	default:
+
 		return NewValidationError("capability", capability, "unknown capability")
 	}
+
 
 	return nil
 }
 
 // CreateInitializeResponse creates a proper initialize response
 func CreateInitializeResponse(serverInfo ServerInfo, capabilities CapabilitiesOpts, roots []Root) InitializeResult {
+
 	return InitializeResult{
 		ProtocolVersion: MCPVersion,
 		ServerInfo:      serverInfo,
@@ -280,6 +306,7 @@ func CreateInitializeResponse(serverInfo ServerInfo, capabilities CapabilitiesOp
 
 // CreatePingResponse creates a proper ping response
 func CreatePingResponse() map[string]interface{} {
+
 	return map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 		"status":    "ok",
@@ -290,30 +317,37 @@ func CreatePingResponse() map[string]interface{} {
 // ValidateInitializeRequest validates an initialize request
 func ValidateInitializeRequest(params InitializeParams) error {
 	if params.ProtocolVersion == "" {
+
 		return NewValidationError("protocolVersion", params.ProtocolVersion, "protocol version is required")
 	}
 
 	if params.ProtocolVersion != MCPVersion {
+
 		return NewProtocolError(MCPVersion, params.ProtocolVersion)
 	}
 
 	if params.ClientInfo.Name == "" {
+
 		return NewValidationError("clientInfo.name", params.ClientInfo.Name, "client name is required")
 	}
 
 	if params.ClientInfo.Version == "" {
+
 		return NewValidationError("clientInfo.version", params.ClientInfo.Version, "client version is required")
 	}
 
 	// Validate roots if provided
 	for i, root := range params.Roots {
 		if root.URI == "" {
+
 			return NewValidationError(fmt.Sprintf("roots[%d].uri", i), root.URI, "root URI is required")
 		}
 		if root.Name == "" {
+
 			return NewValidationError(fmt.Sprintf("roots[%d].name", i), root.Name, "root name is required")
 		}
 	}
+
 
 	return nil
 }

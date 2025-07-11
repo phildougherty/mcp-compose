@@ -355,11 +355,13 @@ func TestScopeValidation(t *testing.T) {
 				for _, userScope := range tt.userScopes {
 					if userScope == required {
 						found = true
+
 						break
 					}
 				}
 				if !found {
 					hasAllScopes = false
+
 					break
 				}
 			}

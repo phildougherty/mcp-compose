@@ -14,8 +14,10 @@ func NewStartCommand() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
+
 			return compose.Start(file, args)
 		},
 	}
+
 	return cmd
 }

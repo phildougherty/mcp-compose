@@ -32,6 +32,7 @@ func NewResourceMetadataHandler(authServers []string, scopes []string) *Resource
 		ScopesSupported:        scopes,
 	}
 
+
 	return &ResourceMetadataHandler{
 		metadata: metadata,
 	}
@@ -41,6 +42,8 @@ func NewResourceMetadataHandler(authServers []string, scopes []string) *Resource
 func (h *ResourceMetadataHandler) HandleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -79,6 +82,7 @@ func (h *ResourceMetadataHandler) SetTosURI(uri string) {
 func (h *ResourceMetadataHandler) AddAuthorizationServer(server string) {
 	for _, existing := range h.metadata.AuthorizationServers {
 		if existing == server {
+
 			return // Already exists
 		}
 	}
@@ -93,6 +97,7 @@ func (h *ResourceMetadataHandler) RemoveAuthorizationServer(server string) {
 				h.metadata.AuthorizationServers[:i],
 				h.metadata.AuthorizationServers[i+1:]...,
 			)
+
 			break
 		}
 	}
@@ -100,5 +105,6 @@ func (h *ResourceMetadataHandler) RemoveAuthorizationServer(server string) {
 
 // GetMetadata returns the current metadata
 func (h *ResourceMetadataHandler) GetMetadata() *ProtectedResourceMetadata {
+
 	return h.metadata
 }

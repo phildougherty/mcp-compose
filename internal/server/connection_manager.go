@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"mcpcompose/internal/constants"
 )
 
 // ConnectionManager manages enhanced SSE connection lifecycle
@@ -41,10 +43,11 @@ type HealthCheckResult struct {
 
 // NewConnectionManager creates a new connection manager
 func NewConnectionManager(handler *ProxyHandler) *ConnectionManager {
+
 	return &ConnectionManager{
 		handler:    handler,
 		metrics:    make(map[string]*ConnectionMetrics),
-		healthChan: make(chan HealthCheckResult, 100),
+		healthChan: make(chan HealthCheckResult, constants.HealthCheckBufferSize),
 	}
 }
 
@@ -105,6 +108,7 @@ func (cm *ConnectionManager) GetConnectionStats(serverName string) *ConnectionMe
 		defer metrics.mu.RUnlock()
 
 		// Return a copy to avoid race conditions
+
 		return &ConnectionMetrics{
 			ServerName:          metrics.ServerName,
 			ConnectionType:      metrics.ConnectionType,
@@ -119,6 +123,8 @@ func (cm *ConnectionManager) GetConnectionStats(serverName string) *ConnectionMe
 			ErrorRate:           metrics.ErrorRate,
 		}
 	}
+
+
 	return nil
 }
 
@@ -131,6 +137,8 @@ func (cm *ConnectionManager) GetAllConnectionStats() map[string]*ConnectionMetri
 	for serverName := range cm.metrics {
 		result[serverName] = cm.GetConnectionStats(serverName)
 	}
+
+
 	return result
 }
 
@@ -162,6 +170,7 @@ func (cm *ConnectionManager) HealthCheck(serverName string) HealthCheckResult {
 	default:
 		// Channel is full, skip this result
 	}
+
 
 	return result
 }
@@ -219,6 +228,7 @@ func (cm *ConnectionManager) CleanupStaleConnections(maxIdleTime time.Duration) 
 		}
 	}
 
+
 	return cleanedCount
 }
 
@@ -232,9 +242,11 @@ func (cm *ConnectionManager) GetHealthCheckResults(maxResults int) []HealthCheck
 		case result := <-cm.healthChan:
 			results = append(results, result)
 		default:
+
 			return results
 		}
 	}
+
 
 	return results
 }
@@ -283,6 +295,7 @@ func (cm *ConnectionManager) GetConnectionSummary() map[string]interface{} {
 		summary["overall_stats"].(map[string]interface{})["average_error_rate"] = totalErrorRate / float64(len(allStats))
 	}
 
+
 	return summary
 }
 
@@ -299,12 +312,13 @@ func (cm *ConnectionManager) StartMonitoring(interval time.Duration) {
 				cm.PerformHealthChecks()
 
 				// Clean up stale connections (15 minute idle time)
-				cleanedCount := cm.CleanupStaleConnections(15 * time.Minute)
+				cleanedCount := cm.CleanupStaleConnections(constants.StaleConnectionThreshold)
 				if cleanedCount > 0 {
 					cm.handler.logger.Info("Cleaned up %d stale enhanced SSE connections", cleanedCount)
 				}
 
 			case <-cm.handler.ctx.Done():
+
 				return
 			}
 		}

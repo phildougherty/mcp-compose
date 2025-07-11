@@ -23,6 +23,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 		if token != apiKeyToCheck {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
+
 			return
 		}
 	}
@@ -75,6 +76,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 		tools, err := h.discoverServerTools(serverName)
 		if err != nil {
 			h.logger.Warning("Failed to discover tools for %s: %v", serverName, err)
+
 			continue
 		}
 

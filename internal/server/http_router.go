@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/dashboard"
 	"mcpcompose/internal/protocol"
 )
@@ -54,21 +55,24 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
 	path := strings.TrimSuffix(r.URL.Path, "/")
-	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 3)
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", constants.URLPathParts)
 
 	// Handle OAuth endpoints FIRST - these should NOT require API key authentication
 	if h.oauthEnabled && h.authServer != nil {
 		if h.handleOAuthEndpoints(w, r, path) {
+
 			return
 		}
 	}
 
 	// NOW do authentication check for other endpoints
 	if !h.authenticateAPIRequest(w, r) {
+
 		return
 	}
 
@@ -78,6 +82,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if _, exists := h.Manager.config.Servers[serverName]; exists {
 			h.handleServerOpenAPISpec(w, r, serverName)
 			h.logger.Debug("Processed server OpenAPI spec %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+
 			return
 		}
 	}
@@ -88,6 +93,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if _, exists := h.Manager.config.Servers[serverName]; exists {
 			h.handleServerDocs(w, r, serverName)
 			h.logger.Debug("Processed server docs %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+
 			return
 		}
 	}
@@ -99,6 +105,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if handled {
 		h.logger.Debug("Processed API request %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+
 		return
 	}
 
@@ -110,6 +117,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.Info("Handling direct tool call for: %s", toolName)
 			h.handleDirectToolCall(w, r, toolName)
 			h.logger.Debug("Processed direct tool call %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+
 			return
 		}
 
@@ -123,11 +131,13 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Neither a tool nor a server
 		h.logger.Warning("Unknown tool or server: %s", toolName)
 		h.corsError(w, "Tool or server not found", http.StatusNotFound)
+
 		return
 	}
 
 	if path == "/" {
 		h.handleIndex(w, r)
+
 		return
 	}
 
@@ -163,46 +173,59 @@ func (h *ProxyHandler) handleOAuthEndpoints(w http.ResponseWriter, r *http.Reque
 	switch path {
 	case "/.well-known/oauth-authorization-server":
 		h.authServer.HandleDiscovery(w, r)
+
 		return true
 	case "/.well-known/oauth-protected-resource":
 		if h.resourceMeta != nil {
 			h.resourceMeta.HandleProtectedResourceMetadata(w, r)
 		}
+
 		return true
 	case "/oauth/authorize":
 		h.authServer.HandleAuthorize(w, r)
+
 		return true
 	case "/oauth/token":
 		h.authServer.HandleToken(w, r)
+
 		return true
 	case "/oauth/userinfo": // Add this
 		h.authServer.HandleUserInfo(w, r)
+
 		return true
 	case "/oauth/revoke": // Add this
 		h.authServer.HandleRevoke(w, r)
+
 		return true
 	case "/oauth/register":
 		h.authServer.HandleRegister(w, r)
+
 		return true
 	case "/oauth/callback":
 		h.handleOAuthCallback(w, r)
+
 		return true
 	case "/api/oauth/status":
 		h.handleOAuthStatus(w, r)
+
 		return true
 	case "/api/oauth/clients":
 		h.handleOAuthClientsList(w, r)
+
 		return true
 	case "/api/oauth/scopes":
 		h.handleOAuthScopesList(w, r)
+
 		return true
 	}
 
 	// Handle OAuth client deletion (path starts with /api/oauth/clients/)
 	if strings.HasPrefix(path, "/api/oauth/clients/") && r.Method == http.MethodDelete {
 		h.handleOAuthClientDelete(w, r)
+
 		return true
 	}
+
 
 	return false
 }
@@ -211,53 +234,66 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 	switch path {
 	case "/api/reload":
 		h.handleAPIReload(w, r)
+
 		return true
 	case "/api/servers":
 		h.handleAPIServers(w, r)
+
 		return true
 	case "/api/status":
 		h.handleAPIStatus(w, r)
+
 		return true
 	case "/api/discovery":
 		h.handleDiscoveryEndpoint(w, r)
+
 		return true
 	case "/api/connections":
 		h.handleConnectionsAPI(w, r)
+
 		return true
 	case "/api/subscriptions":
 		h.handleSubscriptionsAPI(w, r)
+
 		return true
 	case "/api/notifications":
 		h.handleNotificationsAPI(w, r)
+
 		return true
 	case "/openapi.json":
 		h.handleOpenAPISpec(w, r)
+
 		return true
 	}
 
 	// ADD CONTAINER ENDPOINTS HERE
 	if strings.HasPrefix(path, "/api/containers/") {
 		h.handleContainerAPI(w, r)
+
 		return true
 	}
 
 	// Handle server-specific OAuth endpoints
 	if strings.HasPrefix(path, "/api/servers/") {
 		pathParts := strings.Split(strings.Trim(path, "/"), "/")
-		if len(pathParts) >= 4 {
+		if len(pathParts) >= constants.URLPathPartsExtended {
 			switch pathParts[3] {
 			case "oauth":
 				h.handleServerOAuthConfig(w, r)
+
 				return true
 			case "test-oauth":
 				h.handleServerOAuthTest(w, r)
+
 				return true
 			case "tokens":
 				h.handleServerTokens(w, r)
+
 				return true
 			}
 		}
 	}
+
 
 	return false
 }
@@ -277,9 +313,11 @@ func (h *ProxyHandler) authenticateAPIRequest(w http.ResponseWriter, r *http.Req
 		if token != apiKeyToCheck {
 			h.logger.Warning("Unauthorized access attempt to %s from %s (API key mismatch)", r.URL.Path, r.RemoteAddr)
 			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
+
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -291,6 +329,7 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 	if err != nil {
 		h.logger.Error("Failed to read request body for %s: %v", serverName, err)
 		h.sendMCPError(w, nil, -32700, "Error reading request body")
+
 		return
 	}
 
@@ -299,6 +338,7 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
 		h.logger.Error("Invalid JSON in request for %s: %v. Body: %s", serverName, err, string(body))
 		h.sendMCPError(w, nil, -32700, "Invalid JSON in request")
+
 		return
 	}
 
@@ -317,9 +357,11 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 	switch reqMethodVal {
 	case "resources/subscribe":
 		h.handleResourceSubscribe(w, r, serverName, requestPayload)
+
 		return
 	case "resources/unsubscribe":
 		h.handleResourceUnsubscribe(w, r, serverName, requestPayload)
+
 		return
 	case "tools/list":
 		// Check if client wants change notifications
@@ -327,12 +369,14 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 			clientID := h.getClientID(r)
 			sessionID := r.Header.Get("Mcp-Session-Id")
 			notifyFunc := func(notification *protocol.ChangeNotification) error {
+
 				return h.sendChangeNotificationToClient(clientID, notification)
 			}
 			h.changeNotificationManager.SubscribeToToolChanges(clientID, sessionID, notifyFunc)
 			h.logger.Debug("Client %s subscribed to tool changes for server %s", clientID, serverName)
 		}
 		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
+
 		return
 	case "prompts/list":
 		// Check if client wants change notifications
@@ -340,12 +384,14 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 			clientID := h.getClientID(r)
 			sessionID := r.Header.Get("Mcp-Session-Id")
 			notifyFunc := func(notification *protocol.ChangeNotification) error {
+
 				return h.sendChangeNotificationToClient(clientID, notification)
 			}
 			h.changeNotificationManager.SubscribeToPromptChanges(clientID, sessionID, notifyFunc)
 			h.logger.Debug("Client %s subscribed to prompt changes for server %s", clientID, serverName)
 		}
 		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
+
 		return
 	default:
 		h.forwardToServerWithBody(w, r, serverName, instance, body, reqIDVal, reqMethodVal)
@@ -355,6 +401,7 @@ func (h *ProxyHandler) handleMCPMethodForwarding(w http.ResponseWriter, r *http.
 func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance, body []byte, reqIDVal interface{}, reqMethodVal string) {
 	// Authentication check - validate before processing the request
 	if !h.authenticateRequest(w, r, serverName, instance) {
+
 		return // Authentication failed, response already sent
 	}
 
@@ -363,12 +410,14 @@ func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Re
 	if err := json.Unmarshal(body, &requestPayload); err != nil {
 		h.logger.Error("Failed to re-parse request payload for %s: %v", serverName, err)
 		h.sendMCPError(w, reqIDVal, -32700, "Invalid JSON in request")
+
 		return
 	}
 
 	// ONLY handle proxy-specific standard methods, NOT server methods
 	if isProxyStandardMethod(reqMethodVal) {
 		h.handleProxyStandardMethod(w, r, requestPayload, reqIDVal, reqMethodVal)
+
 		return
 	}
 
@@ -378,6 +427,7 @@ func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Re
 	if !exists {
 		h.logger.Error("Server config not found for %s", serverName)
 		h.sendMCPError(w, reqIDVal, -32602, "Server configuration not found")
+
 		return
 	}
 
@@ -415,6 +465,7 @@ func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, _ *http.
 		paramsBytes, marshalErr := json.Marshal(requestPayload["params"])
 		if marshalErr != nil {
 			h.sendMCPError(w, reqIDVal, protocol.InvalidParams, "Failed to marshal parameters")
+
 			return
 		}
 		params = paramsBytes
@@ -430,10 +481,12 @@ func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, _ *http.
 			} else {
 				h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
 			}
+
 			return
 		}
 		// Notifications don't have responses
 		w.WriteHeader(http.StatusOK)
+
 		return
 	} else {
 		// Handle request method
@@ -444,12 +497,14 @@ func (h *ProxyHandler) handleProxyStandardMethod(w http.ResponseWriter, _ *http.
 			} else {
 				h.sendMCPError(w, reqIDVal, protocol.InternalError, err.Error())
 			}
+
 			return
 		}
 		// Send successful response
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			h.logger.Error("Failed to encode standard method response: %v", err)
 		}
+
 		return
 	}
 }
@@ -459,12 +514,13 @@ func (h *ProxyHandler) handleHTTPServerRequestWithBody(w http.ResponseWriter, r 
 	if err != nil {
 		h.logger.Error("Failed to get/create HTTP connection for %s: %v", serverName, err)
 		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s'", serverName))
+
 		return
 	}
 
-	mcpCallTimeout := 60 * time.Second
+	mcpCallTimeout := constants.HTTPExtendedTimeout
 	if reqMethodVal == "initialize" {
-		mcpCallTimeout = 90 * time.Second
+		mcpCallTimeout = constants.HTTPLongTimeout
 	}
 
 	// Forward client's Mcp-Session-Id to the backend if present
@@ -497,6 +553,7 @@ func (h *ProxyHandler) handleHTTPServerRequestWithBody(w http.ResponseWriter, r 
 		} else {
 			h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during MCP call to '%s'", serverName), errData)
 		}
+
 		return
 	}
 
@@ -523,6 +580,7 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.logger.Error("Failed to get/create SSE connection for %s: %v", serverName, err)
 		h.sendMCPError(w, reqIDVal, -32002, fmt.Sprintf("Proxy cannot connect to server '%s' via SSE", serverName))
+
 		return
 	}
 
@@ -569,6 +627,7 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 			standardConn.mu.Unlock()
 		}
 		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during SSE call to '%s'", serverName), errData)
+
 		return
 	}
 
@@ -601,6 +660,7 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 	clientSessionID := r.Header.Get("Mcp-Session-Id")
 	if clientSessionID == "" {
 		h.corsError(w, "Mcp-Session-Id header required for session termination (DELETE)", http.StatusBadRequest)
+
 		return
 	}
 
@@ -611,6 +671,7 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 	if err != nil {
 		h.logger.Warning("Cannot terminate session: No connection to server '%s' (%v)", serverName, err)
 		h.corsError(w, "Server not connected via proxy", http.StatusBadGateway)
+
 		return
 	}
 
@@ -621,13 +682,14 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 	}
 	conn.mu.Unlock()
 
-	reqCtx, cancel := context.WithTimeout(h.ctx, 15*time.Second)
+	reqCtx, cancel := context.WithTimeout(h.ctx, constants.HTTPContextTimeout)
 	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodDelete, conn.BaseURL, nil)
 	if err != nil {
 		h.logger.Error("Failed to create HTTP DELETE request for %s: %v", serverName, err)
 		h.corsError(w, "Internal proxy error", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -637,6 +699,7 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 	if err != nil {
 		h.logger.Error("HTTP DELETE request to backend server %s failed: %v", serverName, err)
 		h.corsError(w, "Failed to communicate with backend server for session termination", http.StatusBadGateway)
+
 		return
 	}
 	defer func() {
@@ -664,6 +727,7 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 		if _, err := fmt.Fprint(w, `{"message": "Server does not allow client-initiated session termination via DELETE"}`); err != nil {
 			h.logger.Error("Failed to write method not allowed response: %v", err)
 		}
+
 		return
 	}
 

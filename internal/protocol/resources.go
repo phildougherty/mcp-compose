@@ -146,6 +146,7 @@ type PromptContentItem struct {
 
 // NewResourceManager creates a new resource manager
 func NewResourceManager() *ResourceManager {
+
 	return &ResourceManager{
 		resources:    make(map[string]*Resource),
 		cache:        make(map[string]*CachedResource),
@@ -159,6 +160,7 @@ func (rm *ResourceManager) AddResource(resource *Resource) error {
 	defer rm.mu.Unlock()
 
 	if resource.URI == "" {
+
 		return fmt.Errorf("resource URI cannot be empty")
 	}
 
@@ -189,6 +191,7 @@ func (rm *ResourceManager) AddResource(resource *Resource) error {
 		rm.addToCache(resource)
 	}
 
+
 	return nil
 }
 
@@ -201,17 +204,20 @@ func (rm *ResourceManager) GetResource(uri string) (*Resource, error) {
 	if cached := rm.getFromCache(uri); cached != nil {
 		cached.AccessCount++
 		cached.LastAccess = time.Now()
+
 		return cached.Resource, nil
 	}
 
 	// Get from main storage
 	resource, exists := rm.resources[uri]
 	if !exists {
+
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
 
 	// Update access time
 	resource.Accessed = time.Now()
+
 
 	return resource, nil
 }
@@ -220,6 +226,7 @@ func (rm *ResourceManager) GetResource(uri string) (*Resource, error) {
 func (rm *ResourceManager) EmbedResourceInPrompt(uri string, strategy string, options map[string]interface{}) (*EmbeddedPromptResource, error) {
 	resource, err := rm.GetResource(uri)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to get resource for embedding: %w", err)
 	}
 
@@ -236,6 +243,7 @@ func (rm *ResourceManager) EmbedResourceInPrompt(uri string, strategy string, op
 			if resource.Size > resource.Embedding.MaxSize {
 				// Use summary or reference strategy instead
 				if resource.Embedding.Fallback != "" {
+
 					return rm.EmbedResourceInPrompt(uri, resource.Embedding.Fallback, options)
 				}
 				embedded.Inline = false
@@ -247,8 +255,10 @@ func (rm *ResourceManager) EmbedResourceInPrompt(uri string, strategy string, op
 		embedded.Inline = false
 		embedded.Transform = "summary"
 	default:
+
 		return nil, fmt.Errorf("unsupported embedding strategy: %s", strategy)
 	}
+
 
 	return embedded, nil
 }
@@ -260,6 +270,7 @@ func (rm *ResourceManager) TransformResource(uri string, targetFormat string, op
 	rm.mu.RUnlock()
 
 	if !exists {
+
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
 
@@ -268,10 +279,12 @@ func (rm *ResourceManager) TransformResource(uri string, targetFormat string, op
 		formats := transformer.GetSupportedFormats()
 		for _, format := range formats {
 			if format == targetFormat {
+
 				return transformer.Transform(resource, targetFormat, options)
 			}
 		}
 	}
+
 
 	return nil, fmt.Errorf("no transformer found for format: %s", targetFormat)
 }
@@ -286,6 +299,7 @@ func (rm *ResourceManager) RegisterTransformer(name string, transformer Resource
 // addToCache adds a resource to cache
 func (rm *ResourceManager) addToCache(resource *Resource) {
 	if resource.Cache == nil || !resource.Cache.Enabled {
+
 		return
 	}
 
@@ -312,14 +326,17 @@ func (rm *ResourceManager) addToCache(resource *Resource) {
 func (rm *ResourceManager) getFromCache(uri string) *CachedResource {
 	cached, exists := rm.cache[uri]
 	if !exists {
+
 		return nil
 	}
 
 	// Check expiration
 	if !cached.ExpiresAt.IsZero() && time.Now().After(cached.ExpiresAt) {
 		delete(rm.cache, uri)
+
 		return nil
 	}
+
 
 	return cached
 }
@@ -327,6 +344,7 @@ func (rm *ResourceManager) getFromCache(uri string) *CachedResource {
 // generateContentHash generates a hash for content
 func (rm *ResourceManager) generateContentHash(content string) string {
 	hash := md5.Sum([]byte(content))
+
 	return fmt.Sprintf("%x", hash)
 }
 
@@ -359,6 +377,7 @@ func (rm *ResourceManager) GetCacheStats() map[string]interface{} {
 		}
 	}
 
+
 	return map[string]interface{}{
 		"totalEntries":  len(rm.cache),
 		"totalAccess":   totalAccess,
@@ -381,6 +400,7 @@ func (rm *ResourceManager) Search(query string, filters map[string]interface{}) 
 		}
 	}
 
+
 	return results
 }
 
@@ -395,6 +415,7 @@ func (rm *ResourceManager) matchesSearch(resource *Resource, query string, filte
 			}
 		}
 		if !strings.Contains(searchText, query) {
+
 			return false
 		}
 	}
@@ -404,32 +425,39 @@ func (rm *ResourceManager) matchesSearch(resource *Resource, query string, filte
 		switch key {
 		case "mimeType":
 			if resource.MimeType != value {
+
 				return false
 			}
 		case "tag":
 			if resource.Metadata == nil {
+
 				return false
 			}
 			found := false
 			for _, tag := range resource.Metadata.Tags {
 				if tag == value {
 					found = true
+
 					break
 				}
 			}
 			if !found {
+
 				return false
 			}
 		case "minSize":
 			if size, ok := value.(int64); ok && resource.Size < size {
+
 				return false
 			}
 		case "maxSize":
 			if size, ok := value.(int64); ok && resource.Size > size {
+
 				return false
 			}
 		}
 	}
+
 
 	return true
 }
@@ -439,22 +467,28 @@ type DefaultTextTransformer struct{}
 
 func (dt *DefaultTextTransformer) Transform(resource *Resource, targetFormat string, options map[string]interface{}) (*ResourceContentData, error) {
 	if resource.Content == nil {
+
 		return nil, fmt.Errorf("resource has no content")
 	}
 
 	switch targetFormat {
 	case "summary":
+
 		return dt.createSummary(resource, options)
 	case "markdown":
+
 		return dt.convertToMarkdown(resource, options)
 	case "json":
+
 		return dt.convertToJSON(resource, options)
 	default:
+
 		return nil, fmt.Errorf("unsupported format: %s", targetFormat)
 	}
 }
 
 func (dt *DefaultTextTransformer) GetSupportedFormats() []string {
+
 	return []string{"summary", "markdown", "json"}
 }
 
@@ -473,6 +507,7 @@ func (dt *DefaultTextTransformer) GetTransformationOptions(fromFormat, toFormat 
 		options["includeMetadata"] = true
 	}
 
+
 	return options
 }
 
@@ -490,6 +525,7 @@ func (dt *DefaultTextTransformer) createSummary(resource *Resource, options map[
 	if len(summary) > maxLength {
 		summary = summary[:maxLength] + "..."
 	}
+
 
 	return &ResourceContentData{
 		Type:         "text",
@@ -520,6 +556,7 @@ func (dt *DefaultTextTransformer) convertToMarkdown(resource *Resource, options 
 	}
 
 	result := md.String()
+
 	return &ResourceContentData{
 		Type:         "text",
 		Data:         result,
@@ -560,8 +597,10 @@ func (dt *DefaultTextTransformer) convertToJSON(resource *Resource, options map[
 
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}
+
 
 	return &ResourceContentData{
 		Type:         "text",

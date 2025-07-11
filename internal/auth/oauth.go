@@ -138,6 +138,7 @@ type AuthorizationCode struct {
 
 // IsExpired checks if the authorization code is expired
 func (c *AuthorizationCode) IsExpired() bool {
+
 	return time.Now().After(c.ExpiresAt)
 }
 
@@ -156,6 +157,7 @@ type AccessToken struct {
 
 // IsExpired checks if the access token is expired
 func (t *AccessToken) IsExpired() bool {
+
 	return time.Now().After(t.ExpiresAt)
 }
 
@@ -181,6 +183,7 @@ type TokenInfo struct {
 
 // IsExpired checks if the refresh token is expired
 func (t *RefreshToken) IsExpired() bool {
+
 	return time.Now().After(t.ExpiresAt)
 }
 
@@ -221,21 +224,25 @@ type DefaultTokenGenerator struct{}
 
 // GenerateAuthorizationCode generates an authorization code
 func (g *DefaultTokenGenerator) GenerateAuthorizationCode() (string, error) {
+
 	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateAccessToken generates an access token
 func (g *DefaultTokenGenerator) GenerateAccessToken() (string, error) {
+
 	return generateRandomString(AccessTokenLength)
 }
 
 // GenerateRefreshToken generates a refresh token
 func (g *DefaultTokenGenerator) GenerateRefreshToken() (string, error) {
+
 	return generateRandomString(AccessTokenLength)
 }
 
 // GenerateDeviceCode generates a device code
 func (g *DefaultTokenGenerator) GenerateDeviceCode() (string, error) {
+
 	return generateRandomString(ClientIDLength)
 }
 
@@ -243,21 +250,26 @@ func (g *DefaultTokenGenerator) GenerateDeviceCode() (string, error) {
 func (g *DefaultTokenGenerator) GenerateUserCode() (string, error) {
 	// Generate 8-character user code with only uppercase letters and numbers
 	chars := "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // Exclude confusing chars
+
+
 	return generateRandomStringFromSet(ClientSecretLength, chars)
 }
 
 // GenerateState generates a state parameter
 func (g *DefaultTokenGenerator) GenerateState() (string, error) {
+
 	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateClientID generates a client ID
 func (g *DefaultTokenGenerator) GenerateClientID() (string, error) {
+
 	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateClientSecret generates a client secret
 func (g *DefaultTokenGenerator) GenerateClientSecret() (string, error) {
+
 	return generateRandomString(AccessTokenLength)
 }
 
@@ -268,12 +280,16 @@ type DefaultCodeVerifier struct{}
 func (v *DefaultCodeVerifier) VerifyCodeChallenge(verifier, challenge, method string) bool {
 	switch method {
 	case "plain":
+
 		return verifier == challenge
 	case "S256":
 		hash := sha256.Sum256([]byte(verifier))
 		expected := base64.RawURLEncoding.EncodeToString(hash[:])
+
+
 		return expected == challenge
 	default:
+
 		return false
 	}
 }
@@ -282,6 +298,8 @@ func (v *DefaultCodeVerifier) VerifyCodeChallenge(verifier, challenge, method st
 func (v *DefaultCodeVerifier) GenerateCodeVerifier() (string, error) {
 	// RFC 7636: 43-128 characters, A-Z, a-z, 0-9, -, ., _, ~
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+
+
 	return generateRandomStringFromSet(PKCECodeChallengeLength, chars)
 }
 
@@ -289,11 +307,15 @@ func (v *DefaultCodeVerifier) GenerateCodeVerifier() (string, error) {
 func (v *DefaultCodeVerifier) GenerateCodeChallenge(verifier, method string) (string, error) {
 	switch method {
 	case "plain":
+
 		return verifier, nil
 	case "S256":
 		hash := sha256.Sum256([]byte(verifier))
+
+
 		return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 	default:
+
 		return "", fmt.Errorf("unsupported code challenge method: %s", method)
 	}
 }
@@ -331,6 +353,7 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 		config.ScopesSupported = []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"}
 	}
 
+
 	return &AuthorizationServer{
 		config:           config,
 		clients:          make(map[string]*OAuthClient),
@@ -359,22 +382,26 @@ func (s *AuthorizationServer) RegisterClient(config *OAuthConfig) (*OAuthClient,
 		var err error
 		clientID, err = s.tokenGenerator.GenerateClientID()
 		if err != nil {
+
 			return nil, fmt.Errorf("failed to generate client ID: %w", err)
 		}
 	}
 
 	// Check if client already exists
 	if _, exists := s.clients[clientID]; exists {
+
 		return nil, fmt.Errorf("client with ID %s already exists", clientID)
 	}
 
 	// Validate redirect URIs
 	for _, uri := range config.RedirectURIs {
 		if uri == "" {
+
 			return nil, fmt.Errorf("redirect URI cannot be empty")
 		}
 		parsed, err := url.Parse(uri)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+
 			return nil, fmt.Errorf("invalid redirect URI: %s", uri)
 		}
 	}
@@ -391,6 +418,7 @@ func (s *AuthorizationServer) RegisterClient(config *OAuthConfig) (*OAuthClient,
 			var err error
 			clientSecret, err = s.tokenGenerator.GenerateClientSecret()
 			if err != nil {
+
 				return nil, fmt.Errorf("failed to generate client secret: %w", err)
 			}
 		}
@@ -448,6 +476,7 @@ func (s *AuthorizationServer) RegisterClient(config *OAuthConfig) (*OAuthClient,
 	s.clients[clientID] = client
 	s.logger.Info("Registered OAuth client: %s (public: %v)", clientID, isPublic)
 
+
 	return client, nil
 }
 
@@ -456,6 +485,8 @@ func (s *AuthorizationServer) GetClient(clientID string) (*OAuthClient, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	client, exists := s.clients[clientID]
+
+
 	return client, exists
 }
 
@@ -466,6 +497,7 @@ func (s *AuthorizationServer) ValidateAccessToken(token string) (*AccessToken, e
 
 	accessToken, exists := s.accessTokens[token]
 	if !exists {
+
 		return nil, fmt.Errorf("invalid token")
 	}
 
@@ -477,8 +509,11 @@ func (s *AuthorizationServer) ValidateAccessToken(token string) (*AccessToken, e
 			delete(s.accessTokens, token)
 			s.mu.Unlock()
 		}()
+
+
 		return nil, fmt.Errorf("token expired")
 	}
+
 
 	return accessToken, nil
 }
@@ -486,15 +521,19 @@ func (s *AuthorizationServer) ValidateAccessToken(token string) (*AccessToken, e
 // HasScope checks if a token scope includes the required scope
 func (s *AuthorizationServer) HasScope(tokenScope, requiredScope string) bool {
 	if tokenScope == "" {
+
 		return false
 	}
 
 	scopes := strings.Fields(tokenScope)
 	for _, scope := range scopes {
 		if scope == requiredScope || scope == "mcp:*" {
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
@@ -531,6 +570,8 @@ func (s *AuthorizationServer) CleanupExpiredTokens() {
 func (s *AuthorizationServer) GetTokenCount() (int, int, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+
 	return len(s.accessTokens), len(s.refreshTokens), len(s.authCodes)
 }
 
@@ -538,23 +579,28 @@ func (s *AuthorizationServer) GetTokenCount() (int, int, int) {
 func (s *AuthorizationServer) ValidateClient(clientID, clientSecret string) (*OAuthClient, error) {
 	client, exists := s.GetClient(clientID)
 	if !exists {
+
 		return nil, fmt.Errorf("invalid client")
 	}
 
 	// For public clients, no secret validation needed
 	if client.Public {
+
 		return client, nil
 	}
 
 	// For confidential clients, validate secret
 	if client.Secret != clientSecret {
+
 		return nil, fmt.Errorf("invalid client credentials")
 	}
 
 	// Check if client secret is expired
 	if !client.ExpiresAt.IsZero() && time.Now().After(client.ExpiresAt) {
+
 		return nil, fmt.Errorf("client secret expired")
 	}
+
 
 	return client, nil
 }
@@ -563,8 +609,11 @@ func (s *AuthorizationServer) ValidateClient(clientID, clientSecret string) (*OA
 func generateRandomString(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
+
 		return "", err
 	}
+
+
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
@@ -572,6 +621,7 @@ func generateRandomString(length int) (string, error) {
 func generateRandomStringFromSet(length int, charset string) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
+
 		return "", err
 	}
 
@@ -580,6 +630,7 @@ func generateRandomStringFromSet(length int, charset string) (string, error) {
 		result[i] = charset[int(b)%len(charset)]
 	}
 
+
 	return string(result), nil
 }
 
@@ -587,6 +638,8 @@ func generateRandomStringFromSet(length int, charset string) (string, error) {
 func (s *AuthorizationServer) GetMetadata() *AuthorizationServerConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+
 	return s.config
 }
 
@@ -594,6 +647,8 @@ func (s *AuthorizationServer) GetMetadata() *AuthorizationServerConfig {
 func (s *AuthorizationServer) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -613,6 +668,8 @@ func (s *AuthorizationServer) GetAllClients() []*OAuthClient {
 	for _, client := range s.clients {
 		clients = append(clients, client)
 	}
+
+
 	return clients
 }
 
@@ -631,6 +688,7 @@ func (s *AuthorizationServer) GetAllAccessTokens() []TokenInfo {
 			Revoked:   token.Revoked,
 		})
 	}
+
 
 	return tokens
 }

@@ -42,6 +42,7 @@ type ProgressListener func(token string, progress ProgressParams)
 
 // NewProgressManager creates a new progress manager
 func NewProgressManager() *ProgressManager {
+
 	return &ProgressManager{
 		tokens:    make(map[string]*ProgressToken),
 		listeners: make(map[string][]ProgressListener),
@@ -56,12 +57,14 @@ func (pm *ProgressManager) GenerateProgressToken(requestID interface{}) string {
 		RequestID: requestID,
 		Created:   time.Now(),
 	}
+
 	return token
 }
 
 // IsValidToken checks if a progress token is valid
 func (pm *ProgressManager) IsValidToken(token string) bool {
 	_, exists := pm.tokens[token]
+
 	return exists
 }
 
@@ -76,6 +79,7 @@ func (pm *ProgressManager) AddProgressListener(token string, listener ProgressLi
 // UpdateProgress sends a progress notification
 func (pm *ProgressManager) UpdateProgress(token string, progress float64, message string, details interface{}) error {
 	if !pm.IsValidToken(token) {
+
 		return NewValidationError("progressToken", token, "token must be valid")
 	}
 
@@ -93,12 +97,14 @@ func (pm *ProgressManager) UpdateProgress(token string, progress float64, messag
 		}
 	}
 
+
 	return nil
 }
 
 // UpdateDetailedProgress sends a progress notification with current/total counts
 func (pm *ProgressManager) UpdateDetailedProgress(token string, current, total int64, message string, details interface{}) error {
 	if !pm.IsValidToken(token) {
+
 		return NewValidationError("progressToken", token, "token must be valid")
 	}
 
@@ -123,12 +129,14 @@ func (pm *ProgressManager) UpdateDetailedProgress(token string, current, total i
 		}
 	}
 
+
 	return nil
 }
 
 // CompleteProgress marks progress as complete and cleans up
 func (pm *ProgressManager) CompleteProgress(token string, message string) error {
 	if !pm.IsValidToken(token) {
+
 		return NewValidationError("progressToken", token, "token must be valid")
 	}
 
@@ -150,12 +158,14 @@ func (pm *ProgressManager) CompleteProgress(token string, message string) error 
 	delete(pm.tokens, token)
 	delete(pm.listeners, token)
 
+
 	return nil
 }
 
 // FailProgress marks progress as failed and cleans up
 func (pm *ProgressManager) FailProgress(token string, err error) error {
 	if !pm.IsValidToken(token) {
+
 		return NewValidationError("progressToken", token, "token must be valid")
 	}
 
@@ -178,11 +188,13 @@ func (pm *ProgressManager) FailProgress(token string, err error) error {
 	delete(pm.tokens, token)
 	delete(pm.listeners, token)
 
+
 	return nil
 }
 
 // CreateProgressNotification creates a JSON-RPC progress notification
 func CreateProgressNotification(params ProgressParams) *ProgressNotification {
+
 	return &ProgressNotification{
 		JSONRPC: "2.0",
 		Method:  "notifications/progress",
@@ -194,12 +206,15 @@ func CreateProgressNotification(params ProgressParams) *ProgressNotification {
 func ParseProgressNotification(data []byte) (*ProgressNotification, error) {
 	var notification ProgressNotification
 	if err := json.Unmarshal(data, &notification); err != nil {
+
 		return nil, NewParseError(fmt.Sprintf("invalid progress notification: %v", err))
 	}
 
 	if notification.Method != "notifications/progress" {
+
 		return nil, NewInvalidRequest(fmt.Sprintf("expected notifications/progress, got %s", notification.Method))
 	}
+
 
 	return &notification, nil
 }
@@ -207,24 +222,30 @@ func ParseProgressNotification(data []byte) (*ProgressNotification, error) {
 // ValidateProgressParams validates progress parameters
 func ValidateProgressParams(params ProgressParams) error {
 	if params.ProgressToken == "" {
+
 		return NewValidationError("progressToken", params.ProgressToken, "progress token cannot be empty")
 	}
 
 	if params.Progress < -1.0 || params.Progress > 1.0 {
+
 		return NewValidationError("progress", params.Progress, "progress must be between -1.0 and 1.0")
 	}
 
 	if params.Current != nil && params.Total != nil {
 		if *params.Current < 0 {
+
 			return NewValidationError("current", *params.Current, "current cannot be negative")
 		}
 		if *params.Total < 0 {
+
 			return NewValidationError("total", *params.Total, "total cannot be negative")
 		}
 		if *params.Current > *params.Total {
+
 			return NewValidationError("current", *params.Current, "current cannot exceed total")
 		}
 	}
+
 
 	return nil
 }

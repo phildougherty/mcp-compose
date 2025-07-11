@@ -23,6 +23,7 @@ type LifecycleManager struct {
 
 // NewLifecycleManager creates a new lifecycle manager
 func NewLifecycleManager(cfg *config.ComposeConfig, logger *logging.Logger, projectDir string) *LifecycleManager {
+
 	return &LifecycleManager{
 		config:     cfg,
 		logger:     logger,
@@ -32,28 +33,32 @@ func NewLifecycleManager(cfg *config.ComposeConfig, logger *logging.Logger, proj
 
 // ExecutePreStartHook executes pre-start lifecycle hook
 func (lm *LifecycleManager) ExecutePreStartHook(serverName string, hook string) error {
+
 	return lm.executeHook("pre-start", serverName, hook)
 }
 
 // ExecutePostStartHook executes post-start lifecycle hook
 func (lm *LifecycleManager) ExecutePostStartHook(serverName string, hook string) error {
+
 	return lm.executeHook("post-start", serverName, hook)
 }
 
 // ExecutePreStopHook executes pre-stop lifecycle hook
 func (lm *LifecycleManager) ExecutePreStopHook(serverName string, hook string) error {
+
 	return lm.executeHook("pre-stop", serverName, hook)
 }
 
 // ExecutePostStopHook executes post-stop lifecycle hook
 func (lm *LifecycleManager) ExecutePostStopHook(serverName string, hook string) error {
+
 	return lm.executeHook("post-stop", serverName, hook)
 }
 
 func (lm *LifecycleManager) executeHook(phase, serverName, hook string) error {
 	lm.logger.Info("Executing %s hook for %s: %s", phase, serverName, hook)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.LifecycleTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", hook)
@@ -62,12 +67,14 @@ func (lm *LifecycleManager) executeHook(phase, serverName, hook string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		lm.logger.Error("Hook %s failed for %s: %v\nOutput: %s", phase, serverName, err, string(output))
+
 		return fmt.Errorf("%s hook failed: %w", phase, err)
 	}
 
 	if len(output) > 0 {
 		lm.logger.Info("Hook %s output for %s: %s", phase, serverName, strings.TrimSpace(string(output)))
 	}
+
 
 	return nil
 }
@@ -81,6 +88,7 @@ type HealthChecker struct {
 
 // NewHealthChecker creates a new health checker
 func NewHealthChecker(healthConfig config.HealthCheck, logger *logging.Logger, baseURL string) *HealthChecker {
+
 	return &HealthChecker{
 		config:  healthConfig,
 		logger:  logger,
@@ -91,6 +99,7 @@ func NewHealthChecker(healthConfig config.HealthCheck, logger *logging.Logger, b
 // Check performs a health check
 func (hc *HealthChecker) Check() error {
 	if hc.config.Endpoint == "" {
+
 		return fmt.Errorf("no health check endpoint configured")
 	}
 
@@ -101,6 +110,7 @@ func (hc *HealthChecker) Check() error {
 
 	// Implementation depends on check type
 	// For now, assume HTTP endpoint check
+
 	return hc.checkHTTPEndpoint(timeout)
 }
 
@@ -119,6 +129,7 @@ func (hc *HealthChecker) checkHTTPEndpoint(timeout time.Duration) error {
 
 	resp, err := client.Get(url)
 	if err != nil {
+
 		return fmt.Errorf("health check failed: %w", err)
 	}
 	defer func() {
@@ -128,9 +139,11 @@ func (hc *HealthChecker) checkHTTPEndpoint(timeout time.Duration) error {
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+
 		return fmt.Errorf("health check returned status %d", resp.StatusCode)
 	}
 
 	hc.logger.Debug("Health check passed for endpoint: %s", url)
+
 	return nil
 }

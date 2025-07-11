@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/protocol"
 )
 
@@ -21,6 +22,8 @@ func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error": "Method not allowed - use POST",
 		})
+
+
 		return
 	}
 
@@ -95,6 +98,7 @@ func (h *ProxyHandler) handleAPIServers(w http.ResponseWriter, _ *http.Request) 
 		if !exists {
 			h.logger.Warning("Server %s in config but not in manager instance list for /api/servers.", name)
 			serverList[name] = map[string]interface{}{"name": name, "status": "error - not in manager"}
+
 			continue
 		}
 
@@ -295,8 +299,8 @@ func (h *ProxyHandler) handleSubscriptionsAPI(w http.ResponseWriter, r *http.Req
 
 	case http.MethodDelete:
 		// Cleanup expired subscriptions
-		h.subscriptionManager.CleanupExpiredSubscriptions(30 * time.Minute)
-		h.changeNotificationManager.CleanupInactiveSubscribers(30 * time.Minute)
+		h.subscriptionManager.CleanupExpiredSubscriptions(constants.CleanupIntervalDefault)
+		h.changeNotificationManager.CleanupInactiveSubscribers(constants.CleanupIntervalDefault)
 		response := map[string]interface{}{
 			"status":    "cleaned",
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -313,6 +317,8 @@ func (h *ProxyHandler) handleNotificationsAPI(w http.ResponseWriter, r *http.Req
 
 	if r.Method != http.MethodGet {
 		h.corsError(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -335,6 +341,8 @@ func (h *ProxyHandler) handleNotificationsAPI(w http.ResponseWriter, r *http.Req
 func (h *ProxyHandler) handleOAuthStatus(w http.ResponseWriter, _ *http.Request) {
 	if !h.oauthEnabled || h.authServer == nil {
 		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+
+
 		return
 	}
 
@@ -357,11 +365,15 @@ func (h *ProxyHandler) handleOAuthStatus(w http.ResponseWriter, _ *http.Request)
 func (h *ProxyHandler) handleOAuthClientsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
 	if !h.oauthEnabled || h.authServer == nil {
 		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+
+
 		return
 	}
 
@@ -373,11 +385,15 @@ func (h *ProxyHandler) handleOAuthClientsList(w http.ResponseWriter, r *http.Req
 func (h *ProxyHandler) handleOAuthScopesList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
 	if !h.oauthEnabled || h.authServer == nil {
 		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+
+
 		return
 	}
 
@@ -395,6 +411,8 @@ func (h *ProxyHandler) handleOAuthScopesList(w http.ResponseWriter, r *http.Requ
 func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Request) {
 	if !h.oauthEnabled || h.authServer == nil {
 		http.Error(w, "OAuth not enabled", http.StatusNotFound)
+
+
 		return
 	}
 
@@ -402,6 +420,8 @@ func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Re
 	path := strings.TrimPrefix(r.URL.Path, "/api/oauth/clients/")
 	if path == "" {
 		http.Error(w, "Client ID required", http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -486,6 +506,8 @@ func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
 </body>
 </html>`, func() string {
 		if errorParam != "" {
+
+
 			return fmt.Sprintf(`<div class="result-box error">
                 <h3>❌ Authorization Failed</h3>
                 <div class="field"><strong>Error:</strong> %s</div>
@@ -493,6 +515,8 @@ func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
                 <div class="field"><strong>State:</strong> %s</div>
             </div>`, errorParam, errorDescription, state)
 		} else if code != "" {
+
+
 			return fmt.Sprintf(`<div class="result-box success">
                 <h3>✅ Authorization Successful!</h3>
                 <div class="field">
@@ -511,6 +535,8 @@ func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
                 </div>
             </div>`, code, code, state, code)
 		} else {
+
+
 			return `<div class="result-box error">
                 <h3>❓ Unexpected Response</h3>
                 <p>No authorization code or error received.</p>
@@ -529,6 +555,8 @@ func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Re
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(pathParts) < 4 || pathParts[0] != "api" || pathParts[1] != "servers" || pathParts[3] != "oauth" {
 		http.Error(w, "Invalid path format", http.StatusBadRequest)
+
+
 		return
 	}
 	serverName := pathParts[2]
@@ -545,11 +573,15 @@ func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Re
 		var config config.ServerOAuthConfig
 		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+
+
 			return
 		}
 		err := h.updateServerOAuthConfig(serverName, config)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
@@ -563,6 +595,8 @@ func (h *ProxyHandler) handleServerOAuthTest(w http.ResponseWriter, r *http.Requ
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(pathParts) < 4 || pathParts[0] != "api" || pathParts[1] != "servers" || pathParts[3] != "test-oauth" {
 		http.Error(w, "Invalid path format", http.StatusBadRequest)
+
+
 		return
 	}
 	serverName := pathParts[2]
@@ -572,6 +606,8 @@ func (h *ProxyHandler) handleServerOAuthTest(w http.ResponseWriter, r *http.Requ
 	// Allow both GET and POST for testing
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed - use GET or POST", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -592,6 +628,8 @@ func (h *ProxyHandler) handleServerTokens(w http.ResponseWriter, r *http.Request
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(pathParts) < 4 || pathParts[0] != "api" || pathParts[1] != "servers" || pathParts[3] != "tokens" {
 		http.Error(w, "Invalid path format", http.StatusBadRequest)
+
+
 		return
 	}
 	serverName := pathParts[2]
@@ -600,6 +638,8 @@ func (h *ProxyHandler) handleServerTokens(w http.ResponseWriter, r *http.Request
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -613,6 +653,8 @@ func (h *ProxyHandler) handleServerTokens(w http.ResponseWriter, r *http.Request
 func (h *ProxyHandler) getServerOAuthConfig(serverName string) config.ServerOAuthConfig {
 	// Check if server exists in config
 	if h.Manager == nil || h.Manager.config == nil {
+
+
 		return config.ServerOAuthConfig{
 			Enabled:             false,
 			AllowAPIKeyFallback: true,
@@ -623,6 +665,8 @@ func (h *ProxyHandler) getServerOAuthConfig(serverName string) config.ServerOAut
 
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
+
+
 		return config.ServerOAuthConfig{
 			Enabled:             false,
 			AllowAPIKeyFallback: true,
@@ -633,11 +677,15 @@ func (h *ProxyHandler) getServerOAuthConfig(serverName string) config.ServerOAut
 
 	// Check if server has OAuth config directly
 	if serverConfig.OAuth != nil {
+
+
 		return *serverConfig.OAuth
 	}
 
 	// Fall back to authentication config and convert it
 	if serverConfig.Authentication != nil {
+
+
 		return config.ServerOAuthConfig{
 			Enabled:             serverConfig.Authentication.Enabled,
 			RequiredScope:       serverConfig.Authentication.RequiredScope,
@@ -648,6 +696,8 @@ func (h *ProxyHandler) getServerOAuthConfig(serverName string) config.ServerOAut
 	}
 
 	// Default config
+
+
 	return config.ServerOAuthConfig{
 		Enabled:             false,
 		AllowAPIKeyFallback: true,
@@ -658,11 +708,15 @@ func (h *ProxyHandler) getServerOAuthConfig(serverName string) config.ServerOAut
 
 func (h *ProxyHandler) updateServerOAuthConfig(serverName string, newConfig config.ServerOAuthConfig) error {
 	if h.Manager == nil || h.Manager.config == nil {
+
+
 		return fmt.Errorf("manager not initialized")
 	}
 
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {
+
+
 		return fmt.Errorf("server %s not found", serverName)
 	}
 
@@ -683,6 +737,8 @@ func (h *ProxyHandler) updateServerOAuthConfig(serverName string, newConfig conf
 	h.Manager.config.Servers[serverName] = serverConfig
 
 	h.logger.Info("Updated OAuth configuration for server %s", serverName)
+
+
 	return nil
 }
 
@@ -696,6 +752,8 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 	// Check if OAuth is enabled globally
 	if !h.oauthEnabled || h.authServer == nil {
 		result["error"] = "OAuth not enabled globally"
+
+
 		return result
 	}
 
@@ -706,6 +764,8 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 	if !serverOAuthConfig.Enabled {
 		result["success"] = true
 		result["message"] = "Server does not require OAuth authentication"
+
+
 		return result
 	}
 
@@ -718,12 +778,15 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 		for _, allowedClient := range serverOAuthConfig.AllowedClients {
 			if allowedClient == testClientID {
 				allowed = true
+
 				break
 			}
 		}
 		if !allowed {
 			result["error"] = "Test client not in allowed clients list"
 			result["available_clients"] = serverOAuthConfig.AllowedClients
+
+
 			return result
 		}
 	}
@@ -734,6 +797,8 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 		if !exists {
 			result["error"] = "Test client not found in OAuth server"
 			result["test_client_id"] = testClientID
+
+
 			return result
 		}
 
@@ -747,6 +812,7 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 				for _, scope := range clientScopes {
 					if scope == serverOAuthConfig.RequiredScope || scope == "mcp:*" {
 						clientHasScope = true
+
 						break
 					}
 				}
@@ -755,6 +821,8 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 			if !clientHasScope {
 				result["error"] = fmt.Sprintf("Test client does not have required scope: %s", serverOAuthConfig.RequiredScope)
 				result["client_scopes"] = testClient.Scope
+
+
 				return result
 			}
 		}
@@ -771,6 +839,7 @@ func (h *ProxyHandler) testServerOAuth(serverName string) map[string]interface{}
 		"test_client_id":         testClientID,
 	}
 
+
 	return result
 }
 
@@ -782,6 +851,8 @@ func (h *ProxyHandler) getServerTokens(serverName string) map[string]interface{}
 
 	if !h.oauthEnabled || h.authServer == nil {
 		result["message"] = "OAuth not enabled"
+
+
 		return result
 	}
 
@@ -802,10 +873,12 @@ func (h *ProxyHandler) getServerTokens(serverName string) map[string]interface{}
 				for _, scope := range tokenScopes {
 					if scope == requiredScope || scope == "mcp:*" {
 						hasRequiredScope = true
+
 						break
 					}
 				}
 				if !hasRequiredScope {
+
 					continue // Skip this token
 				}
 			}
@@ -832,6 +905,7 @@ func (h *ProxyHandler) getServerTokens(serverName string) map[string]interface{}
 		"allowed_clients": serverOAuthConfig.AllowedClients,
 	}
 
+
 	return result
 }
 
@@ -839,8 +913,10 @@ func (h *ProxyHandler) handleContainerAPI(w http.ResponseWriter, r *http.Request
 	// Extract container name and action from path
 	path := strings.TrimPrefix(r.URL.Path, "/api/containers/")
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
+	if len(parts) < constants.ServerNameParts {
 		http.Error(w, "Invalid path format", http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -899,7 +975,7 @@ func (h *ProxyHandler) handleContainerLogs(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *ProxyHandler) getStaticContainerLogs(w http.ResponseWriter, r *http.Request, containerName string, args []string) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), constants.HTTPRequestTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
@@ -907,6 +983,8 @@ func (h *ProxyHandler) getStaticContainerLogs(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.logger.Error("Docker logs command failed for %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
+
+
 		return
 	}
 
@@ -941,6 +1019,8 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+
+
 		return
 	}
 
@@ -958,6 +1038,8 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 		_, _ = fmt.Fprintf(w, "event: error\n")
 		_, _ = fmt.Fprintf(w, "data: {\"error\":\"Failed to create stdout pipe: %v\"}\n\n", err)
 		flusher.Flush()
+
+
 		return
 	}
 
@@ -965,6 +1047,8 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 		_, _ = fmt.Fprintf(w, "event: error\n")
 		_, _ = fmt.Fprintf(w, "data: {\"error\":\"Failed to start command: %v\"}\n\n", err)
 		flusher.Flush()
+
+
 		return
 	}
 
@@ -975,6 +1059,8 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
+
+
 			return
 		default:
 		}
@@ -1028,7 +1114,7 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *ProxyHandler) handleContainerStats(w http.ResponseWriter, r *http.Request, containerName string) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), constants.HTTPQuickTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format",
@@ -1039,6 +1125,8 @@ func (h *ProxyHandler) handleContainerStats(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		h.logger.Error("Docker stats command failed for %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get stats: %v", err), http.StatusInternalServerError)
+
+
 		return
 	}
 

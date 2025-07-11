@@ -47,17 +47,20 @@ type ProtocolManagerSet struct {
 func NewComposer(configPath string) (*Composer, error) {
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Use DetectRuntime instead of NewRuntime
 	containerRuntime, err := container.DetectRuntime()
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
 	mgr, err := server.NewManager(cfg, containerRuntime)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to create server manager: %w", err)
 	}
 
@@ -89,6 +92,7 @@ func NewComposer(configPath string) (*Composer, error) {
 		)
 	}
 
+
 	return composer, nil
 }
 
@@ -96,16 +100,19 @@ func NewComposer(configPath string) (*Composer, error) {
 func (c *Composer) GetProtocolManagers(serverName string) *ProtocolManagerSet {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.protocolManagers[serverName]
 }
 
 // StartServer starts a specific server with protocol integration
 func (c *Composer) StartServer(serverName string) error {
+
 	return c.manager.StartServer(serverName)
 }
 
 // StopServer stops a specific server
 func (c *Composer) StopServer(serverName string) error {
+
 	return c.manager.StopServer(serverName)
 }
 
@@ -114,9 +121,11 @@ func (c *Composer) StartAll() error {
 	for serverName := range c.config.Servers {
 		if err := c.StartServer(serverName); err != nil {
 			c.logger.Error("Failed to start server %s: %v", serverName, err)
+
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -127,6 +136,7 @@ func (c *Composer) StopAll() error {
 			c.logger.Warning("Failed to stop server %s: %v", serverName, err)
 		}
 	}
+
 	return nil
 }
 
@@ -153,23 +163,27 @@ func (c *Composer) Shutdown() error {
 		c.logger.Warning("Error shutting down server manager: %v", err)
 	}
 
+
 	return nil
 }
 
 func Up(configFile string, serverNames []string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
 
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
 	serversToStart := getServersToStart(cfg, serverNames)
 	if len(serversToStart) == 0 {
 		fmt.Println("No servers selected or defined to start.")
+
 		return nil
 	}
 
@@ -215,6 +229,7 @@ func Up(configFile string, serverNames []string) error {
 			serverCfg, exists := cfg.Servers[name]
 			if !exists {
 				results <- startResult{name, fmt.Errorf("not found in config"), time.Since(startTime)}
+
 				return
 			}
 
@@ -225,6 +240,7 @@ func Up(configFile string, serverNames []string) error {
 				for _, arg := range serverCfg.Args {
 					if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
 						hasHTTPArgs = true
+
 						break
 					}
 				}
@@ -282,6 +298,7 @@ func Up(configFile string, serverNames []string) error {
 			fmt.Printf("- %s\n", e)
 		}
 		if successCount == 0 {
+
 			return fmt.Errorf("failed to start any servers. Check server configurations and ensure commands/images are correct")
 		}
 	}
@@ -297,6 +314,7 @@ func Up(configFile string, serverNames []string) error {
 
 		fmt.Printf("Use 'mcp-compose down' to stop them.\n")
 	}
+
 
 	return nil
 }
@@ -332,20 +350,24 @@ func collectRequiredNetworks(cfg *config.ComposeConfig, serverNames []string) ma
 		}
 	}
 
+
 	return networkToServers
 }
 
 // generateNetworkDescription creates a human-readable description of network configuration
 func generateNetworkDescription(networkToServers map[string][]string) string {
 	if len(networkToServers) == 0 {
+
 		return " via localhost (for process-based servers) or host networking"
 	}
 
 	if len(networkToServers) == 1 {
 		for networkName := range networkToServers {
 			if networkName == "host" {
+
 				return " via host networking"
 			}
+
 			return fmt.Sprintf(" via Docker network '%s'", networkName)
 		}
 	}
@@ -359,6 +381,7 @@ func generateNetworkDescription(networkToServers map[string][]string) string {
 			networks = append(networks, fmt.Sprintf("'%s'", networkName))
 		}
 	}
+
 
 	return fmt.Sprintf(" via Docker networks: %s", strings.Join(networks, ", "))
 }
@@ -392,6 +415,7 @@ func showNetworkTopology(cfg *config.ComposeConfig, serversStarted []string) {
 
 	if len(networkToServers) == 0 {
 		fmt.Printf("No network information available (process-based servers)\n")
+
 		return
 	}
 
@@ -404,6 +428,7 @@ func showNetworkTopology(cfg *config.ComposeConfig, serversStarted []string) {
 func determineServerNetworks(serverCfg config.ServerConfig) []string {
 	// If NetworkMode is set, don't use Networks (they're mutually exclusive)
 	if serverCfg.NetworkMode != "" {
+
 		return nil
 	}
 
@@ -418,6 +443,7 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 	for _, net := range networks {
 		if net == "mcp-net" {
 			hasDefaultNetwork = true
+
 			break
 		}
 	}
@@ -441,6 +467,7 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 		}
 	}
 
+
 	return uniqueNetworks
 }
 
@@ -448,34 +475,41 @@ func determineServerNetworks(serverCfg config.ServerConfig) []string {
 func isContainerServer(serverCfg config.ServerConfig) bool {
 	// If it has an image, it's definitely a container
 	if serverCfg.Image != "" {
+
 		return true
 	}
 
 	// If it has a build context, it's definitely a container
 	if serverCfg.Build.Context != "" {
+
 		return true
 	}
 
 	// If it has container-specific configuration, it's a container
 	if len(serverCfg.Volumes) > 0 {
+
 		return true
 	}
 
 	if len(serverCfg.Networks) > 0 {
+
 		return true
 	}
 
 	if serverCfg.NetworkMode != "" {
+
 		return true
 	}
 
 	// If it has HTTP/SSE protocol settings, likely a container
 	if serverCfg.HttpPort > 0 || serverCfg.StdioHosterPort > 0 {
+
 		return true
 	}
 
 	// If it has container security settings, it's a container
 	if serverCfg.User != "" || serverCfg.Privileged || len(serverCfg.CapAdd) > 0 || len(serverCfg.CapDrop) > 0 {
+
 		return true
 	}
 
@@ -483,20 +517,24 @@ func isContainerServer(serverCfg config.ServerConfig) bool {
 	if serverCfg.Deploy.Resources.Limits.CPUs != "" ||
 		serverCfg.Deploy.Resources.Limits.Memory != "" ||
 		serverCfg.Deploy.Resources.Limits.PIDs > 0 {
+
 		return true
 	}
 
 	// If command starts with container-style paths, it's a container
 	if strings.HasPrefix(serverCfg.Command, "/app/") {
+
 		return true
 	}
 
 	// If it has Docker/container specific environment or settings
 	if serverCfg.RestartPolicy != "" || len(serverCfg.SecurityOpt) > 0 {
+
 		return true
 	}
 
 	// If none of the above, it's a process-based server
+
 	return false
 }
 
@@ -519,36 +557,45 @@ func startServerProcess(serverName string, serverCfg config.ServerConfig) error 
 		Name:    fmt.Sprintf("mcp-compose-%s", serverName),
 	})
 	if err != nil {
+
 		return fmt.Errorf("failed to create process structure for server '%s': %w", serverName, err)
 	}
 	if err := proc.Start(); err != nil {
+
 		return fmt.Errorf("failed to start process for server '%s': %w", serverName, err)
 	}
+
 
 	return nil
 }
 
 func ShortDuration(d time.Duration) string {
 	if d < time.Millisecond {
+
 		return fmt.Sprintf("%dns", d.Nanoseconds())
 	}
 	if d < time.Second {
+
 		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/constants.NanosecondsToMilliseconds)
 	}
+
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 
 func Down(configFile string, serverNames []string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 	if cRuntime.GetRuntimeName() == "none" {
 		fmt.Println("No container runtime detected. 'down' command primarily targets containers.")
+
 		return nil
 	}
 
@@ -566,6 +613,7 @@ func Down(configFile string, serverNames []string) error {
 
 	if len(serversToStop) == 0 {
 		fmt.Println("No containerized servers specified or defined to stop.")
+
 		return nil
 	}
 
@@ -604,27 +652,33 @@ func Down(configFile string, serverNames []string) error {
 			fmt.Printf("- %s\n", e)
 		}
 	}
+
 	return nil
 }
 
 func Start(configFile string, serverNames []string) error {
 	if len(serverNames) == 0 {
+
 		return fmt.Errorf("no server names specified to start")
 	}
 	fmt.Printf("Starting specified MCP servers (and their dependencies): %v\n", serverNames)
+
 	return Up(configFile, serverNames)
 }
 
 func Stop(configFile string, serverNames []string) error {
 	if len(serverNames) == 0 {
+
 		return fmt.Errorf("no server names specified to stop")
 	}
+
 	return Down(configFile, serverNames)
 }
 
 func List(configFile string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
 
@@ -635,6 +689,7 @@ func List(configFile string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, constants.TableColumnSpacing, ' ', 0)
 	if _, err := fmt.Fprintln(w, "SERVER NAME\tSTATUS\tTRANSPORT\tCONTAINER/PROCESS NAME\tPORTS\tCAPABILITIES"); err != nil {
+
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
@@ -699,34 +754,49 @@ func List(configFile string) error {
 	}
 
 	if err := w.Flush(); err != nil {
+
 		return fmt.Errorf("failed to flush output: %w", err)
 	}
+
+
 	return nil
 }
 
 func serverCfgHasHTTPArg(args []string) bool {
 	for i, arg := range args {
 		if arg == "--transport" && i+1 < len(args) && strings.ToLower(args[i+1]) == "http" {
+
+
 			return true
 		}
 		if strings.HasPrefix(arg, "--port") {
+
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
 func Logs(configFile string, serverNames []string, follow bool) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to load config from %s: %w", configFile, err)
 	}
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
+
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 	if cRuntime.GetRuntimeName() == "none" {
 		fmt.Println("No container runtime detected. 'logs' command is for containerized servers.")
+
+
 		return nil
 	}
 
@@ -739,6 +809,8 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 		}
 		if len(serversToLog) == 0 {
 			fmt.Println("No containerized servers defined in configuration to show logs for.")
+
+
 			return nil
 		}
 	} else {
@@ -754,6 +826,8 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 		}
 		if len(serversToLog) == 0 {
 			fmt.Println("None of the specified servers were found or are containerized.")
+
+
 			return nil
 		}
 	}
@@ -770,15 +844,21 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 			fmt.Fprintf(os.Stderr, "Warning: failed to show logs for server '%s' (container %s): %v\n", name, containerName, err)
 		}
 	}
+
+
 	return nil
 }
 
 func Validate(configFile string) error {
 	_, err := config.LoadConfig(configFile)
 	if err != nil {
+
+
 		return fmt.Errorf("configuration file '%s' is invalid: %w", configFile, err)
 	}
 	fmt.Printf("Configuration file '%s' is valid.\n", configFile)
+
+
 	return nil
 }
 
@@ -837,6 +917,8 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 
 	if len(sortedOrder) != len(allServerNames) {
 		fmt.Fprintf(os.Stderr, "Warning: Cycle detected in server dependencies or some servers are unreachable. Startup order might be incorrect.\n")
+
+
 		return buildFallbackOrder(cfg, targetServers)
 	}
 
@@ -845,6 +927,7 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 	for _, name := range targetServers {
 		if _, exists := cfg.Servers[name]; !exists {
 			fmt.Fprintf(os.Stderr, "Warning: Specified server '%s' not found in configuration, skipping.\n", name)
+
 			continue
 		}
 		addDependenciesRecursive(cfg, name, finalOrderMap)
@@ -856,21 +939,28 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 			finalSortedOrder = append(finalSortedOrder, name)
 		}
 	}
+
+
 	return finalSortedOrder
 }
 
 func addDependenciesRecursive(cfg *config.ComposeConfig, serverName string, result map[string]bool) {
 	if result[serverName] {
+
+
 		return
 	}
 	result[serverName] = true
 	serverConf, exists := cfg.Servers[serverName]
 	if !exists {
+
+
 		return
 	}
 	for _, depName := range serverConf.DependsOn {
 		if _, depExists := cfg.Servers[depName]; !depExists {
 			fmt.Fprintf(os.Stderr, "Warning: Dependency '%s' for server '%s' not found. Skipping this dependency.\n", depName, serverName)
+
 			continue
 		}
 		addDependenciesRecursive(cfg, depName, result)
@@ -882,6 +972,7 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 	for _, name := range serverNames {
 		if _, exists := cfg.Servers[name]; !exists {
 			fmt.Fprintf(os.Stderr, "Warning: specified server '%s' not found in configuration, skipping.\n", name)
+
 			continue
 		}
 		addDependenciesRecursive(cfg, name, toProcessSet)
@@ -899,6 +990,7 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 		addedThisIteration := 0
 		for _, name := range processingList {
 			if added[name] {
+
 				continue
 			}
 			depsMet := true
@@ -906,6 +998,7 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 			for _, depName := range srvCfg.DependsOn {
 				if toProcessSet[depName] && !added[depName] {
 					depsMet = false
+
 					break
 				}
 			}
@@ -927,9 +1020,12 @@ func buildFallbackOrder(cfg *config.ComposeConfig, serverNames []string) []strin
 					fallbackOrder = append(fallbackOrder, name)
 				}
 			}
+
 			break
 		}
 	}
+
+
 	return fallbackOrder
 }
 
@@ -1031,6 +1127,7 @@ func convertSecurityConfig(serverName string, serverCfg config.ServerConfig) con
 		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("seccomp:%s", serverCfg.Security.Seccomp))
 	}
 
+
 	return opts
 }
 
@@ -1071,8 +1168,11 @@ func startServerContainer(serverName string, serverCfg config.ServerConfig, cRun
 
 	_, err := cRuntime.StartContainer(&opts)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to start container for server '%s': %w", serverName, err)
 	}
+
 
 	return nil
 }
