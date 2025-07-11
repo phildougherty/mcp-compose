@@ -123,13 +123,13 @@ func TestManagerGetServerStatus(t *testing.T) {
 	}
 
 	// Test getting status of non-existent server
-	status, err := manager.GetServerStatus("non-existent")
+	_, err = manager.GetServerStatus("non-existent")
 	if err == nil {
 		t.Error("Expected error for non-existent server")
 	}
 
 	// Test getting status of existing server config
-	status, err = manager.GetServerStatus("test-server")
+	status, err := manager.GetServerStatus("test-server")
 	if err != nil {
 		t.Errorf("Expected no error getting server status, got: %v", err)
 	}

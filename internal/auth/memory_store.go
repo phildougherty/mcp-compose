@@ -95,7 +95,7 @@ func (ts *MemoryTokenStore) CleanupExpiredTokens() {
 }
 
 func (ts *MemoryTokenStore) cleanupExpiredTokens() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(DefaultCleanupInterval * time.Minute)
 	defer ticker.Stop()
 
 	for {

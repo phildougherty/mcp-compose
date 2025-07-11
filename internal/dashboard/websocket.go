@@ -172,7 +172,9 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 		}
 
 		// Send directly to the client using WriteJSON
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
+		}
 		if err := client.WriteJSON(activityMsg); err != nil {
 			log.Printf("[ACTIVITY] Failed to send historical activity to client: %v", err)
 			return // Client disconnected
@@ -250,7 +252,9 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 	}
 
 	go func() {
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client #%d: %v", clientID, err)
+		}
 		if err := client.WriteJSON(welcomeMsg); err != nil {
 			log.Printf("[ACTIVITY] ❌ Failed to send welcome message to client #%d: %v", clientID, err)
 		} else {
@@ -263,7 +267,9 @@ func (ab *ActivityBroadcaster) handleClientUnregistration(client *SafeWebSocketC
 	ab.mu.Lock()
 	if _, exists := ab.clients[client]; exists {
 		delete(ab.clients, client)
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", err)
+		}
 	}
 	clientCount := len(ab.clients)
 	ab.mu.Unlock()
@@ -302,12 +308,16 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message ActivityMessage) bool {
 	done := make(chan bool, 1)
 	go func() {
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
+		}
 		err := client.WriteJSON(message)
 		done <- (err == nil)
 		if err != nil {
 			log.Printf("[ACTIVITY] ❌ Failed to send to client: %v", err)
-			client.Close()
+			if closeErr := client.Close(); closeErr != nil {
+				log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", closeErr)
+			}
 		}
 	}()
 
@@ -316,7 +326,9 @@ func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message A
 		return success
 	case <-time.After(3 * time.Second):
 		log.Printf("[ACTIVITY] ⏰ Client send timeout, disconnecting slow client")
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close slow client connection: %v", err)
+		}
 		return false
 	}
 }
@@ -325,7 +337,9 @@ func (ab *ActivityBroadcaster) handleShutdown() {
 	log.Println("[ACTIVITY] Shutting down broadcaster...")
 	ab.mu.Lock()
 	for client := range ab.clients {
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close client connection during shutdown: %v", err)
+		}
 	}
 	ab.clients = make(map[*SafeWebSocketConn]bool)
 	ab.mu.Unlock()
@@ -348,8 +362,11 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 
 	safeConn := &SafeWebSocketConn{conn: conn}
 	defer func() {
-		safeConn.Close()
-		d.logger.Debug("WebSocket connection closed for server: %s", serverName)
+		if err := safeConn.Close(); err != nil {
+			d.logger.Debug("Warning: Failed to close WebSocket connection for server %s: %v", serverName, err)
+		} else {
+			d.logger.Debug("WebSocket connection closed for server: %s", serverName)
+		}
 	}()
 
 	d.logger.Info("Starting log stream WebSocket for server: %s", serverName)
@@ -367,26 +384,32 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		d.logger.Error("Failed to create stdout pipe for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to create log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		d.logger.Error("Failed to create stderr pipe for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to create log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
 		d.logger.Error("Failed to start docker logs command for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to start log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 		return
 	}
 
@@ -406,13 +429,17 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 		case err := <-done:
 			if err != nil && err.Error() != "signal: killed" && !strings.Contains(err.Error(), "context canceled") {
 				d.logger.Error("Docker logs command for %s exited with error: %v", containerName, err)
-				safeConn.WriteJSON(map[string]string{
+				if writeErr := safeConn.WriteJSON(map[string]string{
 					"error": fmt.Sprintf("Log stream ended: %v", err),
-				})
+				}); writeErr != nil {
+					d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+				}
 			}
 			return
 		case <-pingTicker.C:
-			safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				d.logger.Debug("Failed to set write deadline for ping to client for %s: %v", serverName, err)
+			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to client for %s: %v", serverName, err)
 				cancel()
@@ -437,19 +464,24 @@ func (d *DashboardServer) streamLogs(safeConn *SafeWebSocketConn, reader io.Read
 			Message:   line,
 		}
 
-		safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			d.logger.Debug("Failed to set write deadline for log message to WebSocket for %s: %v", serverName, err)
+		}
 		if err := safeConn.WriteJSON(msg); err != nil {
 			d.logger.Debug("Failed to write log message to WebSocket for %s: %v", serverName, err)
 			cancel()
+
 			break
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		d.logger.Error("Error reading logs for %s: %v", serverName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Error reading %s logs: %v", source, err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 	}
 }
 
@@ -462,8 +494,11 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 
 	safeConn := &SafeWebSocketConn{conn: conn}
 	defer func() {
-		safeConn.Close()
-		d.logger.Debug("Metrics WebSocket connection closed")
+		if err := safeConn.Close(); err != nil {
+			d.logger.Debug("Warning: Failed to close metrics WebSocket connection: %v", err)
+		} else {
+			d.logger.Debug("Metrics WebSocket connection closed")
+		}
 	}()
 
 	d.logger.Info("Starting metrics stream WebSocket")
@@ -486,7 +521,9 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 		case <-metricsTicker.C:
 			d.sendMetricsUpdate(safeConn)
 		case <-pingTicker.C:
-			safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				d.logger.Debug("Failed to set write deadline for ping to metrics client: %v", err)
+			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to metrics client: %v", err)
 				return
@@ -499,18 +536,22 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 	statusData, err := d.proxyRequest("/api/status")
 	if err != nil {
 		d.logger.Error("Failed to get status for metrics: %v", err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to get status: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 		return
 	}
 
 	connectionsData, err := d.proxyRequest("/api/connections")
 	if err != nil {
 		d.logger.Error("Failed to get connections for metrics: %v", err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to get connections: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 		return
 	}
 
@@ -533,7 +574,9 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 		Connections: connections,
 	}
 
-	safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		d.logger.Debug("Failed to set write deadline for metrics WebSocket: %v", err)
+	}
 	if err := safeConn.WriteJSON(metrics); err != nil {
 		d.logger.Debug("Failed to write metrics to WebSocket: %v", err)
 	}
@@ -593,7 +636,11 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 			log.Printf("[ACTIVITY] Failed to send to dashboard service: %v", err)
 			return
 		}
-		resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				log.Printf("[ACTIVITY] Warning: Failed to close response body: %v", closeErr)
+			}
+		}()
 	}()
 }
 

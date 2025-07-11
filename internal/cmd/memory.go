@@ -83,7 +83,7 @@ func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
 	if cfg.Memory.DatabaseURL == "" {
 		cfg.Memory.DatabaseURL = "postgresql://postgres:password@mcp-compose-postgres-memory:5432/memory_graph?sslmode=disable"
 	}
-	if cfg.Memory.PostgresEnabled == false {
+	if !cfg.Memory.PostgresEnabled {
 		cfg.Memory.PostgresEnabled = true
 	}
 	if cfg.Memory.PostgresPort == 0 {

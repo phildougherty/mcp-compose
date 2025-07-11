@@ -47,7 +47,7 @@ func (h *ProxyHandler) handleResourceSubscribe(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(successResponse)
+	_ = json.NewEncoder(w).Encode(successResponse)
 }
 
 // handleResourceUnsubscribe handles resources/unsubscribe requests
@@ -81,7 +81,7 @@ func (h *ProxyHandler) handleResourceUnsubscribe(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(successResponse)
+	_ = json.NewEncoder(w).Encode(successResponse)
 }
 
 // Helper methods

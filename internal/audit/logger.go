@@ -35,7 +35,7 @@ type Entry struct {
 func NewLogger(maxEntries int, maxAge string, events []string, logger *logging.Logger) *Logger {
 	maxAgeDuration, _ := time.ParseDuration(maxAge)
 	if maxAgeDuration == 0 {
-		maxAgeDuration = 7 * 24 * time.Hour
+		maxAgeDuration = DefaultAuditRetentionDays * 24 * time.Hour
 	}
 
 	eventMap := make(map[string]bool)

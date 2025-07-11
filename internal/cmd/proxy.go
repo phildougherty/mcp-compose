@@ -14,6 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"mcpcompose/internal/compose"
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
@@ -269,10 +272,11 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 
 	// Print server-specific endpoints
 	for serverName := range cfg.Servers {
+		caser := cases.Title(language.English)
 		fmt.Printf("  %s Server:    http://localhost:%d/%s\n",
-			strings.Title(serverName), port, serverName)
+			caser.String(serverName), port, serverName)
 		fmt.Printf("  %s OpenAPI:   http://localhost:%d/%s/openapi.json\n",
-			strings.Title(serverName), port, serverName)
+			caser.String(serverName), port, serverName)
 	}
 
 	// Start HTTP server in goroutine
@@ -379,7 +383,7 @@ CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
 	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
 		return fmt.Errorf("failed to write Dockerfile %s: %w", dockerfileName, err)
 	}
-	defer os.Remove(dockerfileName)
+	defer func() { _ = os.Remove(dockerfileName) }()
 
 	cmd := exec.Command("docker", "build", "-f", dockerfileName, "-t", imageName, ".")
 	cmd.Stdout = os.Stdout

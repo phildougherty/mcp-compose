@@ -146,7 +146,7 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Unlock()
 		return fmt.Errorf("HTTP initialize POST to %s failed: %w", conn.BaseURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	rawResponseData, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
@@ -336,7 +336,7 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 		conn.mu.Unlock()
 		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	conn.mu.Lock()
 	conn.LastUsed = time.Now()
@@ -386,7 +386,7 @@ func (h *ProxyHandler) sendHTTPNotification(conn *MCPHTTPConnection, notificatio
 	if err != nil {
 		return fmt.Errorf("sending notification to %s failed: %w", conn.ServerName, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
@@ -455,7 +455,7 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 		conn.mu.Unlock()
 		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	conn.mu.Lock()
 	conn.LastUsed = time.Now()

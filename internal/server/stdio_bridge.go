@@ -67,7 +67,9 @@ func (b *STDIOBridge) Start() error {
 
 		// Send response back via stdout
 		responseBytes, _ := json.Marshal(response)
-		fmt.Fprintln(b.stdout, string(responseBytes))
+		if _, err := fmt.Fprintln(b.stdout, string(responseBytes)); err != nil {
+			b.logger.Error("Failed to write response to stdout: %v", err)
+		}
 	}
 
 	return scanner.Err()
@@ -100,7 +102,7 @@ func (b *STDIOBridge) forwardToProxy(request map[string]interface{}) (map[string
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Store session ID from response
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -136,5 +138,5 @@ func (b *STDIOBridge) sendErrorResponse(request map[string]interface{}, code int
 	}
 
 	responseBytes, _ := json.Marshal(errorResponse)
-	fmt.Fprintln(b.stdout, string(responseBytes))
+	_, _ = fmt.Fprintln(b.stdout, string(responseBytes))
 }

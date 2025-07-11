@@ -559,16 +559,14 @@ func (h *ProxyHandler) handleSSEServerRequest(w http.ResponseWriter, r *http.Req
 
 		h.logger.Error("SSE request to %s (method: %s) failed: %v", serverName, reqMethodVal, err)
 		errData := map[string]interface{}{"details": err.Error()}
-		if conn != nil {
-			if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
-				enhancedConn.mu.Lock()
-				errData["targetEndpoint"] = enhancedConn.SSEEndpoint
-				enhancedConn.mu.Unlock()
-			} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
-				standardConn.mu.Lock()
-				errData["targetEndpoint"] = standardConn.SSEEndpoint
-				standardConn.mu.Unlock()
-			}
+		if enhancedConn, ok := conn.(*EnhancedMCPSSEConnection); ok {
+			enhancedConn.mu.Lock()
+			errData["targetEndpoint"] = enhancedConn.SSEEndpoint
+			enhancedConn.mu.Unlock()
+		} else if standardConn, ok := conn.(*MCPSSEConnection); ok {
+			standardConn.mu.Lock()
+			errData["targetEndpoint"] = standardConn.SSEEndpoint
+			standardConn.mu.Unlock()
 		}
 		h.sendMCPError(w, reqIDVal, -32003, fmt.Sprintf("Error during SSE call to '%s'", serverName), errData)
 		return
@@ -641,7 +639,11 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 		h.corsError(w, "Failed to communicate with backend server for session termination", http.StatusBadGateway)
 		return
 	}
-	defer backendResp.Body.Close()
+	defer func() {
+		if err := backendResp.Body.Close(); err != nil {
+			h.logger.Warning("Failed to close backend response body: %v", err)
+		}
+	}()
 
 	// Clean up proxy's internal state for this session
 	h.ConnectionMutex.Lock()
@@ -659,12 +661,16 @@ func (h *ProxyHandler) handleSessionTermination(w http.ResponseWriter, r *http.R
 	// Relay server's response status
 	if backendResp.StatusCode == http.StatusMethodNotAllowed {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		fmt.Fprint(w, `{"message": "Server does not allow client-initiated session termination via DELETE"}`)
+		if _, err := fmt.Fprint(w, `{"message": "Server does not allow client-initiated session termination via DELETE"}`); err != nil {
+			h.logger.Error("Failed to write method not allowed response: %v", err)
+		}
 		return
 	}
 
 	w.WriteHeader(backendResp.StatusCode)
-	io.Copy(w, backendResp.Body)
+	if _, err := io.Copy(w, backendResp.Body); err != nil {
+		h.logger.Error("Failed to copy backend response body: %v", err)
+	}
 
 	h.logger.Info("Session termination request for '%s' on server '%s' processed with status %d.", clientSessionID, serverName, backendResp.StatusCode)
 }

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"log"
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
@@ -131,7 +132,11 @@ CMD ["/app/start.sh"]
 	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644); err != nil {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
-	defer os.Remove(dockerfilePath)
+	defer func() {
+		if err := os.Remove(dockerfilePath); err != nil {
+			log.Printf("Warning: failed to remove dockerfile: %v", err)
+		}
+	}()
 
 	// Build the image
 	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", "mcp-compose-dashboard:latest", ".")

@@ -46,7 +46,9 @@ func (h *ProxyHandler) getStdioConnection(serverName string) (*MCPSTDIOConnectio
 		h.logger.Info("Cleaning up unhealthy STDIO connection for %s", serverName)
 		h.StdioMutex.Lock()
 		if conn.Connection != nil {
-			conn.Connection.Close()
+			if err := conn.Connection.Close(); err != nil {
+				h.logger.Warning("Failed to close unhealthy STDIO connection to %s: %v", serverName, err)
+			}
 		}
 		delete(h.StdioConnections, serverName)
 		h.StdioMutex.Unlock()
@@ -93,9 +95,15 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 
 	// Enable TCP keepalive with aggressive settings
 	if tcpConn, ok := netConn.(*net.TCPConn); ok {
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(15 * time.Second)
-		tcpConn.SetNoDelay(true)
+		if err := tcpConn.SetKeepAlive(true); err != nil {
+			h.logger.Warning("Failed to enable TCP keepalive for %s: %v", serverName, err)
+		}
+		if err := tcpConn.SetKeepAlivePeriod(15 * time.Second); err != nil {
+			h.logger.Warning("Failed to set TCP keepalive period for %s: %v", serverName, err)
+		}
+		if err := tcpConn.SetNoDelay(true); err != nil {
+			h.logger.Warning("Failed to set TCP no delay for %s: %v", serverName, err)
+		}
 		h.logger.Debug("Enabled TCP keepalive for connection to %s", serverName)
 	}
 
@@ -113,7 +121,9 @@ func (h *ProxyHandler) createStdioConnection(serverName string) (*MCPSTDIOConnec
 
 	// Initialize the connection with shorter timeout
 	if err := h.initializeStdioConnection(conn); err != nil {
-		conn.Connection.Close()
+		if closeErr := conn.Connection.Close(); closeErr != nil {
+			h.logger.Warning("Failed to close connection after init failure for %s: %v", serverName, closeErr)
+		}
 		return nil, fmt.Errorf("failed to initialize STDIO connection to %s: %w", serverName, err)
 	}
 
@@ -147,8 +157,12 @@ func (h *ProxyHandler) initializeStdioConnection(conn *MCPSTDIOConnection) error
 	}
 
 	// Set initial deadline for initialization
-	conn.Connection.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	conn.Connection.SetReadDeadline(time.Now().Add(30 * time.Second))
+	if err := conn.Connection.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		h.logger.Warning("Failed to set write deadline for %s: %v", conn.ServerName, err)
+	}
+	if err := conn.Connection.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		h.logger.Warning("Failed to set read deadline for %s: %v", conn.ServerName, err)
+	}
 
 	if err := h.sendStdioRequestWithoutLock(conn, initRequest); err != nil {
 		return fmt.Errorf("failed to send initialize request: %w", err)
@@ -177,8 +191,12 @@ func (h *ProxyHandler) initializeStdioConnection(conn *MCPSTDIOConnection) error
 	}
 
 	// Reset deadlines after successful initialization
-	conn.Connection.SetWriteDeadline(time.Time{})
-	conn.Connection.SetReadDeadline(time.Time{})
+	if err := conn.Connection.SetWriteDeadline(time.Time{}); err != nil {
+		h.logger.Warning("Failed to reset write deadline for %s: %v", conn.ServerName, err)
+	}
+	if err := conn.Connection.SetReadDeadline(time.Time{}); err != nil {
+		h.logger.Warning("Failed to reset read deadline for %s: %v", conn.ServerName, err)
+	}
 
 	conn.mu.Lock()
 	conn.Initialized = true
@@ -264,8 +282,14 @@ func (h *ProxyHandler) sendStdioRequest(conn *MCPSTDIOConnection, request map[st
 
 	// Set reasonable write deadline - longer than before
 	writeDeadline := time.Now().Add(60 * time.Second)
-	conn.Connection.SetWriteDeadline(writeDeadline)
-	defer conn.Connection.SetWriteDeadline(time.Time{})
+	if err := conn.Connection.SetWriteDeadline(writeDeadline); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+	defer func() {
+		if err := conn.Connection.SetWriteDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset write deadline: %v", err)
+		}
+	}()
 
 	// Write with newline
 	_, err = conn.Writer.WriteString(string(requestData) + "\n")
@@ -289,8 +313,14 @@ func (h *ProxyHandler) readStdioResponse(conn *MCPSTDIOConnection) (map[string]i
 
 	// Set reasonable read deadline - longer for complex operations
 	readDeadline := time.Now().Add(60 * time.Second)
-	conn.Connection.SetReadDeadline(readDeadline)
-	defer conn.Connection.SetReadDeadline(time.Time{})
+	if err := conn.Connection.SetReadDeadline(readDeadline); err != nil {
+		return nil, fmt.Errorf("failed to set read deadline: %w", err)
+	}
+	defer func() {
+		if err := conn.Connection.SetReadDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset read deadline: %v", err)
+		}
+	}()
 
 	for {
 		line, err := conn.Reader.ReadString('\n')
@@ -354,7 +384,9 @@ func (h *ProxyHandler) maintainStdioConnections() {
 			h.logger.Info("Closing idle STDIO connection to %s (idle for %v)",
 				serverName, time.Since(conn.LastUsed))
 			if conn.Connection != nil {
-				conn.Connection.Close()
+				if err := conn.Connection.Close(); err != nil {
+					h.logger.Warning("Failed to close idle STDIO connection to %s: %v", serverName, err)
+				}
 			}
 			delete(h.StdioConnections, serverName)
 		}
@@ -396,7 +428,9 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 
 	// Quick initialization for tool discovery
 	if err := h.quickInitializeStdioConnection(conn, timeout); err != nil {
-		conn.Connection.Close()
+		if closeErr := conn.Connection.Close(); closeErr != nil {
+			h.logger.Warning("Failed to close connection after quick init failure for %s: %v", serverName, closeErr)
+		}
 		return nil, fmt.Errorf("failed to initialize connection: %w", err)
 	}
 
@@ -406,11 +440,19 @@ func (h *ProxyHandler) createFreshStdioConnection(serverName string, timeout tim
 func (h *ProxyHandler) quickInitializeStdioConnection(conn *MCPSTDIOConnection, timeout time.Duration) error {
 	// Set deadline for entire initialization
 	deadline := time.Now().Add(timeout)
-	conn.Connection.SetWriteDeadline(deadline)
-	conn.Connection.SetReadDeadline(deadline)
+	if err := conn.Connection.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+	if err := conn.Connection.SetReadDeadline(deadline); err != nil {
+		return fmt.Errorf("failed to set read deadline: %w", err)
+	}
 	defer func() {
-		conn.Connection.SetWriteDeadline(time.Time{})
-		conn.Connection.SetReadDeadline(time.Time{})
+		if err := conn.Connection.SetWriteDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset write deadline: %v", err)
+		}
+		if err := conn.Connection.SetReadDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset read deadline: %v", err)
+		}
 	}()
 
 	// Send initialize request
@@ -448,16 +490,28 @@ func (h *ProxyHandler) quickInitializeStdioConnection(conn *MCPSTDIOConnection, 
 
 func (h *ProxyHandler) sendStdioRequestWithTimeout(conn *MCPSTDIOConnection, request map[string]interface{}, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	conn.Connection.SetWriteDeadline(deadline)
-	defer conn.Connection.SetWriteDeadline(time.Time{})
+	if err := conn.Connection.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+	defer func() {
+		if err := conn.Connection.SetWriteDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset write deadline: %v", err)
+		}
+	}()
 
 	return h.sendStdioRequestWithoutLock(conn, request)
 }
 
 func (h *ProxyHandler) readStdioResponseWithTimeout(conn *MCPSTDIOConnection, timeout time.Duration) (map[string]interface{}, error) {
 	deadline := time.Now().Add(timeout)
-	conn.Connection.SetReadDeadline(deadline)
-	defer conn.Connection.SetReadDeadline(time.Time{})
+	if err := conn.Connection.SetReadDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("failed to set read deadline: %w", err)
+	}
+	defer func() {
+		if err := conn.Connection.SetReadDeadline(time.Time{}); err != nil {
+			h.logger.Warning("Failed to reset read deadline: %v", err)
+		}
+	}()
 
 	return h.readStdioResponseWithoutLock(conn)
 }
@@ -539,7 +593,7 @@ func (h *ProxyHandler) handleSTDIOServerRequest(w http.ResponseWriter, _ *http.R
 
 	h.recordConnectionEvent(serverName, true, false)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 	h.logger.Info("Successfully forwarded STDIO request to %s (method: %s, ID: %v)", serverName, reqMethodVal, reqIDVal)
 }
 
@@ -585,7 +639,7 @@ func (h *ProxyHandler) handleSocatSTDIOServerRequest(w http.ResponseWriter, r *h
 	case response := <-responseChan:
 		h.recordConnectionEvent(serverName, true, false)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	case err := <-errorChan:
 		h.logger.Error("Failed to communicate with %s: %v", serverName, err)
 		isTimeout := strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout")
@@ -626,7 +680,9 @@ func (h *ProxyHandler) sendRawTCPRequestWithRetry(host string, port int, request
 	}
 	defer func() {
 		if conn.Connection != nil {
-			conn.Connection.Close()
+			if err := conn.Connection.Close(); err != nil {
+				h.logger.Warning("Failed to close temporary STDIO connection to %s: %v", serverName, err)
+			}
 		}
 	}()
 

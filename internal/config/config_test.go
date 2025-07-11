@@ -288,6 +288,7 @@ func TestServerConfig(t *testing.T) {
 			if tt.config.Image != "" {
 				if len(tt.config.Volumes) == 0 && len(tt.config.Env) == 0 {
 					// This is fine, just checking structure
+					_ = tt.config.Image // Suppress unused variable warning
 				}
 			}
 		})

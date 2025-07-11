@@ -10,6 +10,15 @@ import (
 	"mcpcompose/internal/logging"
 )
 
+const (
+	// Default audit retention period in days
+	DefaultAuditRetentionDays = 7
+	// Default audit statistics timeout in seconds
+	DefaultAuditStatsTimeout = 5
+	// Percentage multiplier for success rate calculation
+	PercentageMultiplier = 100
+)
+
 var (
 	// ErrAuditShutdownTimeout is returned when audit logger shutdown times out.
 	ErrAuditShutdownTimeout = errors.New("audit logger shutdown timeout")
@@ -44,7 +53,7 @@ type AuditEntry struct {
 func NewAuditLogger(auditConfig *config.AuditConfig, logger *logging.Logger) *AuditLogger {
 	maxAge, _ := time.ParseDuration(auditConfig.Retention.MaxAge)
 	if maxAge == 0 {
-		maxAge = 7 * 24 * time.Hour // Default 7 days
+		maxAge = DefaultAuditRetentionDays * 24 * time.Hour // Default 7 days
 	}
 
 	events := make(map[string]bool)
@@ -258,7 +267,7 @@ func (al *AuditLogger) Shutdown() error {
 	case <-done:
 		al.logger.Debug("Audit logger shutdown completed")
 		return nil
-	case <-time.After(5 * time.Second):
+	case <-time.After(DefaultAuditStatsTimeout * time.Second):
 		al.logger.Warning("Audit logger shutdown timeout")
 		return ErrAuditShutdownTimeout
 	}
@@ -283,7 +292,7 @@ func (al *AuditLogger) GetStats() AuditStats {
 	}
 
 	if len(al.entries) > 0 {
-		stats.SuccessRate = float64(successCount) / float64(len(al.entries)) * 100
+		stats.SuccessRate = float64(successCount) / float64(len(al.entries)) * PercentageMultiplier
 	}
 
 	return stats

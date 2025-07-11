@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	
+	"mcpcompose/internal/constants"
 )
 
 // FindComposeFile tries to find a compose file in the current directory
@@ -33,8 +35,8 @@ func FindComposeFile(fileName string) (string, error) {
 
 // FormatDuration formats a duration in a human-readable format
 func FormatDuration(d time.Duration) string {
-	if d.Hours() > 24 {
-		days := int(d.Hours() / 24)
+	if d.Hours() > constants.HoursInDay {
+		days := int(d.Hours() / constants.HoursInDay)
 		return fmt.Sprintf("%d days", days)
 	}
 
@@ -99,8 +101,8 @@ func ParseEnvFile(filePath string) (map[string]string, error) {
 		}
 
 		// Split by = and set the environment variable
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
+		parts := strings.SplitN(line, "=", constants.StringSplitParts)
+		if len(parts) == constants.StringSplitParts {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
 

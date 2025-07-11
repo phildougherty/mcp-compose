@@ -16,6 +16,26 @@ import (
 	"mcpcompose/internal/logging"
 )
 
+const (
+	// Random string generation lengths
+	AuthCodeLength           = 32
+	AccessTokenLength        = 64
+	RefreshTokenLength       = 64
+	ClientIDLength           = 40
+	ClientSecretLength       = 8
+	StateLength              = 32
+	NonceLength              = 32
+	PKCECodeVerifierLength   = 64
+	PKCECodeChallengeLength  = 128
+	
+	// Auth timing constants
+	AuthCodeLifetimeMinutes  = 10
+	DefaultCleanupInterval   = 5 // minutes
+	
+	// String split parameter
+	AuthHeaderSplitParts     = 2
+)
+
 // OAuthConfig represents OAuth 2.1 configuration
 type OAuthConfig struct {
 	ClientID            string   `json:"client_id" yaml:"client_id"`
@@ -201,44 +221,44 @@ type DefaultTokenGenerator struct{}
 
 // GenerateAuthorizationCode generates an authorization code
 func (g *DefaultTokenGenerator) GenerateAuthorizationCode() (string, error) {
-	return generateRandomString(32)
+	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateAccessToken generates an access token
 func (g *DefaultTokenGenerator) GenerateAccessToken() (string, error) {
-	return generateRandomString(64)
+	return generateRandomString(AccessTokenLength)
 }
 
 // GenerateRefreshToken generates a refresh token
 func (g *DefaultTokenGenerator) GenerateRefreshToken() (string, error) {
-	return generateRandomString(64)
+	return generateRandomString(AccessTokenLength)
 }
 
 // GenerateDeviceCode generates a device code
 func (g *DefaultTokenGenerator) GenerateDeviceCode() (string, error) {
-	return generateRandomString(40)
+	return generateRandomString(ClientIDLength)
 }
 
 // GenerateUserCode generates a user code
 func (g *DefaultTokenGenerator) GenerateUserCode() (string, error) {
 	// Generate 8-character user code with only uppercase letters and numbers
 	chars := "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // Exclude confusing chars
-	return generateRandomStringFromSet(8, chars)
+	return generateRandomStringFromSet(ClientSecretLength, chars)
 }
 
 // GenerateState generates a state parameter
 func (g *DefaultTokenGenerator) GenerateState() (string, error) {
-	return generateRandomString(32)
+	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateClientID generates a client ID
 func (g *DefaultTokenGenerator) GenerateClientID() (string, error) {
-	return generateRandomString(32)
+	return generateRandomString(AuthCodeLength)
 }
 
 // GenerateClientSecret generates a client secret
 func (g *DefaultTokenGenerator) GenerateClientSecret() (string, error) {
-	return generateRandomString(64)
+	return generateRandomString(AccessTokenLength)
 }
 
 // DefaultCodeVerifier implements CodeVerifier
@@ -262,7 +282,7 @@ func (v *DefaultCodeVerifier) VerifyCodeChallenge(verifier, challenge, method st
 func (v *DefaultCodeVerifier) GenerateCodeVerifier() (string, error) {
 	// RFC 7636: 43-128 characters, A-Z, a-z, 0-9, -, ., _, ~
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-	return generateRandomStringFromSet(128, chars)
+	return generateRandomStringFromSet(PKCECodeChallengeLength, chars)
 }
 
 // GenerateCodeChallenge generates a PKCE code challenge
@@ -323,7 +343,7 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 		codeVerifier:     &DefaultCodeVerifier{},
 		dynamicClients:   true,
 		supportedScopes:  config.ScopesSupported,
-		authCodeLifetime: 10 * time.Minute,
+		authCodeLifetime: AuthCodeLifetimeMinutes * time.Minute,
 		tokenLifetime:    1 * time.Hour,
 		refreshLifetime:  24 * 7 * time.Hour, // 1 week
 	}

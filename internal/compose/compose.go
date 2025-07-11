@@ -10,6 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"mcpcompose/internal/config"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
@@ -571,6 +574,7 @@ func Down(configFile string, serverNames []string) error {
 		srvCfg, exists := cfg.Servers[serverName]
 		if !exists || (srvCfg.Image == "" && srvCfg.Runtime == "") {
 			fmt.Printf("Skipping '%s' as it's not defined as a containerized server.\n", serverName)
+
 			continue
 		}
 
@@ -629,7 +633,9 @@ func List(configFile string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SERVER NAME\tSTATUS\tTRANSPORT\tCONTAINER/PROCESS NAME\tPORTS\tCAPABILITIES")
+	if _, err := fmt.Fprintln(w, "SERVER NAME\tSTATUS\tTRANSPORT\tCONTAINER/PROCESS NAME\tPORTS\tCAPABILITIES"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 
 	runningColor := color.New(color.FgGreen).SprintFunc()
 	stoppedColor := color.New(color.FgRed).SprintFunc()
@@ -653,7 +659,8 @@ func List(configFile string) error {
 					case "running":
 						statusStr = runningColor("Running")
 					case "exited", "dead", "stopped":
-						statusStr = stoppedColor(strings.Title(strings.ToLower(rawStatus)))
+						caser := cases.Title(language.English)
+						statusStr = stoppedColor(caser.String(strings.ToLower(rawStatus)))
 					default:
 						statusStr = unknownColor(rawStatus)
 					}
@@ -686,11 +693,13 @@ func List(configFile string) error {
 			capabilities = "-"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			serverName, statusStr, transport, identifier, ports, capabilities)
 	}
 
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("failed to flush output: %w", err)
+	}
 	return nil
 }
 
@@ -737,7 +746,7 @@ func Logs(configFile string, serverNames []string, follow bool) error {
 			if !exists {
 				fmt.Fprintf(os.Stderr, "Warning: server '%s' not found in configuration, skipping logs.\n", name)
 			} else if srvCfg.Image == "" && srvCfg.Runtime == "" {
-				fmt.Fprintf(os.Stdout, "Info: Server '%s' is process-based. View its logs directly.\n", name)
+				_, _ = fmt.Fprintf(os.Stdout, "Info: Server '%s' is process-based. View its logs directly.\n", name)
 			} else {
 				serversToLog = append(serversToLog, name)
 			}
@@ -795,6 +804,7 @@ func getServersToStart(cfg *config.ComposeConfig, serverNames []string) []string
 		for _, dep := range srvConfig.DependsOn {
 			if _, exists := cfg.Servers[dep]; !exists {
 				fmt.Fprintf(os.Stderr, "Warning: Server '%s' depends on '%s', which is not defined. Skipping dependency.\n", name, dep)
+
 				continue
 			}
 			adj[dep] = append(adj[dep], name)

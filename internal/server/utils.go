@@ -148,7 +148,7 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 	// Extract token from Authorization header
 	token := h.extractBearerToken(r)
 	if token == "" {
-		if requiresAuth && !(instance.Config.Authentication != nil && instance.Config.Authentication.OptionalAuth) {
+		if requiresAuth && (instance.Config.Authentication == nil || !instance.Config.Authentication.OptionalAuth) {
 			h.sendAuthenticationError(w, "missing_token", "Access token required")
 			return false
 		}
@@ -160,7 +160,6 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 		accessToken, err := h.validateOAuthToken(token)
 		if err == nil && accessToken != nil {
 			// OAuth token is valid
-			authenticatedViaOAuth = true
 			// Check server-specific OAuth scope requirements
 			if instance.Config.Authentication != nil && instance.Config.Authentication.RequiredScope != "" {
 				if !h.hasRequiredScope(accessToken.Scope, instance.Config.Authentication.RequiredScope) {
@@ -185,7 +184,6 @@ func (h *ProxyHandler) authenticateRequest(w http.ResponseWriter, r *http.Reques
 	// Try API key authentication if not authenticated via OAuth
 	if !authenticatedViaOAuth && apiKeyToCheck != "" {
 		if token == apiKeyToCheck {
-			authenticatedViaAPIKey = true
 			// Add API key context
 			ctx := context.WithValue(r.Context(), auth.AuthTypeContextKey, "api_key")
 			*r = *r.WithContext(ctx)
@@ -272,7 +270,7 @@ func (h *ProxyHandler) sendOAuthError(w http.ResponseWriter, errorCode, descript
 		"error":             errorCode,
 		"error_description": description,
 	}
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *ProxyHandler) sendAuthenticationError(w http.ResponseWriter, errorCode, description string) {
@@ -285,7 +283,7 @@ func (h *ProxyHandler) sendAuthenticationError(w http.ResponseWriter, errorCode,
 		"error":             errorCode,
 		"error_description": description,
 	}
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *ProxyHandler) registerDefaultOAuthClients() {

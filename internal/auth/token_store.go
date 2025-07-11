@@ -105,7 +105,7 @@ func (ts *TokenStore) RevokeRefreshToken(tokenStr string) {
 
 // startCleanupRoutine periodically cleans expired tokens.
 func (ts *TokenStore) startCleanupRoutine() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(DefaultCleanupInterval * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {

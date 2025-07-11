@@ -225,7 +225,9 @@ func (h *ProxyHandler) Shutdown() error {
 	for name, conn := range h.StdioConnections {
 		if conn != nil && conn.Connection != nil {
 			h.logger.Debug("Closing STDIO connection to server %s", name)
-			conn.Connection.Close()
+			if err := conn.Connection.Close(); err != nil {
+				h.logger.Warning("Failed to close STDIO connection to server %s: %v", name, err)
+			}
 		}
 	}
 	h.StdioConnections = make(map[string]*MCPSTDIOConnection)

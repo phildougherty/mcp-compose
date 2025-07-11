@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"mcpcompose/internal/constants"
 	yaml "gopkg.in/yaml.v3"
 )
 
@@ -739,7 +740,7 @@ func (tc TimeoutConfig) GetConnectTimeout() time.Duration {
 			return d
 		}
 	}
-	return 10 * time.Second
+	return constants.DefaultConnectTimeout
 }
 
 func (tc TimeoutConfig) GetReadTimeout() time.Duration {
@@ -748,7 +749,7 @@ func (tc TimeoutConfig) GetReadTimeout() time.Duration {
 			return d
 		}
 	}
-	return 30 * time.Second
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetWriteTimeout() time.Duration {
@@ -757,7 +758,7 @@ func (tc TimeoutConfig) GetWriteTimeout() time.Duration {
 			return d
 		}
 	}
-	return 30 * time.Second
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetIdleTimeout() time.Duration {
@@ -766,7 +767,7 @@ func (tc TimeoutConfig) GetIdleTimeout() time.Duration {
 			return d
 		}
 	}
-	return 60 * time.Second
+	return constants.DefaultProtoTimeout
 }
 
 func (tc TimeoutConfig) GetHealthCheckTimeout() time.Duration {
@@ -775,7 +776,7 @@ func (tc TimeoutConfig) GetHealthCheckTimeout() time.Duration {
 			return d
 		}
 	}
-	return 5 * time.Second
+	return constants.DefaultHealthTimeout
 }
 
 func (tc TimeoutConfig) GetShutdownTimeout() time.Duration {
@@ -784,7 +785,7 @@ func (tc TimeoutConfig) GetShutdownTimeout() time.Duration {
 			return d
 		}
 	}
-	return 30 * time.Second
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetLifecycleHookTimeout() time.Duration {
@@ -793,7 +794,7 @@ func (tc TimeoutConfig) GetLifecycleHookTimeout() time.Duration {
 			return d
 		}
 	}
-	return 30 * time.Second
+	return constants.DefaultReadTimeout
 }
 
 func validateServerConfig(name string, server ServerConfig) error {

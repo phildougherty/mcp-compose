@@ -122,7 +122,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 					}
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
-					json.NewEncoder(w).Encode(errorResponse)
+					_ = json.NewEncoder(w).Encode(errorResponse)
 					return
 				}
 
@@ -133,7 +133,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 							// Process the content like MCPO does
 							cleanResult := h.processMCPContent(content)
 							w.Header().Set("Content-Type", "application/json")
-							json.NewEncoder(w).Encode(cleanResult)
+							_ = json.NewEncoder(w).Encode(cleanResult)
 							return
 						}
 					}
@@ -144,7 +144,7 @@ func (h *ProxyHandler) handleDirectToolCall(w http.ResponseWriter, r *http.Reque
 		// Fallback to original response if formatting fails
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(recorder.statusCode)
-		w.Write(recorder.body)
+		_, _ = w.Write(recorder.body)
 	} else {
 		h.corsError(w, "Server not found", http.StatusNotFound)
 	}

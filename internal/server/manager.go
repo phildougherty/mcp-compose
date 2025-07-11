@@ -379,9 +379,10 @@ func (m *Manager) StartServer(name string) error {
 }
 
 func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string, srvCfg *config.ServerConfig) error {
-	runtimeType := srvCfg.Runtime
-	if runtimeType == "" && srvCfg.Image != "" {
-		runtimeType = "docker" // Default to docker if image is specified
+	// Check if we need to use docker runtime by default
+	if srvCfg.Runtime == "" && srvCfg.Image != "" {
+		// Default to docker if image is specified but no runtime type set
+		m.logger.Debug("Using default docker runtime for server '%s' with image '%s'", serverKeyName, srvCfg.Image)
 	}
 	if m.containerRuntime.GetRuntimeName() == "none" && srvCfg.Image != "" {
 		return fmt.Errorf("server '%s' requires container runtime but none available", serverKeyName)
@@ -814,7 +815,9 @@ func (w *ResourcesWatcher) cleanupWatcher() {
 		w.ticker.Stop()
 	}
 	if w.fsWatcher != nil {
-		w.fsWatcher.Close()
+		if err := w.fsWatcher.Close(); err != nil {
+			w.logger.Warning("Failed to close filesystem watcher: %v", err)
+		}
 	}
 	w.active = false
 	w.logger.Info("Resource watcher cleaned up.")
@@ -858,7 +861,7 @@ func (w *ResourcesWatcher) processChanges() {
 	for changedPath := range changesToProcess {
 		// Determine type or if deleted
 		info, err := os.Stat(changedPath)
-		changeType := "unknown"
+		var changeType string
 		if err == nil {
 			changeType = "file"
 			if info.IsDir() {
@@ -1170,7 +1173,7 @@ func (m *Manager) checkServerHealth(serverName, fixedIdentifier, endpoint string
 		}
 		return false, fmt.Errorf("health check request to %s failed for server '%s' (%s): %w", url, serverName, fixedIdentifier, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check for healthy status codes
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {

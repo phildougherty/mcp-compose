@@ -18,7 +18,7 @@ func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error": "Method not allowed - use POST",
 		})
 		return
@@ -52,7 +52,9 @@ func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 	for name, conn := range h.StdioConnections {
 		if conn != nil && conn.Connection != nil {
 			h.logger.Debug("Closing STDIO connection to server %s during reload", name)
-			conn.Connection.Close()
+			if err := conn.Connection.Close(); err != nil {
+				h.logger.Warning("Failed to close STDIO connection to server %s during reload: %v", name, err)
+			}
 		}
 	}
 	h.StdioConnections = make(map[string]*MCPSTDIOConnection)
@@ -289,7 +291,7 @@ func (h *ProxyHandler) handleSubscriptionsAPI(w http.ResponseWriter, r *http.Req
 			"clientId":      clientID,
 			"timestamp":     time.Now().Format(time.RFC3339),
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 
 	case http.MethodDelete:
 		// Cleanup expired subscriptions
@@ -299,7 +301,7 @@ func (h *ProxyHandler) handleSubscriptionsAPI(w http.ResponseWriter, r *http.Req
 			"status":    "cleaned",
 			"timestamp": time.Now().Format(time.RFC3339),
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 
 	default:
 		h.corsError(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -327,7 +329,7 @@ func (h *ProxyHandler) handleNotificationsAPI(w http.ResponseWriter, r *http.Req
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *ProxyHandler) handleOAuthStatus(w http.ResponseWriter, _ *http.Request) {
@@ -349,7 +351,7 @@ func (h *ProxyHandler) handleOAuthStatus(w http.ResponseWriter, _ *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *ProxyHandler) handleOAuthClientsList(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +367,7 @@ func (h *ProxyHandler) handleOAuthClientsList(w http.ResponseWriter, r *http.Req
 
 	clients := h.authServer.GetAllClients()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(clients)
+	_ = json.NewEncoder(w).Encode(clients)
 }
 
 func (h *ProxyHandler) handleOAuthScopesList(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +389,7 @@ func (h *ProxyHandler) handleOAuthScopesList(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(scopes)
+	_ = json.NewEncoder(w).Encode(scopes)
 }
 
 func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +407,7 @@ func (h *ProxyHandler) handleOAuthClientDelete(w http.ResponseWriter, r *http.Re
 
 	// For now, just return success - implement actual deletion logic
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
 func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
@@ -517,7 +519,9 @@ func (h *ProxyHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
 	}(), r.URL.Query().Get("client_id"))
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		h.logger.Error("Failed to write OAuth callback HTML: %v", err)
+	}
 }
 
 func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Request) {
@@ -535,7 +539,7 @@ func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Re
 	case http.MethodGet:
 		// Return current OAuth config for server
 		config := h.getServerOAuthConfig(serverName)
-		json.NewEncoder(w).Encode(config)
+		_ = json.NewEncoder(w).Encode(config)
 	case http.MethodPut:
 		// Update OAuth config for server
 		var config config.ServerOAuthConfig
@@ -548,7 +552,7 @@ func (h *ProxyHandler) handleServerOAuthConfig(w http.ResponseWriter, r *http.Re
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -601,7 +605,7 @@ func (h *ProxyHandler) handleServerTokens(w http.ResponseWriter, r *http.Request
 
 	// Get active tokens for this server
 	tokens := h.getServerTokens(serverName)
-	json.NewEncoder(w).Encode(tokens)
+	_ = json.NewEncoder(w).Encode(tokens)
 }
 
 // Supporting methods - add these to api_handlers.go
@@ -941,8 +945,8 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Send initial connection event
-	fmt.Fprintf(w, "event: connected\n")
-	fmt.Fprintf(w, "data: {\"container\":\"%s\",\"message\":\"Log stream connected\"}\n\n", containerName)
+	_, _ = fmt.Fprintf(w, "event: connected\n")
+	_, _ = fmt.Fprintf(w, "data: {\"container\":\"%s\",\"message\":\"Log stream connected\"}\n\n", containerName)
 	flusher.Flush()
 
 	ctx, cancel := context.WithCancel(r.Context())
@@ -951,15 +955,15 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Fprintf(w, "event: error\n")
-		fmt.Fprintf(w, "data: {\"error\":\"Failed to create stdout pipe: %v\"}\n\n", err)
+		_, _ = fmt.Fprintf(w, "event: error\n")
+		_, _ = fmt.Fprintf(w, "data: {\"error\":\"Failed to create stdout pipe: %v\"}\n\n", err)
 		flusher.Flush()
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(w, "event: error\n")
-		fmt.Fprintf(w, "data: {\"error\":\"Failed to start command: %v\"}\n\n", err)
+		_, _ = fmt.Fprintf(w, "event: error\n")
+		_, _ = fmt.Fprintf(w, "data: {\"error\":\"Failed to start command: %v\"}\n\n", err)
 		flusher.Flush()
 		return
 	}
@@ -1002,22 +1006,24 @@ func (h *ProxyHandler) streamContainerLogs(w http.ResponseWriter, r *http.Reques
 		jsonBytes, _ := json.Marshal(logEntry)
 
 		// Send as SSE event
-		fmt.Fprintf(w, "event: log\n")
-		fmt.Fprintf(w, "data: %s\n\n", string(jsonBytes))
+		_, _ = fmt.Fprintf(w, "event: log\n")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", string(jsonBytes))
 		flusher.Flush()
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(w, "event: error\n")
-		fmt.Fprintf(w, "data: {\"error\":\"Error reading logs: %v\"}\n\n", err)
+		_, _ = fmt.Fprintf(w, "event: error\n")
+		_, _ = fmt.Fprintf(w, "data: {\"error\":\"Error reading logs: %v\"}\n\n", err)
 		flusher.Flush()
 	}
 
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		h.logger.Debug("Docker logs command finished with error: %v", err)
+	}
 
 	// Send completion event
-	fmt.Fprintf(w, "event: completed\n")
-	fmt.Fprintf(w, "data: {\"message\":\"Log stream completed\"}\n\n")
+	_, _ = fmt.Fprintf(w, "event: completed\n")
+	_, _ = fmt.Fprintf(w, "data: {\"message\":\"Log stream completed\"}\n\n")
 	flusher.Flush()
 }
 
@@ -1043,5 +1049,5 @@ func (h *ProxyHandler) handleContainerStats(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }

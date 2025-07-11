@@ -228,7 +228,11 @@ func (h *ProxyHandler) sendSSERequestNoResponse(conn *MCPSSEConnection, request 
 	if err != nil {
 		return fmt.Errorf("session request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			h.logger.Warning("Failed to close response body: %v", err)
+		}
+	}()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	h.logger.Info("SSE session response for %s %s (status %d): %s", method, conn.ServerName, resp.StatusCode, string(bodyBytes))
@@ -261,9 +265,11 @@ func (h *ProxyHandler) getSSESessionEndpoint(conn *MCPSSEConnection) (string, er
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		cancel()
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if err := resp.Body.Close(); err != nil {
+			h.logger.Warning("Failed to close SSE response body: %v", err)
+		}
+		cancel()
 		return "", fmt.Errorf("SSE session request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -503,7 +509,11 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 			conn.mu.Unlock()
 			return nil, fmt.Errorf("session request failed: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+		if err := resp.Body.Close(); err != nil {
+			h.logger.Warning("Failed to close response body: %v", err)
+		}
+	}()
 
 		conn.mu.Lock()
 		conn.LastUsed = time.Now()
@@ -569,7 +579,11 @@ func (h *ProxyHandler) sendSSERequestToSession(conn *MCPSSEConnection, request m
 	if err != nil {
 		return nil, fmt.Errorf("session request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			h.logger.Warning("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK {
 		return map[string]interface{}{
@@ -587,7 +601,9 @@ func (h *ProxyHandler) closeSSEConnection(conn *MCPSSEConnection) {
 	defer conn.mu.Unlock()
 
 	if conn.sseBody != nil {
-		conn.sseBody.Close()
+		if err := conn.sseBody.Close(); err != nil {
+			h.logger.Warning("Failed to close SSE body for %s: %v", conn.ServerName, err)
+		}
 		conn.sseBody = nil
 	}
 

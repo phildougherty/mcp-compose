@@ -22,6 +22,7 @@ func NewDockerRuntime(path string) (Runtime, error) {
 	if path == "" {
 		return nil, fmt.Errorf("docker executable path cannot be empty")
 	}
+
 	return &DockerRuntime{execPath: path}, nil
 }
 
@@ -33,8 +34,10 @@ func (d *DockerRuntime) RemoveNetwork(name string) error {
 		if strings.Contains(string(output), "not found") {
 			return nil
 		}
+
 		return fmt.Errorf("failed to remove network %s: %w. Output: %s", name, err, string(output))
 	}
+
 	return nil
 }
 
@@ -452,6 +455,7 @@ func (d *DockerRuntime) validateCapability(capability, containerName string) err
 	for _, dangerous := range dangerousCaps {
 		if strings.ToUpper(capability) == dangerous {
 			fmt.Printf("Warning: Container '%s' adding potentially dangerous capability '%s'\n", containerName, capability)
+
 			break
 		}
 	}
@@ -749,6 +753,7 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 			if !exists {
 				if errNetCreate := d.CreateNetwork(net); errNetCreate != nil {
 					fmt.Printf("Warning: Failed to create additional network %s for container %s: %v\n", net, opts.Name, errNetCreate)
+
 					continue
 				}
 			}

@@ -150,10 +150,14 @@ func (d *DashboardServer) Start(port int, host string) error {
 		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, ".css") {
 				w.Header().Set("Content-Type", "text/css")
-				w.Write([]byte(`/* Basic fallback CSS */`))
+				if _, err := w.Write([]byte(`/* Basic fallback CSS */`)); err != nil {
+				d.logger.Error("Failed to write CSS fallback: %v", err)
+			}
 			} else if strings.HasSuffix(r.URL.Path, ".js") {
 				w.Header().Set("Content-Type", "application/javascript")
-				w.Write([]byte(`// Basic fallback JS`))
+				if _, err := w.Write([]byte(`// Basic fallback JS`)); err != nil {
+				d.logger.Error("Failed to write JS fallback: %v", err)
+			}
 			} else {
 				http.NotFound(w, r)
 			}
@@ -339,6 +343,7 @@ func (d *DashboardServer) Start(port int, host string) error {
 			readTimeout = conn.Timeouts.GetReadTimeout()
 			writeTimeout = conn.Timeouts.GetWriteTimeout()
 			idleTimeout = conn.Timeouts.GetIdleTimeout()
+
 			break
 		}
 	}
@@ -400,7 +405,11 @@ func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -437,11 +446,13 @@ func (d *DashboardServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"container": containerName,
 		"logs":      logs,
 		"timestamp": time.Now().Format(time.RFC3339),
-	})
+	}); err != nil {
+		d.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleActivityHistory(w http.ResponseWriter, r *http.Request) {
@@ -475,10 +486,12 @@ func (d *DashboardServer) handleActivityHistory(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"activities": activities,
 		"count":      len(activities),
-	})
+	}); err != nil {
+		d.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleActivityStats(w http.ResponseWriter, r *http.Request) {
@@ -494,5 +507,5 @@ func (d *DashboardServer) handleActivityStats(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }

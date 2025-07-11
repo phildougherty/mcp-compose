@@ -588,6 +588,7 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	for _, rt := range s.refreshTokens {
 		if rt.Token == refreshTokenValue && rt.ClientID == clientID {
 			refreshToken = rt
+
 			break
 		}
 	}
@@ -984,7 +985,7 @@ func (s *AuthorizationServer) extractBearerToken(r *http.Request) string {
 		return ""
 	}
 
-	parts := strings.SplitN(authHeader, " ", 2)
+	parts := strings.SplitN(authHeader, " ", AuthHeaderSplitParts)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
 		return ""
 	}

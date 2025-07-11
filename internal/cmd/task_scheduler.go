@@ -386,7 +386,7 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 		fmt.Println("\nShutting down task scheduler...")
 		cancel()
 		if cmd.Process != nil {
-			cmd.Process.Signal(syscall.SIGTERM)
+			_ = cmd.Process.Signal(syscall.SIGTERM)
 		}
 	}()
 
@@ -694,7 +694,7 @@ CMD ["sh", "-c", "./mcp-cron --transport=$MCP_CRON_SERVER_TRANSPORT --address=$M
 	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
-	defer os.Remove(dockerfileName)
+	defer func() { _ = os.Remove(dockerfileName) }()
 
 	args := []string{"build", "-f", dockerfileName, "-t", "mcp-compose-task-scheduler:latest", "."}
 	if debug {

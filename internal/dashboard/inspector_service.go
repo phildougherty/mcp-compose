@@ -274,7 +274,11 @@ func (is *InspectorService) proxyRequest(serverName, method string, params inter
 		is.logger.Error("HTTP request to proxy failed: %v", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			is.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
