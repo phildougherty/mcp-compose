@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"mcpcompose/internal/constants"
+
+	yaml "gopkg.in/yaml.v3"
 )
 
 // ProxyAuthConfig defines authentication settings for the proxy itself
@@ -287,27 +289,27 @@ type VolumeConfig struct {
 
 // ConnectionConfig represents connection settings for MCP communication
 type ConnectionConfig struct {
-	Transport      string         `yaml:"transport"` // stdio, http+sse, tcp, websocket
-	Port           int            `yaml:"port,omitempty"`
-	Host           string         `yaml:"host,omitempty"`
-	Path           string         `yaml:"path,omitempty"`
-	Expose         bool           `yaml:"expose,omitempty"`
-	TLS            bool           `yaml:"tls,omitempty"`
-	CertFile       string         `yaml:"cert_file,omitempty"`
-	KeyFile        string         `yaml:"key_file,omitempty"`
-	Authentication string         `yaml:"auth,omitempty"` // none, basic, token
-	Timeouts       TimeoutConfig  `yaml:"timeouts,omitempty"`
+	Transport      string        `yaml:"transport"` // stdio, http+sse, tcp, websocket
+	Port           int           `yaml:"port,omitempty"`
+	Host           string        `yaml:"host,omitempty"`
+	Path           string        `yaml:"path,omitempty"`
+	Expose         bool          `yaml:"expose,omitempty"`
+	TLS            bool          `yaml:"tls,omitempty"`
+	CertFile       string        `yaml:"cert_file,omitempty"`
+	KeyFile        string        `yaml:"key_file,omitempty"`
+	Authentication string        `yaml:"auth,omitempty"` // none, basic, token
+	Timeouts       TimeoutConfig `yaml:"timeouts,omitempty"`
 }
 
 // TimeoutConfig defines configurable timeout values
 type TimeoutConfig struct {
-	Connect        string `yaml:"connect,omitempty"`         // Default: "10s"
-	Read           string `yaml:"read,omitempty"`            // Default: "30s"
-	Write          string `yaml:"write,omitempty"`           // Default: "30s"
-	Idle           string `yaml:"idle,omitempty"`            // Default: "60s"
-	HealthCheck    string `yaml:"health_check,omitempty"`    // Default: "5s"
-	Shutdown       string `yaml:"shutdown,omitempty"`        // Default: "30s"
-	LifecycleHook  string `yaml:"lifecycle_hook,omitempty"`  // Default: "30s"
+	Connect       string `yaml:"connect,omitempty"`        // Default: "10s"
+	Read          string `yaml:"read,omitempty"`           // Default: "30s"
+	Write         string `yaml:"write,omitempty"`          // Default: "30s"
+	Idle          string `yaml:"idle,omitempty"`           // Default: "60s"
+	HealthCheck   string `yaml:"health_check,omitempty"`   // Default: "5s"
+	Shutdown      string `yaml:"shutdown,omitempty"`       // Default: "30s"
+	LifecycleHook string `yaml:"lifecycle_hook,omitempty"` // Default: "30s"
 }
 
 // ResourcesConfig defines resource-related configuration for a server
@@ -630,6 +632,8 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	// Read file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to read config file '%s': %w", filePath, err)
 	}
 	// Expand environment variables
@@ -638,6 +642,8 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	var config ComposeConfig
 	err = yaml.Unmarshal([]byte(expandedData), &config)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to parse config file '%s': %w", filePath, err)
 	}
 	// Get current environment from MCP_ENV environment variable
@@ -652,8 +658,12 @@ func LoadConfig(filePath string) (*ComposeConfig, error) {
 	}
 	// Validate config
 	if err := ValidateConfig(&config); err != nil {
+
+
 		return nil, fmt.Errorf("invalid configuration in '%s': %w", filePath, err)
 	}
+
+
 	return &config, nil
 }
 
@@ -690,45 +700,65 @@ func applyEnvironmentOverrides(config *ComposeConfig, envConfig EnvironmentConfi
 // In internal/config/config.go, change the function signature to make it public:
 func ValidateConfig(config *ComposeConfig) error {
 	if config.Version != "1" {
+
+
 		return fmt.Errorf("unsupported version: '%s', expected '1'", config.Version)
 	}
 	for name, server := range config.Servers {
 		if err := validateServerConfig(name, server); err != nil {
+
+
 			return err
 		}
 		// Validate dependencies
 		for _, dep := range server.DependsOn {
 			if _, exists := config.Servers[dep]; !exists {
+
+
 				return fmt.Errorf("server '%s' depends on undefined server '%s'", name, dep)
 			}
 		}
 		// Validate human control configuration
 		if server.Lifecycle.HumanControl != nil {
 			if err := validateHumanControlConfig(name, server.Lifecycle.HumanControl); err != nil {
+
+
 				return err
 			}
 		}
 		// Validate resource paths
 		if err := validateResourcePaths(name, server.Resources); err != nil {
+
+
 			return err
 		}
 		// Validate tools configuration
 		if err := validateToolsConfig(name, server.Tools); err != nil {
+
+
 			return err
 		}
 		// NEW: Validate security configuration
 		if err := validateSecurityConfig(name, server.Security); err != nil {
+
+
 			return err
 		}
 		// NEW: Validate resource limits
 		if err := validateResourceLimits(name, server.Deploy.Resources); err != nil {
+
+
 			return err
 		}
 	}
 	// Validate global configuration
 	if err := validateGlobalConfig(config); err != nil {
+
+
 		return err
 	}
+
+
 	return nil
 }
 
@@ -736,69 +766,99 @@ func ValidateConfig(config *ComposeConfig) error {
 func (tc TimeoutConfig) GetConnectTimeout() time.Duration {
 	if tc.Connect != "" {
 		if d, err := time.ParseDuration(tc.Connect); err == nil {
+
+
 			return d
 		}
 	}
-	return 10 * time.Second
+
+
+	return constants.DefaultConnectTimeout
 }
 
 func (tc TimeoutConfig) GetReadTimeout() time.Duration {
 	if tc.Read != "" {
 		if d, err := time.ParseDuration(tc.Read); err == nil {
+
+
 			return d
 		}
 	}
-	return 30 * time.Second
+
+
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetWriteTimeout() time.Duration {
 	if tc.Write != "" {
 		if d, err := time.ParseDuration(tc.Write); err == nil {
+
+
 			return d
 		}
 	}
-	return 30 * time.Second
+
+
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetIdleTimeout() time.Duration {
 	if tc.Idle != "" {
 		if d, err := time.ParseDuration(tc.Idle); err == nil {
+
+
 			return d
 		}
 	}
-	return 60 * time.Second
+
+
+	return constants.DefaultProtoTimeout
 }
 
 func (tc TimeoutConfig) GetHealthCheckTimeout() time.Duration {
 	if tc.HealthCheck != "" {
 		if d, err := time.ParseDuration(tc.HealthCheck); err == nil {
+
+
 			return d
 		}
 	}
-	return 5 * time.Second
+
+
+	return constants.DefaultHealthTimeout
 }
 
 func (tc TimeoutConfig) GetShutdownTimeout() time.Duration {
 	if tc.Shutdown != "" {
 		if d, err := time.ParseDuration(tc.Shutdown); err == nil {
+
+
 			return d
 		}
 	}
-	return 30 * time.Second
+
+
+	return constants.DefaultReadTimeout
 }
 
 func (tc TimeoutConfig) GetLifecycleHookTimeout() time.Duration {
 	if tc.LifecycleHook != "" {
 		if d, err := time.ParseDuration(tc.LifecycleHook); err == nil {
+
+
 			return d
 		}
 	}
-	return 30 * time.Second
+
+
+	return constants.DefaultReadTimeout
 }
 
 func validateServerConfig(name string, server ServerConfig) error {
 	// A server must specify either command, image, OR build context
 	if server.Command == "" && server.Image == "" && server.Build.Context == "" {
+
+
 		return fmt.Errorf("server '%s' must specify either command, image, or build context", name)
 	}
 
@@ -808,6 +868,8 @@ func validateServerConfig(name string, server ServerConfig) error {
 		// Command will be used to override Dockerfile CMD if provided
 		// Image will be used as the tag name if provided
 	} else if server.Image == "" && server.Command == "" {
+
+
 		return fmt.Errorf("server '%s' must specify either command or image when not using build", name)
 	}
 
@@ -818,10 +880,13 @@ func validateServerConfig(name string, server ServerConfig) error {
 		for _, p := range validProtocols {
 			if server.Protocol == p {
 				valid = true
+
 				break
 			}
 		}
 		if !valid {
+
+
 			return fmt.Errorf("server '%s' has invalid protocol: '%s'. Must be one of: %v", name, server.Protocol, validProtocols)
 		}
 	}
@@ -829,6 +894,8 @@ func validateServerConfig(name string, server ServerConfig) error {
 	// Validate HTTP/SSE configuration
 	if (server.Protocol == "http" || server.Protocol == "sse") && server.HttpPort == 0 {
 		if !hasPortInArgsOrMapping(server) {
+
+
 			return fmt.Errorf("server '%s' uses '%s' protocol but 'http_port' is not defined and cannot be inferred", name, server.Protocol)
 		}
 	}
@@ -840,6 +907,8 @@ func validateServerConfig(name string, server ServerConfig) error {
 	}
 	for _, cap := range server.Capabilities {
 		if !validCaps[cap] {
+
+
 			return fmt.Errorf("server '%s' has invalid capability: '%s'", name, cap)
 		}
 	}
@@ -847,9 +916,12 @@ func validateServerConfig(name string, server ServerConfig) error {
 	// Validate ports format
 	for i, port := range server.Ports {
 		if err := validatePortMapping(port); err != nil {
+
+
 			return fmt.Errorf("server '%s' has invalid port mapping at index %d: %w", name, i, err)
 		}
 	}
+
 
 	return nil
 }
@@ -859,6 +931,8 @@ func hasPortInArgsOrMapping(server ServerConfig) bool {
 	// Check if port can be inferred from args
 	for _, arg := range server.Args {
 		if strings.HasPrefix(arg, "--port") || strings.HasPrefix(arg, "-p") {
+
+
 			return true
 		}
 	}
@@ -867,24 +941,36 @@ func hasPortInArgsOrMapping(server ServerConfig) bool {
 		for _, p := range server.Ports {
 			parts := strings.Split(p, ":")
 			if len(parts) > 0 && parts[len(parts)-1] != "" {
+
+
 				return true
 			}
 		}
 	}
+
+
 	return false
 }
 
 // Validate human control configuration
 func validateHumanControlConfig(serverName string, hc *HumanControlConfig) error {
 	if hc.TimeoutSeconds < 0 {
+
+
 		return fmt.Errorf("server '%s' has invalid human control timeout: %d (must be >= 0)", serverName, hc.TimeoutSeconds)
 	}
 	if hc.MaxTokens < 0 {
+
+
 		return fmt.Errorf("server '%s' has invalid human control max_tokens: %d (must be >= 0)", serverName, hc.MaxTokens)
 	}
 	if hc.TimeoutSeconds > 0 && hc.TimeoutSeconds < 5 {
+
+
 		return fmt.Errorf("server '%s' human control timeout too low: %d seconds (minimum 5 seconds)", serverName, hc.TimeoutSeconds)
 	}
+
+
 	return nil
 }
 
@@ -892,9 +978,13 @@ func validateHumanControlConfig(serverName string, hc *HumanControlConfig) error
 func validateResourcePaths(serverName string, resources ResourcesConfig) error {
 	for i, path := range resources.Paths {
 		if path.Source == "" {
+
+
 			return fmt.Errorf("server '%s' resource path %d missing source", serverName, i)
 		}
 		if path.Target == "" {
+
+
 			return fmt.Errorf("server '%s' resource path %d missing target", serverName, i)
 		}
 		// Check if source path exists (warning, not error)
@@ -906,9 +996,13 @@ func validateResourcePaths(serverName string, resources ResourcesConfig) error {
 	// Validate sync interval if specified
 	if resources.SyncInterval != "" {
 		if _, err := time.ParseDuration(resources.SyncInterval); err != nil {
+
+
 			return fmt.Errorf("server '%s' has invalid resource sync_interval '%s': %w", serverName, resources.SyncInterval, err)
 		}
 	}
+
+
 	return nil
 }
 
@@ -917,19 +1011,27 @@ func validateToolsConfig(serverName string, tools []ToolConfig) error {
 	toolNames := make(map[string]bool)
 	for i, tool := range tools {
 		if tool.Name == "" {
+
+
 			return fmt.Errorf("server '%s' tool %d missing name", serverName, i)
 		}
 		if toolNames[tool.Name] {
+
+
 			return fmt.Errorf("server '%s' has duplicate tool name: '%s'", serverName, tool.Name)
 		}
 		toolNames[tool.Name] = true
 		// Validate timeout if specified
 		if tool.Timeout != "" {
 			if _, err := time.ParseDuration(tool.Timeout); err != nil {
+
+
 				return fmt.Errorf("server '%s' tool '%s' has invalid timeout '%s': %w", serverName, tool.Name, tool.Timeout, err)
 			}
 		}
 	}
+
+
 	return nil
 }
 
@@ -942,10 +1044,13 @@ func validateSecurityConfig(serverName string, security SecurityConfig) error {
 		for _, profile := range validProfiles {
 			if security.AppArmor == profile {
 				valid = true
+
 				break
 			}
 		}
 		if !valid && !strings.HasPrefix(security.AppArmor, "/") {
+
+
 			return fmt.Errorf("server '%s' has invalid apparmor profile: '%s'", serverName, security.AppArmor)
 		}
 	}
@@ -957,13 +1062,17 @@ func validateSecurityConfig(serverName string, security SecurityConfig) error {
 		for _, profile := range validProfiles {
 			if security.Seccomp == profile {
 				valid = true
+
 				break
 			}
 		}
 		if !valid && !strings.HasPrefix(security.Seccomp, "/") {
+
+
 			return fmt.Errorf("server '%s' has invalid seccomp profile: '%s'", serverName, security.Seccomp)
 		}
 	}
+
 
 	return nil
 }
@@ -973,6 +1082,8 @@ func validateResourceLimits(serverName string, resources ResourcesDeployConfig) 
 	// Validate CPU limits
 	if resources.Limits.CPUs != "" {
 		if _, err := strconv.ParseFloat(resources.Limits.CPUs, 64); err != nil {
+
+
 			return fmt.Errorf("server '%s' has invalid CPU limit: '%s'", serverName, resources.Limits.CPUs)
 		}
 	}
@@ -980,20 +1091,27 @@ func validateResourceLimits(serverName string, resources ResourcesDeployConfig) 
 	// Validate memory limits
 	if resources.Limits.Memory != "" {
 		if !isValidMemoryFormat(resources.Limits.Memory) {
+
+
 			return fmt.Errorf("server '%s' has invalid memory limit format: '%s'", serverName, resources.Limits.Memory)
 		}
 	}
 
 	if resources.Limits.MemorySwap != "" {
 		if !isValidMemoryFormat(resources.Limits.MemorySwap) {
+
+
 			return fmt.Errorf("server '%s' has invalid memory swap format: '%s'", serverName, resources.Limits.MemorySwap)
 		}
 	}
 
 	// Validate PIDs limit
 	if resources.Limits.PIDs < 0 {
+
+
 		return fmt.Errorf("server '%s' has invalid PIDs limit: %d (must be >= 0)", serverName, resources.Limits.PIDs)
 	}
+
 
 	return nil
 }
@@ -1001,6 +1119,8 @@ func validateResourceLimits(serverName string, resources ResourcesDeployConfig) 
 // Helper function to validate memory format (e.g., "512m", "1g", "2048k")
 func isValidMemoryFormat(memory string) bool {
 	if memory == "" {
+
+
 		return true
 	}
 
@@ -1011,16 +1131,23 @@ func isValidMemoryFormat(memory string) bool {
 		if strings.HasSuffix(memory, suffix) {
 			numPart := memory[:len(memory)-1]
 			if _, err := strconv.ParseInt(numPart, 10, 64); err != nil {
+
+
 				return false
 			}
+
+
 			return true
 		}
 	}
 
 	// Check if it's just a number (bytes)
 	if _, err := strconv.ParseInt(memory, 10, 64); err != nil {
+
+
 		return false
 	}
+
 
 	return true
 }
@@ -1030,16 +1157,22 @@ func validatePortMapping(portMapping string) error {
 	parts := strings.Split(portMapping, ":")
 	for _, part := range parts {
 		if part == "" {
+
+
 			return fmt.Errorf("empty port in mapping '%s'", portMapping)
 		}
 		// Check if it's a valid number
 		if _, err := strconv.Atoi(part); err != nil {
 			// Could be a port range like "8000-8010", validate differently
 			if !strings.Contains(part, "-") {
+
+
 				return fmt.Errorf("invalid port number '%s' in mapping '%s'", part, portMapping)
 			}
 		}
 	}
+
+
 	return nil
 }
 
@@ -1047,48 +1180,68 @@ func validatePortMapping(portMapping string) error {
 func validateGlobalConfig(config *ComposeConfig) error {
 	// Validate proxy auth
 	if config.ProxyAuth.Enabled && config.ProxyAuth.APIKey == "" {
+
+
 		return fmt.Errorf("proxy_auth is enabled but api_key is not specified")
 	}
 	// Validate dashboard config
 	if config.Dashboard.Enabled {
 		if config.Dashboard.Port <= 0 || config.Dashboard.Port > 65535 {
+
+
 			return fmt.Errorf("dashboard port must be between 1 and 65535")
 		}
 		if config.Dashboard.ProxyURL == "" {
+
+
 			return fmt.Errorf("dashboard is enabled but proxy_url is not specified")
 		}
 	}
 	// Validate connections
 	for name, conn := range config.Connections {
 		if err := validateConnection(name, conn); err != nil {
+
+
 			return err
 		}
 	}
 	// Validate OAuth config if present
 	if config.OAuth != nil && config.OAuth.Enabled {
 		if err := validateOAuthConfig(config.OAuth); err != nil {
+
+
 			return err
 		}
 	}
+
+
 	return nil
 }
 
 // Validate OAuth configuration
 func validateOAuthConfig(oauth *OAuthConfig) error {
 	if oauth.Issuer == "" {
+
+
 		return fmt.Errorf("oauth.issuer is required when OAuth is enabled")
 	}
 	// Validate token TTLs
 	if oauth.Tokens.AccessTokenTTL != "" {
 		if _, err := time.ParseDuration(oauth.Tokens.AccessTokenTTL); err != nil {
+
+
 			return fmt.Errorf("invalid oauth.tokens.access_token_ttl: %w", err)
 		}
 	}
 	if oauth.Tokens.RefreshTokenTTL != "" {
 		if _, err := time.ParseDuration(oauth.Tokens.RefreshTokenTTL); err != nil {
+
+
 			return fmt.Errorf("invalid oauth.tokens.refresh_token_ttl: %w", err)
 		}
 	}
+
+
 	return nil
 }
 
@@ -1099,15 +1252,22 @@ func validateConnection(name string, conn ConnectionConfig) error {
 	for _, t := range validTransports {
 		if conn.Transport == t {
 			valid = true
+
 			break
 		}
 	}
 	if !valid {
+
+
 		return fmt.Errorf("connection '%s' has invalid transport: '%s'", name, conn.Transport)
 	}
 	if conn.Port < 0 || conn.Port > 65535 {
+
+
 		return fmt.Errorf("connection '%s' has invalid port: %d", name, conn.Port)
 	}
+
+
 	return nil
 }
 
@@ -1119,6 +1279,8 @@ func GetProjectName(filePath string) string {
 			dir = cwd
 		}
 	}
+
+
 	return filepath.Base(dir)
 }
 
@@ -1126,9 +1288,13 @@ func GetProjectName(filePath string) string {
 func IsCapabilityEnabled(server ServerConfig, capability string) bool {
 	for _, cap := range server.Capabilities {
 		if cap == capability {
+
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
@@ -1141,6 +1307,8 @@ func MergeEnv(serverEnv, extraEnv map[string]string) map[string]string {
 	for k, v := range extraEnv { // Override or add
 		result[k] = v
 	}
+
+
 	return result
 }
 
@@ -1150,6 +1318,8 @@ func ConvertToEnvList(env map[string]string) []string {
 	for k, v := range env {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
+
+
 	return result
 }
 
@@ -1157,10 +1327,16 @@ func ConvertToEnvList(env map[string]string) []string {
 func SaveConfig(filePath string, config *ComposeConfig) error {
 	data, err := yaml.Marshal(config)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, constants.DefaultFileMode); err != nil {
+
+
 		return fmt.Errorf("failed to write config file '%s': %w", filePath, err)
 	}
+
+
 	return nil
 }

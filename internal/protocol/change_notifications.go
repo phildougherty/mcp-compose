@@ -65,6 +65,7 @@ type PromptArgument struct {
 
 // NewChangeNotificationManager creates a new change notification manager
 func NewChangeNotificationManager() *ChangeNotificationManager {
+
 	return &ChangeNotificationManager{
 		toolSubscribers:   make(map[string]*ChangeSubscriber),
 		promptSubscribers: make(map[string]*ChangeSubscriber),
@@ -123,12 +124,16 @@ func (cnm *ChangeNotificationManager) UpdateTools(serverName string, tools []Too
 	// Calculate hash of current tools
 	currentHash, err := cnm.calculateToolsHash(tools)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to calculate tools hash: %w", err)
 	}
 
 	// Check if tools have changed
 	previousHash, exists := cnm.toolHashes[serverName]
 	if exists && previousHash == currentHash {
+
+
 		return nil // No changes
 	}
 
@@ -154,6 +159,7 @@ func (cnm *ChangeNotificationManager) UpdateTools(serverName string, tools []Too
 		}
 	}
 
+
 	return nil
 }
 
@@ -165,12 +171,16 @@ func (cnm *ChangeNotificationManager) UpdatePrompts(serverName string, prompts [
 	// Calculate hash of current prompts
 	currentHash, err := cnm.calculatePromptsHash(prompts)
 	if err != nil {
+
+
 		return fmt.Errorf("failed to calculate prompts hash: %w", err)
 	}
 
 	// Check if prompts have changed
 	previousHash, exists := cnm.promptHashes[serverName]
 	if exists && previousHash == currentHash {
+
+
 		return nil // No changes
 	}
 
@@ -196,6 +206,7 @@ func (cnm *ChangeNotificationManager) UpdatePrompts(serverName string, prompts [
 		}
 	}
 
+
 	return nil
 }
 
@@ -217,11 +228,15 @@ func (cnm *ChangeNotificationManager) calculateToolsHash(tools []ToolDefinition)
 	// Marshal to JSON for hashing
 	jsonData, err := json.Marshal(sortedTools)
 	if err != nil {
+
+
 		return "", err
 	}
 
 	// Calculate MD5 hash
 	hash := md5.Sum(jsonData)
+
+
 	return fmt.Sprintf("%x", hash), nil
 }
 
@@ -243,11 +258,15 @@ func (cnm *ChangeNotificationManager) calculatePromptsHash(prompts []PromptDefin
 	// Marshal to JSON for hashing
 	jsonData, err := json.Marshal(sortedPrompts)
 	if err != nil {
+
+
 		return "", err
 	}
 
 	// Calculate MD5 hash
 	hash := md5.Sum(jsonData)
+
+
 	return fmt.Sprintf("%x", hash), nil
 }
 
@@ -260,6 +279,8 @@ func (cnm *ChangeNotificationManager) GetToolSubscribers() map[string]*ChangeSub
 	for k, v := range cnm.toolSubscribers {
 		result[k] = v
 	}
+
+
 	return result
 }
 
@@ -272,6 +293,8 @@ func (cnm *ChangeNotificationManager) GetPromptSubscribers() map[string]*ChangeS
 	for k, v := range cnm.promptSubscribers {
 		result[k] = v
 	}
+
+
 	return result
 }
 
@@ -318,6 +341,7 @@ func (cnm *ChangeNotificationManager) ForceNotifyToolChanges() error {
 		}
 	}
 
+
 	return nil
 }
 
@@ -339,6 +363,7 @@ func (cnm *ChangeNotificationManager) ForceNotifyPromptChanges() error {
 			subscriber.LastNotify = time.Now()
 		}
 	}
+
 
 	return nil
 }

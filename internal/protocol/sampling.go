@@ -133,6 +133,7 @@ type SamplingCapabilities struct {
 
 // NewSamplingManager creates a new sampling manager
 func NewSamplingManager() *SamplingManager {
+
 	return &SamplingManager{
 		requests:      make(map[string]*SamplingRequest),
 		handlers:      make(map[string]SamplingHandler),
@@ -181,6 +182,7 @@ func (sm *SamplingManager) CreateSamplingRequest(serverName string, messages []S
 	}
 
 	sm.requests[requestID] = request
+
 	return request, nil
 }
 
@@ -191,21 +193,25 @@ func (sm *SamplingManager) ProcessSamplingRequest(requestID string) (*SamplingRe
 	sm.mu.RUnlock()
 
 	if !exists {
+
 		return nil, fmt.Errorf("sampling request %s not found", requestID)
 	}
 
 	// Check if request needs approval
 	if request.Status == "awaiting_approval" {
+
 		return nil, fmt.Errorf("sampling request %s is awaiting human approval", requestID)
 	}
 
 	if request.Status == "rejected" {
+
 		return nil, fmt.Errorf("sampling request %s was rejected", requestID)
 	}
 
 	// Find appropriate handler
 	handler := sm.selectHandler(request)
 	if handler == nil {
+
 		return nil, fmt.Errorf("no suitable handler found for sampling request")
 	}
 
@@ -215,12 +221,14 @@ func (sm *SamplingManager) ProcessSamplingRequest(requestID string) (*SamplingRe
 		sm.mu.Lock()
 		request.Status = "failed"
 		sm.mu.Unlock()
+
 		return nil, fmt.Errorf("sampling request failed: %w", err)
 	}
 
 	sm.mu.Lock()
 	request.Status = "completed"
 	sm.mu.Unlock()
+
 
 	return response, nil
 }
@@ -232,10 +240,12 @@ func (sm *SamplingManager) ApproveRequest(requestID, reviewer, comments string) 
 
 	request, exists := sm.requests[requestID]
 	if !exists {
+
 		return fmt.Errorf("sampling request %s not found", requestID)
 	}
 
 	if request.Status != "awaiting_approval" {
+
 		return fmt.Errorf("sampling request %s is not awaiting approval", requestID)
 	}
 
@@ -247,6 +257,7 @@ func (sm *SamplingManager) ApproveRequest(requestID, reviewer, comments string) 
 		Comments:   comments,
 	}
 
+
 	return nil
 }
 
@@ -257,10 +268,12 @@ func (sm *SamplingManager) RejectRequest(requestID, reviewer, reason string) err
 
 	request, exists := sm.requests[requestID]
 	if !exists {
+
 		return fmt.Errorf("sampling request %s not found", requestID)
 	}
 
 	if request.Status != "awaiting_approval" {
+
 		return fmt.Errorf("sampling request %s is not awaiting approval", requestID)
 	}
 
@@ -272,6 +285,7 @@ func (sm *SamplingManager) RejectRequest(requestID, reviewer, reason string) err
 		Comments:   reason,
 	}
 
+
 	return nil
 }
 
@@ -280,6 +294,7 @@ func (sm *SamplingManager) requiresHumanApproval(request *SamplingRequest, confi
 	// Check auto-approve patterns
 	for _, pattern := range config.AutoApprovePatterns {
 		if sm.matchesPattern(request, pattern) {
+
 			return false
 		}
 	}
@@ -287,16 +302,19 @@ func (sm *SamplingManager) requiresHumanApproval(request *SamplingRequest, confi
 	// Check block patterns
 	for _, pattern := range config.BlockPatterns {
 		if sm.matchesPattern(request, pattern) {
+
 			return true // Block and require approval
 		}
 	}
 
 	// Check token limits
 	if config.MaxTokens > 0 && request.MaxTokens > config.MaxTokens {
+
 		return true
 	}
 
 	// Default to requiring approval if configured
+
 	return config.RequireApproval
 }
 
@@ -305,9 +323,11 @@ func (sm *SamplingManager) matchesPattern(request *SamplingRequest, pattern stri
 	// Simple pattern matching - in production, you might want regex or more sophisticated matching
 	for _, msg := range request.Messages {
 		if strings.Contains(strings.ToLower(msg.Content.Text), strings.ToLower(pattern)) {
+
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -316,14 +336,17 @@ func (sm *SamplingManager) selectHandler(request *SamplingRequest) SamplingHandl
 	// Priority: specific model hints, then capabilities, then default
 	for _, hint := range request.ModelPrefs.Hints {
 		if handler, exists := sm.handlers[hint.Name]; exists {
+
 			return handler
 		}
 	}
 
 	// Fallback to first available handler
 	for _, handler := range sm.handlers {
+
 		return handler
 	}
+
 
 	return nil
 }
@@ -340,6 +363,7 @@ func (sm *SamplingManager) GetPendingRequests() []*SamplingRequest {
 		}
 	}
 
+
 	return pending
 }
 
@@ -350,8 +374,10 @@ func (sm *SamplingManager) GetRequestStatus(requestID string) (string, error) {
 
 	request, exists := sm.requests[requestID]
 	if !exists {
+
 		return "", fmt.Errorf("sampling request %s not found", requestID)
 	}
+
 
 	return request.Status, nil
 }

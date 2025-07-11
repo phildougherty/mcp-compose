@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcpcompose/internal/constants"
 )
 
 // MCPTransport implements MCP-compliant transport layer
@@ -38,10 +40,11 @@ type HTTPTransport struct {
 
 // NewHTTPTransport creates a new MCP-compliant HTTP transport
 func NewHTTPTransport(baseURL string) *HTTPTransport {
+
 	return &HTTPTransport{
 		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: constants.HTTPRequestTimeout,
 		},
 		lastUsed: time.Now(),
 		healthy:  true,
@@ -49,18 +52,23 @@ func NewHTTPTransport(baseURL string) *HTTPTransport {
 }
 
 func (h *HTTPTransport) GetType() string {
+
 	return "http"
 }
 
 func (h *HTTPTransport) IsConnected() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+
 	return h.healthy && h.initialized
 }
 
 func (h *HTTPTransport) GetLastActivity() time.Time {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+
 	return h.lastUsed
 }
 
@@ -73,12 +81,14 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 	// Marshal message
 	data, err := json.Marshal(msg)
 	if err != nil {
+
 		return NewTransportError("http", fmt.Sprintf("failed to marshal message: %v", err))
 	}
 
 	// Create request
 	req, err := http.NewRequest("POST", h.baseURL, bytes.NewBuffer(data))
 	if err != nil {
+
 		return NewTransportError("http", fmt.Sprintf("failed to create request: %v", err))
 	}
 
@@ -93,9 +103,15 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 	resp, err := h.client.Do(req)
 	if err != nil {
 		h.healthy = false
+
+
 		return NewTransportError("http", fmt.Sprintf("request failed: %v", err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
+	}()
 
 	// Update session ID if provided
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -106,15 +122,20 @@ func (h *HTTPTransport) Send(msg MCPMessage) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		h.healthy = false
 		body, _ := io.ReadAll(resp.Body)
+
+
 		return NewTransportError("http", fmt.Sprintf("bad status %d: %s", resp.StatusCode, string(body)))
 	}
 
 	h.healthy = true
+
+
 	return nil
 }
 
 func (h *HTTPTransport) Receive() (MCPMessage, error) {
 	// HTTP transport is request/response - no async receive
+
 	return MCPMessage{}, NewTransportError("http", "HTTP transport does not support async receive")
 }
 
@@ -130,15 +151,22 @@ func (h *HTTPTransport) Close() error {
 		req, err := http.NewRequest("DELETE", h.baseURL, nil)
 		if err == nil {
 			req.Header.Set("Mcp-Session-Id", h.sessionID)
-			h.client.Do(req) // Ignore errors on cleanup
+			if resp, err := h.client.Do(req); err == nil && resp != nil {
+				// Close response body to prevent resource leaks
+				if err := resp.Body.Close(); err != nil {
+					fmt.Printf("Warning: failed to close cleanup response body: %v\n", err)
+				}
+			}
 		}
 		h.sessionID = ""
 	}
+
 
 	return nil
 }
 
 func (h *HTTPTransport) SupportsProgress() bool {
+
 	return true
 }
 
@@ -150,9 +178,12 @@ func (h *HTTPTransport) SendProgress(notification *ProgressNotification) error {
 	}
 	params, err := json.Marshal(notification.Params)
 	if err != nil {
+
 		return err
 	}
 	msg.Params = params
+
+
 	return h.Send(msg)
 }
 
@@ -176,6 +207,7 @@ type SSETransport struct {
 func NewSSETransport(sseURL string) *SSETransport {
 	ctx, cancel := context.WithCancel(context.Background())
 
+
 	return &SSETransport{
 		sseURL: sseURL,
 		client: &http.Client{
@@ -189,18 +221,23 @@ func NewSSETransport(sseURL string) *SSETransport {
 }
 
 func (s *SSETransport) GetType() string {
+
 	return "sse"
 }
 
 func (s *SSETransport) IsConnected() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+
 	return s.healthy && s.initialized && s.sseReader != nil
 }
 
 func (s *SSETransport) GetLastActivity() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+
 	return s.lastUsed
 }
 
@@ -211,18 +248,21 @@ func (s *SSETransport) Send(msg MCPMessage) error {
 	s.lastUsed = time.Now()
 
 	if s.postURL == "" {
+
 		return NewTransportError("sse", "no post endpoint available")
 	}
 
 	// Marshal message
 	data, err := json.Marshal(msg)
 	if err != nil {
+
 		return NewTransportError("sse", fmt.Sprintf("failed to marshal message: %v", err))
 	}
 
 	// Create request
 	req, err := http.NewRequest("POST", s.postURL, bytes.NewBuffer(data))
 	if err != nil {
+
 		return NewTransportError("sse", fmt.Sprintf("failed to create request: %v", err))
 	}
 
@@ -237,9 +277,14 @@ func (s *SSETransport) Send(msg MCPMessage) error {
 	resp, err := s.client.Do(req)
 	if err != nil {
 		s.healthy = false
+
 		return NewTransportError("sse", fmt.Sprintf("request failed: %v", err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
+	}()
 
 	// Update session ID if provided
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -250,10 +295,12 @@ func (s *SSETransport) Send(msg MCPMessage) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		s.healthy = false
 		body, _ := io.ReadAll(resp.Body)
+
 		return NewTransportError("sse", fmt.Sprintf("bad status %d: %s", resp.StatusCode, string(body)))
 	}
 
 	s.healthy = true
+
 	return nil
 }
 
@@ -263,6 +310,7 @@ func (s *SSETransport) Receive() (MCPMessage, error) {
 	s.mu.RUnlock()
 
 	if reader == nil {
+
 		return MCPMessage{}, NewTransportError("sse", "SSE connection not established")
 	}
 
@@ -284,6 +332,7 @@ func (s *SSETransport) Receive() (MCPMessage, error) {
 			s.lastUsed = time.Now()
 			s.mu.Unlock()
 
+
 			return msg, nil
 		}
 	}
@@ -293,6 +342,7 @@ func (s *SSETransport) Receive() (MCPMessage, error) {
 		s.mu.Lock()
 		s.healthy = false
 		s.mu.Unlock()
+
 		return MCPMessage{}, NewTransportError("sse", fmt.Sprintf("SSE read error: %v", err))
 	}
 
@@ -300,6 +350,7 @@ func (s *SSETransport) Receive() (MCPMessage, error) {
 	s.mu.Lock()
 	s.healthy = false
 	s.mu.Unlock()
+
 	return MCPMessage{}, NewTransportError("sse", "SSE connection closed")
 }
 
@@ -315,15 +366,19 @@ func (s *SSETransport) Close() error {
 	}
 
 	if s.sseResponse != nil {
-		s.sseResponse.Body.Close()
+		if err := s.sseResponse.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close SSE response body: %v\n", err)
+		}
 		s.sseResponse = nil
 	}
 
 	s.sseReader = nil
+
 	return nil
 }
 
 func (s *SSETransport) SupportsProgress() bool {
+
 	return true
 }
 
@@ -335,9 +390,11 @@ func (s *SSETransport) SendProgress(notification *ProgressNotification) error {
 	}
 	params, err := json.Marshal(notification.Params)
 	if err != nil {
+
 		return err
 	}
 	msg.Params = params
+
 	return s.Send(msg)
 }
 
@@ -349,6 +406,7 @@ func (s *SSETransport) Initialize() error {
 	// Create SSE request
 	req, err := http.NewRequestWithContext(s.ctx, "GET", s.sseURL, nil)
 	if err != nil {
+
 		return NewTransportError("sse", fmt.Sprintf("failed to create SSE request: %v", err))
 	}
 
@@ -360,12 +418,16 @@ func (s *SSETransport) Initialize() error {
 	resp, err := s.client.Do(req)
 	if err != nil {
 		s.healthy = false
+
 		return NewTransportError("sse", fmt.Sprintf("SSE connection failed: %v", err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
 		s.healthy = false
+
 		return NewTransportError("sse", fmt.Sprintf("SSE bad status: %d", resp.StatusCode))
 	}
 
@@ -374,6 +436,7 @@ func (s *SSETransport) Initialize() error {
 	s.sseReader = bufio.NewScanner(resp.Body)
 	s.initialized = true
 	s.healthy = true
+
 
 	return nil
 }

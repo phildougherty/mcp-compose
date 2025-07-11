@@ -29,6 +29,7 @@ Examples:
 			file, _ := cmd.Flags().GetString("file")
 			// If no args provided, stop all servers and built-in services
 			if len(args) == 0 {
+
 				return downAll(file)
 			}
 
@@ -38,18 +39,22 @@ Examples:
 				switch target {
 				case "proxy":
 					if err := downProxy(); err != nil {
+
 						return fmt.Errorf("failed to stop/remove proxy: %w", err)
 					}
 				case "dashboard":
 					if err := downDashboard(file); err != nil {
+
 						return fmt.Errorf("failed to stop/remove dashboard: %w", err)
 					}
 				case "task-scheduler":
 					if err := downTaskScheduler(file); err != nil {
+
 						return fmt.Errorf("failed to stop/remove task scheduler: %w", err)
 					}
 				case "memory":
 					if err := downMemory(file); err != nil {
+
 						return fmt.Errorf("failed to stop/remove memory server: %w", err)
 					}
 				default:
@@ -60,12 +65,15 @@ Examples:
 
 			// Handle regular servers if any
 			if len(regularServers) > 0 {
+
 				return compose.Down(file, regularServers)
 			}
+
 
 			return nil
 		},
 	}
+
 	return cmd
 }
 
@@ -78,6 +86,7 @@ func downAll(configFile string) error {
 	}
 
 	// Then stop all docker compose services
+
 	return compose.Down(configFile, []string{})
 }
 
@@ -85,12 +94,14 @@ func downBuiltInServices(configFile string) error {
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		fmt.Printf("Warning: Could not load config for built-in services: %v\n", err)
+
 		return nil
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
 		fmt.Printf("Warning: Could not detect container runtime: %v\n", err)
+
 		return nil
 	}
 
@@ -116,6 +127,7 @@ func downBuiltInServices(configFile string) error {
 		fmt.Printf("Warning: Failed to stop memory server: %v\n", err)
 	}
 
+
 	return nil
 }
 
@@ -123,6 +135,7 @@ func downProxy() error {
 	fmt.Println("Stopping and removing MCP proxy...")
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -133,6 +146,7 @@ func downProxy() error {
 	}
 
 	fmt.Println("✅ Proxy stopped successfully.")
+
 	return nil
 }
 
@@ -140,11 +154,13 @@ func downDashboard(configFile string) error {
 	fmt.Println("Stopping and removing MCP dashboard...")
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -156,6 +172,7 @@ func downDashboard(configFile string) error {
 	}
 
 	fmt.Println("✅ Dashboard stopped successfully.")
+
 	return nil
 }
 
@@ -163,11 +180,13 @@ func downTaskScheduler(configFile string) error {
 	fmt.Println("Stopping and removing MCP task scheduler...")
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -179,6 +198,7 @@ func downTaskScheduler(configFile string) error {
 	}
 
 	fmt.Println("✅ Task scheduler stopped successfully.")
+
 	return nil
 }
 
@@ -186,11 +206,13 @@ func downMemory(configFile string) error {
 	fmt.Println("Stopping and removing MCP memory server...")
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -202,5 +224,6 @@ func downMemory(configFile string) error {
 	}
 
 	fmt.Println("✅ Memory server stopped successfully.")
+
 	return nil
 }

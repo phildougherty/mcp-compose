@@ -28,6 +28,7 @@ Examples:
 
 			// If no args provided, restart all servers
 			if len(args) == 0 {
+
 				return restartAllServers(file)
 			}
 
@@ -36,27 +37,33 @@ Examples:
 				switch target {
 				case "proxy":
 					if err := restartProxy(); err != nil {
+
 						return fmt.Errorf("failed to restart proxy: %w", err)
 					}
 				case "dashboard":
 					if err := restartDashboard(file); err != nil {
+
 						return fmt.Errorf("failed to restart dashboard: %w", err)
 					}
 				case "task-scheduler":
 					if err := restartTaskScheduler(file); err != nil {
+
 						return fmt.Errorf("failed to restart task scheduler: %w", err)
 					}
 				default:
 					// Regular server restart
 					if err := restartServer(file, target); err != nil {
+
 						return fmt.Errorf("failed to restart server '%s': %w", target, err)
 					}
 				}
 			}
 
+
 			return nil
 		},
 	}
+
 
 	return cmd
 }
@@ -70,6 +77,7 @@ func restartAllServers(configFile string) error {
 	}
 
 	// Start all servers
+
 	return compose.Up(configFile, []string{})
 }
 
@@ -82,6 +90,7 @@ func restartServer(configFile string, serverName string) error {
 	}
 
 	// Start the specific server
+
 	return compose.Start(configFile, []string{serverName})
 }
 
@@ -90,6 +99,7 @@ func restartProxy() error {
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -100,11 +110,13 @@ func restartProxy() error {
 	if err != nil || status == "stopped" {
 		fmt.Printf("Proxy container '%s' is not running or doesn't exist.\n", proxyContainerName)
 		fmt.Println("To start the proxy, use: mcp-compose proxy")
+
 		return nil
 	}
 
 	fmt.Printf("Stopping proxy container '%s'...\n", proxyContainerName)
 	if err := runtime.StopContainer(proxyContainerName); err != nil {
+
 		return fmt.Errorf("failed to stop proxy container: %w", err)
 	}
 
@@ -114,6 +126,7 @@ func restartProxy() error {
 	fmt.Println("To restart the proxy, use: mcp-compose proxy [options]")
 	fmt.Println("Note: The proxy will restart with the same configuration as last started.")
 
+
 	return nil
 }
 
@@ -122,11 +135,13 @@ func restartDashboard(configFile string) error {
 
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -137,6 +152,7 @@ func restartDashboard(configFile string) error {
 	if err != nil || status == "stopped" {
 		fmt.Printf("Dashboard container '%s' is not running or doesn't exist.\n", dashboardContainerName)
 		fmt.Println("To start the dashboard, use: mcp-compose dashboard")
+
 		return nil
 	}
 
@@ -150,10 +166,12 @@ func restartDashboard(configFile string) error {
 
 	fmt.Println("Starting dashboard...")
 	if err := dashManager.Start(); err != nil {
+
 		return fmt.Errorf("failed to start dashboard: %w", err)
 	}
 
 	fmt.Println("✅ Dashboard restarted successfully.")
+
 	return nil
 }
 
@@ -161,11 +179,13 @@ func restartTaskScheduler(configFile string) error {
 	fmt.Println("Restarting MCP task scheduler...")
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
@@ -173,9 +193,11 @@ func restartTaskScheduler(configFile string) error {
 	taskManager.SetConfigFile(configFile)
 
 	if err := taskManager.Restart(); err != nil {
+
 		return fmt.Errorf("failed to restart task scheduler: %w", err)
 	}
 
 	fmt.Println("✅ Task scheduler restarted successfully.")
+
 	return nil
 }

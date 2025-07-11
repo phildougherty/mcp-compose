@@ -13,8 +13,10 @@ func NewValidateCommand() *cobra.Command {
 		Short: "Validate the compose file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
+
 			return compose.Validate(file)
 		},
 	}
+
 	return cmd
 }

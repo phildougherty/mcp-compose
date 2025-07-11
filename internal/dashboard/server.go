@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 
@@ -78,6 +79,7 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 	funcMap := template.FuncMap{
 		"json": func(v interface{}) (string, error) {
 			b, err := json.Marshal(v)
+
 			return string(b), err
 		},
 	}
@@ -97,9 +99,10 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		apiKey:    apiKey,
 		templates: tmpl,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:  constants.WebSocketBufferSize,
+			WriteBufferSize: constants.WebSocketBufferSize,
 			CheckOrigin: func(r *http.Request) bool {
+
 				return true // In production, implement proper origin checking
 			},
 		},
@@ -108,10 +111,12 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 				// Get configurable timeout or use default
 				if len(cfg.Connections) > 0 {
 					for _, conn := range cfg.Connections {
+
 						return conn.Timeouts.GetConnectTimeout()
 					}
 				}
-				return 10 * time.Second // Default fallback
+
+				return constants.DefaultStatsTimeout // Default fallback
 			}(),
 		},
 	}
@@ -122,15 +127,16 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 	// Start cleanup goroutine
 	go server.startInspectorCleanup()
 
+
 	return server
 }
 
 func (d *DashboardServer) startInspectorCleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(constants.DefaultCleanupInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		count := d.inspectorService.CleanupExpiredSessions(30 * time.Minute)
+		count := d.inspectorService.CleanupExpiredSessions(constants.DefaultSessionCleanupTime)
 		if count > 0 {
 			d.logger.Info("Cleaned up %d expired inspector sessions", count)
 		}
@@ -150,10 +156,14 @@ func (d *DashboardServer) Start(port int, host string) error {
 		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, ".css") {
 				w.Header().Set("Content-Type", "text/css")
-				w.Write([]byte(`/* Basic fallback CSS */`))
+				if _, err := w.Write([]byte(`/* Basic fallback CSS */`)); err != nil {
+				d.logger.Error("Failed to write CSS fallback: %v", err)
+			}
 			} else if strings.HasSuffix(r.URL.Path, ".js") {
 				w.Header().Set("Content-Type", "application/javascript")
-				w.Write([]byte(`// Basic fallback JS`))
+				if _, err := w.Write([]byte(`// Basic fallback JS`)); err != nil {
+				d.logger.Error("Failed to write JS fallback: %v", err)
+			}
 			} else {
 				http.NotFound(w, r)
 			}
@@ -301,6 +311,7 @@ func (d *DashboardServer) Start(port int, host string) error {
 			strings.Contains(r.URL.Path, "/tokens") {
 			d.logger.Info("Routing to OAuth API proxy")
 			d.handleOAuthAPIProxy(w, r)
+
 			return
 		}
 		d.logger.Info("Routing to general API proxy")
@@ -330,15 +341,16 @@ func (d *DashboardServer) Start(port int, host string) error {
 	d.logger.Info("Starting MCP-Compose Dashboard at http://%s", addr)
 
 	// Get configurable timeouts or use defaults
-	readTimeout := 15 * time.Second
-	writeTimeout := 15 * time.Second
-	idleTimeout := 60 * time.Second
-	
+	readTimeout := constants.ShortTimeout
+	writeTimeout := constants.ShortTimeout
+	idleTimeout := constants.DefaultIdleTimeout
+
 	if len(d.config.Connections) > 0 {
 		for _, conn := range d.config.Connections {
 			readTimeout = conn.Timeouts.GetReadTimeout()
 			writeTimeout = conn.Timeouts.GetWriteTimeout()
 			idleTimeout = conn.Timeouts.GetIdleTimeout()
+
 			break
 		}
 	}
@@ -352,16 +364,19 @@ func (d *DashboardServer) Start(port int, host string) error {
 	}
 
 	d.logger.Info("Dashboard server starting...")
+
 	return server.ListenAndServe()
 }
 
 // Helper to handle API methods properly
 func (d *DashboardServer) handleAPIRequest(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Support HEAD for all API endpoints
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
+
 			return
 		}
 		handler(w, r)
@@ -389,6 +404,7 @@ func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 	url := d.proxyURL + endpoint
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -398,14 +414,21 @@ func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
+
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			d.logger.Error("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return nil, fmt.Errorf("proxy returned status %d: %s", resp.StatusCode, string(body))
 	}
+
 
 	return io.ReadAll(resp.Body)
 }
@@ -413,6 +436,7 @@ func (d *DashboardServer) proxyRequest(endpoint string) ([]byte, error) {
 func (d *DashboardServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -420,6 +444,7 @@ func (d *DashboardServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/api/logs/"):]
 	if path == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
+
 		return
 	}
 
@@ -433,20 +458,24 @@ func (d *DashboardServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		d.logger.Error("Failed to get logs for %s: %v", containerName, err)
 		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"container": containerName,
 		"logs":      logs,
 		"timestamp": time.Now().Format(time.RFC3339),
-	})
+	}); err != nil {
+		d.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleActivityHistory(w http.ResponseWriter, r *http.Request) {
 	if activityBroadcaster.storage == nil {
 		http.Error(w, "Activity storage not available", http.StatusServiceUnavailable)
+
 		return
 	}
 
@@ -471,28 +500,33 @@ func (d *DashboardServer) handleActivityHistory(w http.ResponseWriter, r *http.R
 	activities, err := activityBroadcaster.storage.GetRecentActivities(limit, since)
 	if err != nil {
 		http.Error(w, "Failed to retrieve activities", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"activities": activities,
 		"count":      len(activities),
-	})
+	}); err != nil {
+		d.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (d *DashboardServer) handleActivityStats(w http.ResponseWriter, r *http.Request) {
 	if activityBroadcaster.storage == nil {
 		http.Error(w, "Activity storage not available", http.StatusServiceUnavailable)
+
 		return
 	}
 
 	stats, err := activityBroadcaster.storage.GetActivityStats()
 	if err != nil {
 		http.Error(w, "Failed to retrieve activity stats", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }

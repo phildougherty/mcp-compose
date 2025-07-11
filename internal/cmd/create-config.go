@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 
 	"github.com/spf13/cobra"
 )
@@ -29,31 +30,40 @@ This makes it easy to use your MCP servers with popular LLM client applications.
 			if outputDir == "" {
 				outputDir = "client-configs"
 			}
-			if err := os.MkdirAll(outputDir, 0755); err != nil {
+			if err := os.MkdirAll(outputDir, constants.DefaultDirMode); err != nil {
+
 				return fmt.Errorf("failed to create output directory: %w", err)
 			}
 			// Load the MCP compose configuration
 			cfg, err := config.LoadConfig(file)
 			if err != nil {
+
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			// Generate client configuration based on type
 			switch strings.ToLower(clientType) {
 			case "claude":
+
 				return generateClaudeConfig(cfg, outputDir)
 			case "anthropic":
+
 				return generateAnthropicConfig(cfg, outputDir)
 			case "openai":
+
 				return generateOpenAIConfig(cfg, outputDir)
 			case "all":
 				if err := generateClaudeConfig(cfg, outputDir); err != nil {
+
 					return err
 				}
 				if err := generateAnthropicConfig(cfg, outputDir); err != nil {
+
 					return err
 				}
+
 				return generateOpenAIConfig(cfg, outputDir)
 			default:
+
 				return fmt.Errorf("unknown client type: %s", clientType)
 			}
 		},
@@ -61,6 +71,7 @@ This makes it easy to use your MCP servers with popular LLM client applications.
 	// Use different flag names to avoid conflict with the global -c flag
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "client-configs", "Directory to output client configurations")
 	cmd.Flags().StringVarP(&clientType, "type", "t", "all", "Client type (claude, anthropic, openai, all)")
+
 	return cmd
 }
 
@@ -121,7 +132,8 @@ docker run --rm -i \
 			}
 
 			// Write the script
-			if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			if err := os.WriteFile(scriptPath, []byte(script), constants.ExecutableFileMode); err != nil {
+
 				return fmt.Errorf("failed to write script file: %w", err)
 			}
 
@@ -137,10 +149,12 @@ docker run --rm -i \
 	configPath := filepath.Join(outputDir, "claude-desktop-servers.json")
 	configData, err := json.MarshalIndent(servers, "", "  ")
 	if err != nil {
+
 		return fmt.Errorf("failed to marshal Claude Desktop config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Claude Desktop config file: %w", err)
 	}
 
@@ -149,6 +163,7 @@ docker run --rm -i \
 	fmt.Println("1. Open Claude Desktop")
 	fmt.Println("2. Go to Settings > MCP Servers")
 	fmt.Println("3. Click 'Import Servers' and select the generated file")
+
 
 	return nil
 }
@@ -202,6 +217,7 @@ def start_mcp_server(server_name):
     
     if "command" in server_config:
         # Process-based server
+
         return subprocess.Popen(
             [server_config["command"]] + server_config.get("args", []),
             stdin=subprocess.PIPE,
@@ -219,6 +235,7 @@ def start_mcp_server(server_name):
         else:
             cmd.append(server_config["image"])
         
+
         return subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -251,6 +268,7 @@ def query_claude_with_mcp(prompt, server_name=None):
         }]
     
     response = client.messages.create(**message_params)
+
     return response.content[0].text
 # Example usage
 if __name__ == "__main__":
@@ -270,7 +288,8 @@ if __name__ == "__main__":
 
 	// Write the Python script
 	pythonPath := filepath.Join(outputDir, "anthropic_mcp_example.py")
-	if err := os.WriteFile(pythonPath, []byte(pythonCode), 0644); err != nil {
+	if err := os.WriteFile(pythonPath, []byte(pythonCode), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Anthropic example script: %w", err)
 	}
 
@@ -279,6 +298,7 @@ if __name__ == "__main__":
 	fmt.Println("1. Install the Anthropic Python client: pip install anthropic")
 	fmt.Println("2. Set your ANTHROPIC_API_KEY environment variable")
 	fmt.Println("3. Run the example script: python anthropic_mcp_example.py")
+
 
 	return nil
 }
@@ -335,6 +355,7 @@ function startMcpServer(serverName) {
   
   if (serverConfig.command) {
     // Process-based server
+
     return spawn(
       serverConfig.command,
       serverConfig.args || [],
@@ -352,6 +373,7 @@ function startMcpServer(serverName) {
       cmd.push(serverConfig.image);
     }
     
+
     return spawn('docker', cmd, { stdio: ['pipe', 'pipe', 'pipe'] });
   }
 }
@@ -385,6 +407,7 @@ async function queryOpenAIWithMCP(prompt, serverName = null) {
   }
   
   const response = await openai.chat.completions.create(messageParams);
+
   return response.choices[0].message.content;
 }
 // Example usage
@@ -411,7 +434,8 @@ main();
 
 	// Write the JS script
 	jsPath := filepath.Join(outputDir, "openai_mcp_example.js")
-	if err := os.WriteFile(jsPath, []byte(jsCode), 0644); err != nil {
+	if err := os.WriteFile(jsPath, []byte(jsCode), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write OpenAI example script: %w", err)
 	}
 
@@ -431,7 +455,8 @@ main();
 `
 
 	packagePath := filepath.Join(outputDir, "package.json")
-	if err := os.WriteFile(packagePath, []byte(packageJSON), 0644); err != nil {
+	if err := os.WriteFile(packagePath, []byte(packageJSON), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write package.json file: %w", err)
 	}
 
@@ -440,6 +465,7 @@ main();
 	fmt.Println("1. Install dependencies: npm install")
 	fmt.Println("2. Set your OPENAI_API_KEY environment variable")
 	fmt.Println("3. Run the example script: npm start")
+
 
 	return nil
 }
@@ -450,6 +476,7 @@ func formatStrListPython(strs []string) string {
 	for i, s := range strs {
 		items[i] = fmt.Sprintf(`"%s"`, s)
 	}
+
 	return "[" + strings.Join(items, ", ") + "]"
 }
 
@@ -459,5 +486,6 @@ func formatStrListJS(strs []string) string {
 	for i, s := range strs {
 		items[i] = fmt.Sprintf(`'%s'`, s)
 	}
+
 	return "[" + strings.Join(items, ", ") + "]"
 }

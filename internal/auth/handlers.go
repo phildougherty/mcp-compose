@@ -18,11 +18,15 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
+
 		return
 	}
 
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -31,6 +35,8 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		s.logger.Error("Failed to parse authorization request: %v", err)
 		s.redirectWithError(w, r, "", "invalid_request", err.Error(), "")
+
+
 		return
 	}
 
@@ -41,6 +47,8 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 	if !exists {
 		s.logger.Error("Unknown client: %s", authReq.ClientID)
 		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_client", "Unknown client", authReq.State)
+
+
 		return
 	}
 
@@ -48,18 +56,24 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 	if !s.validateRedirectURI(client, authReq.RedirectURI) {
 		s.logger.Error("Invalid redirect URI: %s for client: %s", authReq.RedirectURI, authReq.ClientID)
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+
+
 		return
 	}
 
 	// Validate response type
 	if !contains(client.ResponseTypes, authReq.ResponseType) {
 		s.redirectWithError(w, r, authReq.RedirectURI, "unsupported_response_type", "Response type not supported for this client", authReq.State)
+
+
 		return
 	}
 
 	// Validate scope
 	if authReq.Scope != "" && !s.validateScope(authReq.Scope) {
 		s.redirectWithError(w, r, authReq.RedirectURI, "invalid_scope", "Invalid scope", authReq.State)
+
+
 		return
 	}
 
@@ -67,6 +81,8 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 	if r.Method == http.MethodGet {
 		s.logger.Info("Showing authorization page for client: %s", authReq.ClientID)
 		s.showAutoApprovalPage(w, r, authReq, client)
+
+
 		return
 	}
 
@@ -74,6 +90,8 @@ func (s *AuthorizationServer) HandleAuthorize(w http.ResponseWriter, r *http.Req
 	if r.Method == http.MethodPost {
 		s.logger.Info("Processing authorization POST for client: %s", authReq.ClientID)
 		s.processAuthorization(w, r, authReq, client)
+
+
 		return
 	}
 }
@@ -136,7 +154,9 @@ func (s *AuthorizationServer) showAutoApprovalPage(w http.ResponseWriter, _ *htt
 	)
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		s.logger.Error("Failed to write authorization form: %v", err)
+	}
 }
 
 func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *http.Request, authReq *AuthorizationRequest, client *OAuthClient) {
@@ -144,6 +164,8 @@ func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *htt
 	if err := r.ParseForm(); err != nil {
 		s.logger.Error("Failed to parse authorization form: %v", err)
 		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to parse form", authReq.State)
+
+
 		return
 	}
 
@@ -153,6 +175,8 @@ func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *htt
 	if action != "approve" {
 		s.logger.Info("User denied authorization for client: %s", authReq.ClientID)
 		s.redirectWithError(w, r, authReq.RedirectURI, "access_denied", "User denied authorization", authReq.State)
+
+
 		return
 	}
 
@@ -176,6 +200,8 @@ func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *htt
 	if err != nil {
 		s.logger.Error("Failed to generate authorization code: %v", err)
 		s.redirectWithError(w, r, authReq.RedirectURI, "server_error", "Failed to generate authorization code", authReq.State)
+
+
 		return
 	}
 
@@ -186,6 +212,8 @@ func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *htt
 	if err != nil {
 		s.logger.Error("Invalid redirect URI: %v", err)
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -203,13 +231,19 @@ func (s *AuthorizationServer) processAuthorization(w http.ResponseWriter, r *htt
 // Helper functions
 func getClientDisplayName(client *OAuthClient) string {
 	if client.ClientName != "" {
+
+
 		return client.ClientName
 	}
+
+
 	return client.ID
 }
 
 func formatScopes(scope string) string {
 	if scope == "" {
+
+
 		return "No specific permissions requested"
 	}
 
@@ -229,6 +263,8 @@ func formatScopes(scope string) string {
 			formatted[i] = "• " + s
 		}
 	}
+
+
 	return strings.Join(formatted, "<br>")
 }
 
@@ -236,12 +272,16 @@ func formatScopes(scope string) string {
 func (s *AuthorizationServer) HandleToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
 	// Parse request
 	if err := r.ParseForm(); err != nil {
 		s.sendTokenError(w, "invalid_request", "Failed to parse request")
+
+
 		return
 	}
 
@@ -262,23 +302,31 @@ func (s *AuthorizationServer) HandleToken(w http.ResponseWriter, r *http.Request
 func (s *AuthorizationServer) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if !s.dynamicClients {
 		http.Error(w, "Dynamic client registration not supported", http.StatusNotFound)
+
+
 		return
 	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
 	var config OAuthConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+
+
 		return
 	}
 
 	// Validate registration request
 	if len(config.RedirectURIs) == 0 {
 		http.Error(w, "redirect_uris is required", http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -287,6 +335,8 @@ func (s *AuthorizationServer) HandleRegister(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		s.logger.Error("Failed to register client: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -347,10 +397,14 @@ func (s *AuthorizationServer) parseAuthorizationRequest(r *http.Request) (*Autho
 		query = r.URL.Query()
 	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
+
+
 			return nil, fmt.Errorf("failed to parse form: %w", err)
 		}
 		query = r.Form
 	default:
+
+
 		return nil, fmt.Errorf("unsupported method: %s", r.Method)
 	}
 
@@ -367,9 +421,13 @@ func (s *AuthorizationServer) parseAuthorizationRequest(r *http.Request) (*Autho
 
 	// Validate required parameters
 	if req.ResponseType == "" {
+
+
 		return nil, fmt.Errorf("response_type is required")
 	}
 	if req.ClientID == "" {
+
+
 		return nil, fmt.Errorf("client_id is required")
 	}
 
@@ -377,6 +435,7 @@ func (s *AuthorizationServer) parseAuthorizationRequest(r *http.Request) (*Autho
 	if req.CodeChallenge != "" && req.CodeChallengeMethod == "" {
 		req.CodeChallengeMethod = "plain"
 	}
+
 
 	return req, nil
 }
@@ -401,6 +460,8 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 	client, err := s.ValidateClient(clientID, clientSecret)
 	if err != nil {
 		s.sendTokenError(w, "invalid_client", err.Error())
+
+
 		return
 	}
 
@@ -410,6 +471,8 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 	if !exists {
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Invalid authorization code")
+
+
 		return
 	}
 
@@ -418,6 +481,8 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 		delete(s.authCodes, code)
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Authorization code expired")
+
+
 		return
 	}
 
@@ -425,12 +490,16 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 	if authCode.ClientID != clientID {
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Authorization code was not issued to this client")
+
+
 		return
 	}
 
 	if authCode.RedirectURI != redirectURI {
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Redirect URI mismatch")
+
+
 		return
 	}
 
@@ -439,12 +508,16 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 		if codeVerifier == "" {
 			s.mu.Unlock()
 			s.sendTokenError(w, "invalid_grant", "Code verifier required")
+
+
 			return
 		}
 
 		if !s.codeVerifier.VerifyCodeChallenge(codeVerifier, authCode.Challenge, authCode.ChallengeMethod) {
 			s.mu.Unlock()
 			s.sendTokenError(w, "invalid_grant", "Invalid code verifier")
+
+
 			return
 		}
 	}
@@ -454,6 +527,8 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 	if err != nil {
 		s.mu.Unlock()
 		s.sendTokenError(w, "server_error", "Failed to generate access token")
+
+
 		return
 	}
 
@@ -464,6 +539,8 @@ func (s *AuthorizationServer) handleAuthorizationCodeGrant(w http.ResponseWriter
 		if err != nil {
 			s.mu.Unlock()
 			s.sendTokenError(w, "server_error", "Failed to generate refresh token")
+
+
 			return
 		}
 	}
@@ -513,18 +590,24 @@ func (s *AuthorizationServer) handleClientCredentialsGrant(w http.ResponseWriter
 	client, err := s.ValidateClient(clientID, clientSecret)
 	if err != nil {
 		s.sendTokenError(w, "invalid_client", err.Error())
+
+
 		return
 	}
 
 	// Check if client credentials grant is supported
 	if !contains(client.GrantTypes, "client_credentials") {
 		s.sendTokenError(w, "unauthorized_client", "Client credentials grant not allowed for this client")
+
+
 		return
 	}
 
 	// Validate scope
 	if scope != "" && !s.validateScope(scope) {
 		s.sendTokenError(w, "invalid_scope", "Invalid scope")
+
+
 		return
 	}
 
@@ -532,6 +615,8 @@ func (s *AuthorizationServer) handleClientCredentialsGrant(w http.ResponseWriter
 	accessToken, err := s.generateAccessToken(client.ID, "", scope)
 	if err != nil {
 		s.sendTokenError(w, "server_error", "Failed to generate access token")
+
+
 		return
 	}
 
@@ -562,6 +647,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 
 	if refreshTokenValue == "" {
 		s.sendTokenError(w, "invalid_request", "refresh_token is required")
+
+
 		return
 	}
 
@@ -577,6 +664,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	client, err := s.ValidateClient(clientID, clientSecret)
 	if err != nil {
 		s.sendTokenError(w, "invalid_client", err.Error())
+
+
 		return
 	}
 
@@ -586,6 +675,7 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	for _, rt := range s.refreshTokens {
 		if rt.Token == refreshTokenValue && rt.ClientID == clientID {
 			refreshToken = rt
+
 			break
 		}
 	}
@@ -593,6 +683,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	if refreshToken == nil {
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Invalid refresh token")
+
+
 		return
 	}
 
@@ -601,6 +693,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 		delete(s.refreshTokens, refreshToken.Token)
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_grant", "Refresh token expired")
+
+
 		return
 	}
 
@@ -609,6 +703,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	if scope != "" && !s.isScopeSubset(scope, originalScope) {
 		s.mu.Unlock()
 		s.sendTokenError(w, "invalid_scope", "Requested scope exceeds original scope")
+
+
 		return
 	}
 
@@ -622,6 +718,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	if err != nil {
 		s.mu.Unlock()
 		s.sendTokenError(w, "server_error", "Failed to generate access token")
+
+
 		return
 	}
 
@@ -630,6 +728,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 	if err != nil {
 		s.mu.Unlock()
 		s.sendTokenError(w, "server_error", "Failed to generate refresh token")
+
+
 		return
 	}
 
@@ -660,6 +760,8 @@ func (s *AuthorizationServer) handleRefreshTokenGrant(w http.ResponseWriter, r *
 func (s *AuthorizationServer) generateAuthorizationCode(clientID, userID, redirectURI, scope, challenge, challengeMethod string) (*AuthorizationCode, error) {
 	code, err := s.tokenGenerator.GenerateAuthorizationCode()
 	if err != nil {
+
+
 		return nil, err
 	}
 
@@ -676,12 +778,16 @@ func (s *AuthorizationServer) generateAuthorizationCode(clientID, userID, redire
 	}
 
 	s.authCodes[code] = authCode
+
+
 	return authCode, nil
 }
 
 func (s *AuthorizationServer) generateAccessToken(clientID, userID, scope string) (*AccessToken, error) {
 	token, err := s.tokenGenerator.GenerateAccessToken()
 	if err != nil {
+
+
 		return nil, err
 	}
 
@@ -696,12 +802,16 @@ func (s *AuthorizationServer) generateAccessToken(clientID, userID, scope string
 	}
 
 	s.accessTokens[token] = accessToken
+
+
 	return accessToken, nil
 }
 
 func (s *AuthorizationServer) generateRefreshToken(clientID, userID, scope string) (*RefreshToken, error) {
 	token, err := s.tokenGenerator.GenerateRefreshToken()
 	if err != nil {
+
+
 		return nil, err
 	}
 
@@ -715,15 +825,21 @@ func (s *AuthorizationServer) generateRefreshToken(clientID, userID, scope strin
 	}
 
 	s.refreshTokens[token] = refreshToken
+
+
 	return refreshToken, nil
 }
 
 func (s *AuthorizationServer) validateRedirectURI(client *OAuthClient, uri string) bool {
 	for _, registeredURI := range client.RedirectURIs {
 		if registeredURI == uri {
+
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
@@ -734,13 +850,18 @@ func (s *AuthorizationServer) validateScope(scope string) bool {
 		for _, supportedScope := range s.supportedScopes {
 			if supportedScope == requestedScope || supportedScope == "mcp:*" {
 				valid = true
+
 				break
 			}
 		}
 		if !valid {
+
+
 			return false
 		}
 	}
+
+
 	return true
 }
 
@@ -750,9 +871,13 @@ func (s *AuthorizationServer) isScopeSubset(requested, original string) bool {
 
 	for _, reqScope := range requestedScopes {
 		if !contains(originalScopes, reqScope) {
+
+
 			return false
 		}
 	}
+
+
 	return true
 }
 
@@ -767,18 +892,24 @@ func (s *AuthorizationServer) sendTokenError(w http.ResponseWriter, errorCode, d
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 func (s *AuthorizationServer) redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, errorCode, description, state string) {
 	if redirectURI == "" {
 		http.Error(w, fmt.Sprintf("%s: %s", errorCode, description), http.StatusBadRequest)
+
+
 		return
 	}
 
 	redirectURL, err := url.Parse(redirectURI)
 	if err != nil {
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+
+
 		return
 	}
 
@@ -796,9 +927,13 @@ func (s *AuthorizationServer) redirectWithError(w http.ResponseWriter, r *http.R
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
+
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
@@ -806,6 +941,8 @@ func contains(slice []string, item string) bool {
 func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
@@ -813,6 +950,8 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 	token := s.extractBearerToken(r)
 	if token == "" {
 		s.sendUserInfoError(w, "invalid_token", "Access token required")
+
+
 		return
 	}
 
@@ -820,6 +959,8 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 	accessToken, err := s.ValidateAccessToken(token)
 	if err != nil {
 		s.sendUserInfoError(w, "invalid_token", err.Error())
+
+
 		return
 	}
 
@@ -827,6 +968,8 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 	client, exists := s.GetClient(accessToken.ClientID)
 	if !exists {
 		s.sendUserInfoError(w, "invalid_token", "Invalid client")
+
+
 		return
 	}
 
@@ -873,12 +1016,16 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+
 		return
 	}
 
 	// Parse request
 	if err := r.ParseForm(); err != nil {
 		s.sendRevokeError(w, "invalid_request", "Failed to parse request")
+
+
 		return
 	}
 
@@ -889,6 +1036,8 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 
 	if token == "" {
 		s.sendRevokeError(w, "invalid_request", "token parameter is required")
+
+
 		return
 	}
 
@@ -906,6 +1055,8 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 		client, err := s.ValidateClient(clientID, clientSecret)
 		if err != nil {
 			s.sendRevokeError(w, "invalid_client", err.Error())
+
+
 			return
 		}
 		authenticatedClient = client
@@ -968,20 +1119,27 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Return empty JSON object as per RFC 7009
-	w.Write([]byte("{}"))
+	if _, err := w.Write([]byte("{}")); err != nil {
+		s.logger.Error("Failed to write revocation response: %v", err)
+	}
 }
 
 // Helper method to extract bearer token for userinfo
 func (s *AuthorizationServer) extractBearerToken(r *http.Request) string {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+
+
 		return ""
 	}
 
-	parts := strings.SplitN(authHeader, " ", 2)
+	parts := strings.SplitN(authHeader, " ", AuthHeaderSplitParts)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+
+
 		return ""
 	}
+
 
 	return parts[1]
 }
@@ -997,7 +1155,9 @@ func (s *AuthorizationServer) sendUserInfoError(w http.ResponseWriter, errorCode
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }
 
 // Helper method to send revoke errors
@@ -1022,5 +1182,7 @@ func (s *AuthorizationServer) sendRevokeError(w http.ResponseWriter, errorCode, 
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response: %v", err)
+	}
 }

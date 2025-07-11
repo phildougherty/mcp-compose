@@ -4,6 +4,8 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+
+	"mcpcompose/internal/constants"
 )
 
 // Standard JSON-RPC 2.0 error codes
@@ -48,8 +50,12 @@ type MCPError struct {
 func (e *MCPError) Error() string {
 	if len(e.Data) > 0 {
 		dataJson, _ := json.Marshal(e.Data)
+
+
 		return fmt.Sprintf("MCP Error %d: %s (data: %s)", e.Code, e.Message, string(dataJson))
 	}
+
+
 	return fmt.Sprintf("MCP Error %d: %s", e.Code, e.Message)
 }
 
@@ -62,11 +68,14 @@ func NewMCPError(code int, message string, data ...map[string]interface{}) *MCPE
 	if len(data) > 0 && data[0] != nil {
 		err.Data = data[0]
 	}
+
+
 	return err
 }
 
 // Standard JSON-RPC error constructors
 func NewParseError(details string) *MCPError {
+
 	return NewMCPError(ParseError, "Parse error", map[string]interface{}{
 		"details": details,
 		"type":    "parse_error",
@@ -74,6 +83,7 @@ func NewParseError(details string) *MCPError {
 }
 
 func NewInvalidRequest(details string) *MCPError {
+
 	return NewMCPError(InvalidRequest, "Invalid Request", map[string]interface{}{
 		"details": details,
 		"type":    "invalid_request",
@@ -81,6 +91,7 @@ func NewInvalidRequest(details string) *MCPError {
 }
 
 func NewMethodNotFound(method string) *MCPError {
+
 	return NewMCPError(MethodNotFound, fmt.Sprintf("Method not found: %s", method), map[string]interface{}{
 		"method": method,
 		"type":   "method_not_found",
@@ -95,10 +106,13 @@ func NewInvalidParams(details string, params interface{}) *MCPError {
 	if params != nil {
 		data["provided_params"] = params
 	}
+
+
 	return NewMCPError(InvalidParams, "Invalid params", data)
 }
 
 func NewInternalError(details string) *MCPError {
+
 	return NewMCPError(InternalError, "Internal error", map[string]interface{}{
 		"details": details,
 		"type":    "internal_error",
@@ -107,6 +121,7 @@ func NewInternalError(details string) *MCPError {
 
 // MCP-specific error constructors using safe error codes
 func NewRequestTimeout(operation string, timeout string) *MCPError {
+
 	return NewMCPError(RequestTimeout, "Request timed out", map[string]interface{}{
 		"operation": operation,
 		"timeout":   timeout,
@@ -115,6 +130,7 @@ func NewRequestTimeout(operation string, timeout string) *MCPError {
 }
 
 func NewTransportError(transport string, details string) *MCPError {
+
 	return NewMCPError(TransportError, "Transport error", map[string]interface{}{
 		"transport": transport,
 		"details":   details,
@@ -123,6 +139,7 @@ func NewTransportError(transport string, details string) *MCPError {
 }
 
 func NewSessionError(sessionId string, details string) *MCPError {
+
 	return NewMCPError(SessionError, "Session error", map[string]interface{}{
 		"session_id": sessionId,
 		"details":    details,
@@ -131,6 +148,7 @@ func NewSessionError(sessionId string, details string) *MCPError {
 }
 
 func NewCapabilityError(capability string, details string) *MCPError {
+
 	return NewMCPError(CapabilityError, "Capability error", map[string]interface{}{
 		"capability": capability,
 		"details":    details,
@@ -139,6 +157,7 @@ func NewCapabilityError(capability string, details string) *MCPError {
 }
 
 func NewProtocolError(expectedVersion string, actualVersion string) *MCPError {
+
 	return NewMCPError(ProtocolError, "Protocol version mismatch", map[string]interface{}{
 		"expected_version": expectedVersion,
 		"actual_version":   actualVersion,
@@ -147,6 +166,7 @@ func NewProtocolError(expectedVersion string, actualVersion string) *MCPError {
 }
 
 func NewAuthenticationError(details string) *MCPError {
+
 	return NewMCPError(AuthenticationError, "Authentication failed", map[string]interface{}{
 		"details": details,
 		"type":    "authentication_error",
@@ -154,6 +174,7 @@ func NewAuthenticationError(details string) *MCPError {
 }
 
 func NewAuthorizationError(resource string, action string) *MCPError {
+
 	return NewMCPError(AuthorizationError, "Authorization failed", map[string]interface{}{
 		"resource": resource,
 		"action":   action,
@@ -162,6 +183,7 @@ func NewAuthorizationError(resource string, action string) *MCPError {
 }
 
 func NewRateLimitError(limit string, window string) *MCPError {
+
 	return NewMCPError(RateLimitError, "Rate limit exceeded", map[string]interface{}{
 		"limit":  limit,
 		"window": window,
@@ -170,6 +192,7 @@ func NewRateLimitError(limit string, window string) *MCPError {
 }
 
 func NewResourceError(resource string, operation string, details string) *MCPError {
+
 	return NewMCPError(ResourceError, "Resource access error", map[string]interface{}{
 		"resource":  resource,
 		"operation": operation,
@@ -179,6 +202,7 @@ func NewResourceError(resource string, operation string, details string) *MCPErr
 }
 
 func NewValidationError(field string, value interface{}, constraint string) *MCPError {
+
 	return NewMCPError(ValidationError, "Input validation failed", map[string]interface{}{
 		"field":      field,
 		"value":      value,
@@ -188,6 +212,7 @@ func NewValidationError(field string, value interface{}, constraint string) *MCP
 }
 
 func NewExecutionError(tool string, details string) *MCPError {
+
 	return NewMCPError(ExecutionError, "Execution failed", map[string]interface{}{
 		"tool":    tool,
 		"details": details,
@@ -196,6 +221,7 @@ func NewExecutionError(tool string, details string) *MCPError {
 }
 
 func NewStateError(expectedState string, actualState string) *MCPError {
+
 	return NewMCPError(StateError, "Invalid server state", map[string]interface{}{
 		"expected_state": expectedState,
 		"actual_state":   actualState,
@@ -204,6 +230,7 @@ func NewStateError(expectedState string, actualState string) *MCPError {
 }
 
 func NewConfigurationError(component string, details string) *MCPError {
+
 	return NewMCPError(ConfigurationError, "Configuration error", map[string]interface{}{
 		"component": component,
 		"details":   details,
@@ -215,14 +242,17 @@ func NewConfigurationError(component string, details string) *MCPError {
 func (e *MCPError) IsRetryable() bool {
 	switch e.Code {
 	case RequestTimeout, TransportError, SessionError, RateLimitError:
+
 		return true
 	default:
+
 		return false
 	}
 }
 
 // IsTemporary returns true if the error is likely temporary
 func (e *MCPError) IsTemporary() bool {
+
 	return e.IsRetryable()
 }
 
@@ -230,12 +260,16 @@ func (e *MCPError) IsTemporary() bool {
 func (e *MCPError) GetRetryDelay() int {
 	switch e.Code {
 	case RequestTimeout, TransportError:
-		return 5
+
+		return constants.ProtocolErrorTimeout5
 	case SessionError:
-		return 30
+
+		return constants.ProtocolErrorTimeout30
 	case RateLimitError:
-		return 60
+
+		return constants.ProtocolErrorTimeout60
 	default:
+
 		return 0
 	}
 }

@@ -13,8 +13,10 @@ func NewUpCommand() *cobra.Command {
 		Short: "Create and start MCP servers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
+
 			return compose.Up(file, args)
 		},
 	}
+
 	return cmd
 }

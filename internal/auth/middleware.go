@@ -29,6 +29,8 @@ type APIKeyMiddleware struct {
 
 // NewAPIKeyMiddleware creates a new APIKeyMiddleware
 func NewAPIKeyMiddleware(apiKey string, next http.Handler) *APIKeyMiddleware {
+
+
 	return &APIKeyMiddleware{
 		APIKey: apiKey,
 		Next:   next,
@@ -40,6 +42,8 @@ func (m *APIKeyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Skip authentication for OPTIONS requests
 	if r.Method == "OPTIONS" {
 		m.Next.ServeHTTP(w, r)
+
+
 		return
 	}
 
@@ -47,12 +51,16 @@ func (m *APIKeyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+
+
 		return
 	}
 
 	// Check if it's a Bearer token
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+
+
 		return
 	}
 
@@ -60,6 +68,8 @@ func (m *APIKeyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token != m.APIKey {
 		http.Error(w, "Invalid API key", http.StatusForbidden)
+
+
 		return
 	}
 
@@ -79,6 +89,8 @@ type AuthenticationMiddleware struct {
 
 // NewAuthenticationMiddleware creates a new authentication middleware
 func NewAuthenticationMiddleware(server *AuthorizationServer) *AuthenticationMiddleware {
+
+
 	return &AuthenticationMiddleware{
 		server: server,
 	}
@@ -91,16 +103,22 @@ func (m *AuthenticationMiddleware) SetAPIKey(apiKey string) {
 
 // RequireAuthentication middleware that requires valid OAuth token or API key
 func (m *AuthenticationMiddleware) RequireAuthentication(next http.Handler) http.Handler {
+
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip authentication for OPTIONS requests
 		if r.Method == "OPTIONS" {
 			next.ServeHTTP(w, r)
+
+
 			return
 		}
 
 		token := m.extractToken(r)
 		if token == "" {
 			m.sendUnauthorized(w, "missing_token", "Access token required")
+
+
 			return
 		}
 
@@ -111,6 +129,8 @@ func (m *AuthenticationMiddleware) RequireAuthentication(next http.Handler) http
 			client, exists := m.server.GetClient(accessToken.ClientID)
 			if !exists {
 				m.sendUnauthorized(w, "invalid_token", "Invalid client")
+
+
 				return
 			}
 
@@ -122,6 +142,8 @@ func (m *AuthenticationMiddleware) RequireAuthentication(next http.Handler) http
 			ctx = context.WithValue(ctx, AuthTypeContextKey, "oauth")
 
 			next.ServeHTTP(w, r.WithContext(ctx))
+
+
 			return
 		}
 
@@ -130,6 +152,8 @@ func (m *AuthenticationMiddleware) RequireAuthentication(next http.Handler) http
 			// API key authentication successful
 			ctx := context.WithValue(r.Context(), AuthTypeContextKey, "api_key")
 			next.ServeHTTP(w, r.WithContext(ctx))
+
+
 			return
 		}
 
@@ -144,18 +168,26 @@ func (m *AuthenticationMiddleware) RequireAuthentication(next http.Handler) http
 
 // RequireScope middleware that requires specific OAuth scope
 func (m *AuthenticationMiddleware) RequireScope(requiredScope string) func(http.Handler) http.Handler {
+
+
 	return func(next http.Handler) http.Handler {
+
+
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check auth type
 			authType, ok := r.Context().Value(AuthTypeContextKey).(string)
 			if !ok {
 				m.sendForbidden(w, "insufficient_scope", "No authentication information")
+
+
 				return
 			}
 
 			// API key authentication bypasses scope checks (for backward compatibility)
 			if authType == "api_key" {
 				next.ServeHTTP(w, r)
+
+
 				return
 			}
 
@@ -163,11 +195,15 @@ func (m *AuthenticationMiddleware) RequireScope(requiredScope string) func(http.
 			tokenScope, ok := r.Context().Value(ScopeContextKey).(string)
 			if !ok {
 				m.sendForbidden(w, "insufficient_scope", "No scope information")
+
+
 				return
 			}
 
 			if !m.hasScope(tokenScope, requiredScope) {
 				m.sendForbidden(w, "insufficient_scope", "Required scope not granted")
+
+
 				return
 			}
 
@@ -178,10 +214,14 @@ func (m *AuthenticationMiddleware) RequireScope(requiredScope string) func(http.
 
 // OptionalAuthentication middleware that optionally validates OAuth token or API key
 func (m *AuthenticationMiddleware) OptionalAuthentication(next http.Handler) http.Handler {
+
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := m.extractToken(r)
 		if token == "" {
 			next.ServeHTTP(w, r)
+
+
 			return
 		}
 
@@ -198,6 +238,8 @@ func (m *AuthenticationMiddleware) OptionalAuthentication(next http.Handler) htt
 				ctx = context.WithValue(ctx, AuthTypeContextKey, "oauth")
 
 				next.ServeHTTP(w, r.WithContext(ctx))
+
+
 				return
 			}
 		}
@@ -206,6 +248,8 @@ func (m *AuthenticationMiddleware) OptionalAuthentication(next http.Handler) htt
 		if m.apiKey != "" && token == m.apiKey {
 			ctx := context.WithValue(r.Context(), AuthTypeContextKey, "api_key")
 			next.ServeHTTP(w, r.WithContext(ctx))
+
+
 			return
 		}
 
@@ -216,20 +260,28 @@ func (m *AuthenticationMiddleware) OptionalAuthentication(next http.Handler) htt
 
 // RequireAPIKey middleware that only accepts API key authentication (legacy)
 func (m *AuthenticationMiddleware) RequireAPIKey(next http.Handler) http.Handler {
+
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m.apiKey == "" {
 			next.ServeHTTP(w, r)
+
+
 			return
 		}
 
 		token := m.extractToken(r)
 		if token == "" {
 			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+
+
 			return
 		}
 
 		if token != m.apiKey {
 			http.Error(w, "Invalid API key", http.StatusForbidden)
+
+
 			return
 		}
 
@@ -240,11 +292,17 @@ func (m *AuthenticationMiddleware) RequireAPIKey(next http.Handler) http.Handler
 
 // FlexibleAuthentication middleware that accepts either OAuth or API key with preference
 func (m *AuthenticationMiddleware) FlexibleAuthentication(preferOAuth bool) func(http.Handler) http.Handler {
+
+
 	return func(next http.Handler) http.Handler {
+
+
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := m.extractToken(r)
 			if token == "" {
 				m.sendUnauthorized(w, "missing_token", "Access token required")
+
+
 				return
 			}
 
@@ -293,6 +351,8 @@ func (m *AuthenticationMiddleware) FlexibleAuthentication(preferOAuth bool) func
 
 			if !authSuccessful {
 				m.sendUnauthorized(w, "invalid_token", "Invalid access token or API key")
+
+
 				return
 			}
 
@@ -305,13 +365,18 @@ func (m *AuthenticationMiddleware) FlexibleAuthentication(preferOAuth bool) func
 func (m *AuthenticationMiddleware) extractToken(r *http.Request) string {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+
+
 		return ""
 	}
 
-	parts := strings.SplitN(authHeader, " ", 2)
+	parts := strings.SplitN(authHeader, " ", AuthHeaderSplitParts)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+
+
 		return ""
 	}
+
 
 	return parts[1]
 }
@@ -319,6 +384,8 @@ func (m *AuthenticationMiddleware) extractToken(r *http.Request) string {
 // validateOAuthToken validates an OAuth access token
 func (m *AuthenticationMiddleware) validateOAuthToken(token string) (*AccessToken, error) {
 	if m.server == nil {
+
+
 		return nil, fmt.Errorf("OAuth server not configured")
 	}
 
@@ -327,19 +394,24 @@ func (m *AuthenticationMiddleware) validateOAuthToken(token string) (*AccessToke
 
 	accessToken, exists := m.server.accessTokens[token]
 	if !exists {
+
+
 		return nil, fmt.Errorf("invalid token")
 	}
 
 	// Check expiration
-	if time.Now().After(accessToken.ExpiresAt) {
+	if accessToken.ExpiresAt.IsZero() || time.Now().After(accessToken.ExpiresAt) {
 		// Remove expired token
 		go func() {
 			m.server.mu.Lock()
 			delete(m.server.accessTokens, token)
 			m.server.mu.Unlock()
 		}()
+
+
 		return nil, fmt.Errorf("token expired")
 	}
+
 
 	return accessToken, nil
 }
@@ -347,15 +419,21 @@ func (m *AuthenticationMiddleware) validateOAuthToken(token string) (*AccessToke
 // hasScope checks if token scope includes required scope
 func (m *AuthenticationMiddleware) hasScope(tokenScope, requiredScope string) bool {
 	if tokenScope == "" {
+
+
 		return false
 	}
 
 	scopes := strings.Fields(tokenScope)
 	for _, scope := range scopes {
 		if scope == requiredScope || scope == "mcp:*" {
+
+
 			return true
 		}
 	}
+
+
 	return false
 }
 
@@ -370,7 +448,9 @@ func (m *AuthenticationMiddleware) sendUnauthorized(w http.ResponseWriter, error
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.server.logger.Error("Failed to encode unauthorized response: %v", err)
+	}
 }
 
 // sendForbidden sends forbidden response
@@ -383,7 +463,9 @@ func (m *AuthenticationMiddleware) sendForbidden(w http.ResponseWriter, errorCod
 		"error_description": description,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.server.logger.Error("Failed to encode forbidden response: %v", err)
+	}
 }
 
 // Context helper functions
@@ -391,41 +473,55 @@ func (m *AuthenticationMiddleware) sendForbidden(w http.ResponseWriter, errorCod
 // GetClientFromContext extracts OAuth client from request context
 func GetClientFromContext(ctx context.Context) (*OAuthClient, bool) {
 	client, ok := ctx.Value(ClientContextKey).(*OAuthClient)
+
+
 	return client, ok
 }
 
 // GetTokenFromContext extracts access token from request context
 func GetTokenFromContext(ctx context.Context) (*AccessToken, bool) {
 	token, ok := ctx.Value(TokenContextKey).(*AccessToken)
+
+
 	return token, ok
 }
 
 // GetUserFromContext extracts user ID from request context
 func GetUserFromContext(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(UserContextKey).(string)
+
+
 	return userID, ok
 }
 
 // GetScopeFromContext extracts scope from request context
 func GetScopeFromContext(ctx context.Context) (string, bool) {
 	scope, ok := ctx.Value(ScopeContextKey).(string)
+
+
 	return scope, ok
 }
 
 // GetAuthTypeFromContext extracts authentication type from request context
 func GetAuthTypeFromContext(ctx context.Context) (string, bool) {
 	authType, ok := ctx.Value(AuthTypeContextKey).(string)
+
+
 	return authType, ok
 }
 
 // IsAPIKeyAuth checks if request was authenticated with API key
 func IsAPIKeyAuth(ctx context.Context) bool {
 	authType, ok := GetAuthTypeFromContext(ctx)
+
+
 	return ok && authType == "api_key"
 }
 
 // IsOAuthAuth checks if request was authenticated with OAuth
 func IsOAuthAuth(ctx context.Context) bool {
 	authType, ok := GetAuthTypeFromContext(ctx)
+
+
 	return ok && authType == "oauth"
 }

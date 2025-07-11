@@ -262,6 +262,7 @@ func DetectRuntime() (Runtime, error) {
 	dockerPath, err := exec.LookPath("docker")
 	if err == nil {
 		fmt.Println("Detected Docker runtime")
+
 		return NewDockerRuntime(dockerPath)
 	}
 
@@ -269,27 +270,32 @@ func DetectRuntime() (Runtime, error) {
 	podmanPath, err := exec.LookPath("podman")
 	if err == nil {
 		fmt.Println("Detected Podman runtime")
+
 		return NewPodmanRuntime(podmanPath)
 	}
 
 	// Return a null runtime that can only handle process-based servers
 	fmt.Println("No container runtime detected, only process-based servers will be supported")
+
 	return NewNullRuntime(), nil
 }
 
 // ValidateContainerOptions performs basic validation on container options
 func ValidateContainerOptions(opts *ContainerOptions) error {
 	if opts.Name == "" {
+
 		return fmt.Errorf("container name cannot be empty")
 	}
 
 	if opts.Image == "" && opts.Build.Context == "" {
+
 		return fmt.Errorf("container must specify either image or build context")
 	}
 
 	// Validate port mappings
 	for _, port := range opts.Ports {
 		if err := validatePortMapping(port); err != nil {
+
 			return fmt.Errorf("invalid port mapping '%s': %w", port, err)
 		}
 	}
@@ -297,6 +303,7 @@ func ValidateContainerOptions(opts *ContainerOptions) error {
 	// Validate volume mappings
 	for _, volume := range opts.Volumes {
 		if err := validateVolumeMapping(volume); err != nil {
+
 			return fmt.Errorf("invalid volume mapping '%s': %w", volume, err)
 		}
 	}
@@ -304,15 +311,18 @@ func ValidateContainerOptions(opts *ContainerOptions) error {
 	// Validate resource limits
 	if opts.CPUs != "" {
 		if err := validateCPULimit(opts.CPUs); err != nil {
+
 			return fmt.Errorf("invalid CPU limit '%s': %w", opts.CPUs, err)
 		}
 	}
 
 	if opts.Memory != "" {
 		if err := validateMemoryLimit(opts.Memory); err != nil {
+
 			return fmt.Errorf("invalid memory limit '%s': %w", opts.Memory, err)
 		}
 	}
+
 
 	return nil
 }
@@ -320,33 +330,41 @@ func ValidateContainerOptions(opts *ContainerOptions) error {
 // Helper validation functions
 func validatePortMapping(portMapping string) error {
 	if portMapping == "" {
+
 		return fmt.Errorf("empty port mapping")
 	}
 	// This can be enhanced with more sophisticated port mapping validation
+
 	return nil
 }
 
 func validateVolumeMapping(volumeMapping string) error {
 	if volumeMapping == "" {
+
 		return fmt.Errorf("empty volume mapping")
 	}
 	// This can be enhanced with more sophisticated volume mapping validation
+
 	return nil
 }
 
 func validateCPULimit(cpu string) error {
 	if cpu == "" {
+
 		return nil
 	}
 	// This can be enhanced with CPU limit validation
+
 	return nil
 }
 
 func validateMemoryLimit(memory string) error {
 	if memory == "" {
+
 		return nil
 	}
 	// This can be enhanced with memory limit validation
+
 	return nil
 }
 
@@ -445,11 +463,13 @@ func ConvertConfigToContainerOptions(serverName string, serverCfg config.ServerC
 		opts.SecurityOpt = append(opts.SecurityOpt, fmt.Sprintf("seccomp:%s", serverCfg.Security.Seccomp))
 	}
 
+
 	return opts
 }
 
 // GetDefaultContainerOptions returns default container options
 func GetDefaultContainerOptions() *ContainerOptions {
+
 	return &ContainerOptions{
 		RestartPolicy: "unless-stopped",
 		Networks:      []string{"mcp-net"},
@@ -464,6 +484,7 @@ func GetDefaultContainerOptions() *ContainerOptions {
 // MergeContainerOptions merges container options with defaults
 func MergeContainerOptions(opts, defaults *ContainerOptions) *ContainerOptions {
 	if opts == nil {
+
 		return defaults
 	}
 
@@ -478,6 +499,7 @@ func MergeContainerOptions(opts, defaults *ContainerOptions) *ContainerOptions {
 		merged.Networks = defaults.Networks
 	}
 
+
 	return &merged
 }
 
@@ -485,13 +507,16 @@ func MergeContainerOptions(opts, defaults *ContainerOptions) *ContainerOptions {
 func IsContainerRunning(runtime Runtime, containerName string) bool {
 	status, err := runtime.GetContainerStatus(containerName)
 	if err != nil {
+
 		return false
 	}
+
 	return status == "running"
 }
 
 // WaitForContainerReady waits for a container to be ready (running and healthy)
 func WaitForContainerReady(runtime Runtime, containerName string, maxWait int) error {
 	// This can be enhanced with more sophisticated readiness checking
+
 	return runtime.WaitForContainer(containerName, "running")
 }

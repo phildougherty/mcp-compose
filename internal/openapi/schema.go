@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// OpenAPISchema represents an OpenAPI 3.0 schema
+// OpenAPISchema represents an OpenAPI 3.0 schema.
 type OpenAPISchema struct {
 	OpenAPI    string                `json:"openapi"`
 	Info       Info                  `json:"info"`
@@ -17,7 +17,7 @@ type OpenAPISchema struct {
 	Security   []map[string][]string `json:"security,omitempty"`
 }
 
-// Enhanced ToolSpec with full MCP annotations
+// Enhanced ToolSpec with full MCP annotations.
 type ToolSpec struct {
 	Type        string                 `json:"type"`
 	Name        string                 `json:"name"`
@@ -27,7 +27,7 @@ type ToolSpec struct {
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 }
 
-// ToolAnnotations represents MCP tool annotations
+// ToolAnnotations represents MCP tool annotations.
 type ToolAnnotations struct {
 	ReadOnlyHint    bool `json:"readOnlyHint,omitempty"`    // Tool is read-only
 	DestructiveHint bool `json:"destructiveHint,omitempty"` // Tool may be destructive
@@ -100,7 +100,7 @@ type SecurityScheme struct {
 	In           string `json:"in,omitempty"`
 }
 
-// Enhanced Tool with MCP annotations
+// Enhanced Tool with MCP annotations.
 type Tool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -109,7 +109,7 @@ type Tool struct {
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 }
 
-// GenerateOpenAPISchema generates an OpenAPI schema for MCP tools with full annotations
+// GenerateOpenAPISchema generates an OpenAPI schema for MCP tools with full annotations.
 func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, error) {
 	schema := &OpenAPISchema{
 		OpenAPI: "3.1.0",
@@ -267,10 +267,11 @@ func GenerateOpenAPISchema(serverName string, tools []Tool) (*OpenAPISchema, err
 	// Add the specs to the schema
 	schema.Specs = specs
 
+
 	return schema, nil
 }
 
-// buildToolDescription creates enhanced description with MCP annotations
+// buildToolDescription creates enhanced description with MCP annotations.
 func buildToolDescription(tool Tool) string {
 	desc := tool.Description
 	if tool.Annotations != nil {
@@ -292,10 +293,12 @@ func buildToolDescription(tool Tool) string {
 			desc += fmt.Sprintf("\n\nMCP Hints: %s", strings.Join(hints, ", "))
 		}
 	}
+
+
 	return desc
 }
 
-// buildAnnotationDescription adds MCP annotation info to schema descriptions
+// buildAnnotationDescription adds MCP annotation info to schema descriptions.
 func buildAnnotationDescription(annotations *ToolAnnotations) string {
 	var parts []string
 	if annotations.ReadOnlyHint {
@@ -312,12 +315,15 @@ func buildAnnotationDescription(annotations *ToolAnnotations) string {
 	}
 
 	if len(parts) > 0 {
+
 		return "\n\nMCP Annotations:\n" + strings.Join(parts, "\n")
 	}
+
+
 	return ""
 }
 
-// addMCPSchemas adds standard MCP protocol schemas
+// addMCPSchemas adds standard MCP protocol schemas.
 func addMCPSchemas(schema *OpenAPISchema) {
 	// MCP Content schema
 	schema.Components.Schemas["MCPContent"] = Schema{
@@ -407,7 +413,7 @@ func addMCPSchemas(schema *OpenAPISchema) {
 	}
 }
 
-// convertJSONSchemaToOpenAPI converts a JSON Schema to an OpenAPI Schema
+// convertJSONSchemaToOpenAPI converts a JSON Schema to an OpenAPI Schema.
 func convertJSONSchemaToOpenAPI(jsonSchema map[string]interface{}) Schema {
 	schema := Schema{}
 
@@ -441,6 +447,7 @@ func convertJSONSchemaToOpenAPI(jsonSchema map[string]interface{}) Schema {
 		itemsSchema := convertJSONSchemaToOpenAPI(items)
 		schema.Items = &itemsSchema
 	}
+
 
 	return schema
 }

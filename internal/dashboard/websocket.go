@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"github.com/gorilla/websocket"
 )
 
@@ -53,24 +54,28 @@ type SafeWebSocketConn struct {
 func (s *SafeWebSocketConn) WriteJSON(v interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.WriteJSON(v)
 }
 
 func (s *SafeWebSocketConn) WriteMessage(messageType int, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.WriteMessage(messageType, data)
 }
 
 func (s *SafeWebSocketConn) SetWriteDeadline(t time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.SetWriteDeadline(t)
 }
 
 func (s *SafeWebSocketConn) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.conn.Close()
 }
 
@@ -91,9 +96,9 @@ type ActivityBroadcaster struct {
 // Global activity broadcaster instance
 var activityBroadcaster = &ActivityBroadcaster{
 	clients:    make(map[*SafeWebSocketConn]bool),
-	register:   make(chan *SafeWebSocketConn, 10),
-	unregister: make(chan *SafeWebSocketConn, 10),
-	broadcast:  make(chan ActivityMessage, 1000),
+	register:   make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
+	unregister: make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
+	broadcast:  make(chan ActivityMessage, constants.ActivityChannelSize),
 	shutdown:   make(chan struct{}),
 }
 
@@ -120,6 +125,7 @@ func (ab *ActivityBroadcaster) start() {
 	ab.runMutex.Lock()
 	if ab.running {
 		ab.runMutex.Unlock()
+
 		return
 	}
 	ab.running = true
@@ -129,7 +135,7 @@ func (ab *ActivityBroadcaster) start() {
 }
 
 func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour) // Run daily
+	ticker := time.NewTicker(constants.DailyCleanupInterval) // Run daily
 	defer ticker.Stop()
 
 	for {
@@ -141,6 +147,7 @@ func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 			}
 		case <-ctx.Done():
 			log.Printf("[ACTIVITY] Cleanup goroutine shutting down")
+
 			return
 		}
 	}
@@ -148,13 +155,15 @@ func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 
 func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 	if ab.storage == nil {
+
 		return
 	}
 
 	// Send last 50 activities to new client
-	activities, err := ab.storage.GetRecentActivities(50, nil)
+	activities, err := ab.storage.GetRecentActivities(constants.RecentActivitiesCount, nil)
 	if err != nil {
 		log.Printf("[ACTIVITY] Failed to get recent activities: %v", err)
+
 		return
 	}
 
@@ -172,9 +181,12 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 		}
 
 		// Send directly to the client using WriteJSON
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
+		}
 		if err := client.WriteJSON(activityMsg); err != nil {
 			log.Printf("[ACTIVITY] Failed to send historical activity to client: %v", err)
+
 			return // Client disconnected
 		}
 	}
@@ -217,6 +229,7 @@ func (ab *ActivityBroadcaster) run() {
 
 		case <-ab.shutdown:
 			ab.handleShutdown()
+
 			return
 		}
 	}
@@ -250,7 +263,9 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 	}
 
 	go func() {
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client #%d: %v", clientID, err)
+		}
 		if err := client.WriteJSON(welcomeMsg); err != nil {
 			log.Printf("[ACTIVITY] ❌ Failed to send welcome message to client #%d: %v", clientID, err)
 		} else {
@@ -263,7 +278,9 @@ func (ab *ActivityBroadcaster) handleClientUnregistration(client *SafeWebSocketC
 	ab.mu.Lock()
 	if _, exists := ab.clients[client]; exists {
 		delete(ab.clients, client)
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", err)
+		}
 	}
 	clientCount := len(ab.clients)
 	ab.mu.Unlock()
@@ -277,6 +294,7 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 
 	if clientCount == 0 {
 		log.Printf("[ACTIVITY] 📭 No clients to broadcast to: %s", message.Message)
+
 		return
 	}
 
@@ -302,21 +320,29 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message ActivityMessage) bool {
 	done := make(chan bool, 1)
 	go func() {
-		client.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
+			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
+		}
 		err := client.WriteJSON(message)
 		done <- (err == nil)
 		if err != nil {
 			log.Printf("[ACTIVITY] ❌ Failed to send to client: %v", err)
-			client.Close()
+			if closeErr := client.Close(); closeErr != nil {
+				log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", closeErr)
+			}
 		}
 	}()
 
 	select {
 	case success := <-done:
+
 		return success
-	case <-time.After(3 * time.Second):
+	case <-time.After(constants.DefaultConnectionTimeout):
 		log.Printf("[ACTIVITY] ⏰ Client send timeout, disconnecting slow client")
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close slow client connection: %v", err)
+		}
+
 		return false
 	}
 }
@@ -325,7 +351,9 @@ func (ab *ActivityBroadcaster) handleShutdown() {
 	log.Println("[ACTIVITY] Shutting down broadcaster...")
 	ab.mu.Lock()
 	for client := range ab.clients {
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("[ACTIVITY] Warning: Failed to close client connection during shutdown: %v", err)
+		}
 	}
 	ab.clients = make(map[*SafeWebSocketConn]bool)
 	ab.mu.Unlock()
@@ -337,25 +365,31 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	serverName := r.URL.Query().Get("server")
 	if serverName == "" {
 		http.Error(w, "Server name required", http.StatusBadRequest)
+
 		return
 	}
 
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		d.logger.Error("Failed to upgrade websocket connection: %v", err)
+
 		return
 	}
 
 	safeConn := &SafeWebSocketConn{conn: conn}
 	defer func() {
-		safeConn.Close()
-		d.logger.Debug("WebSocket connection closed for server: %s", serverName)
+		if err := safeConn.Close(); err != nil {
+			d.logger.Debug("Warning: Failed to close WebSocket connection for server %s: %v", serverName, err)
+		} else {
+			d.logger.Debug("WebSocket connection closed for server: %s", serverName)
+		}
 	}()
 
 	d.logger.Info("Starting log stream WebSocket for server: %s", serverName)
 
 	conn.SetPongHandler(func(string) error {
 		d.logger.Debug("Received pong from client for server: %s", serverName)
+
 		return nil
 	})
 
@@ -367,26 +401,35 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		d.logger.Error("Failed to create stdout pipe for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to create log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
+
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		d.logger.Error("Failed to create stderr pipe for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to create log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
+
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
 		d.logger.Error("Failed to start docker logs command for %s: %v", containerName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to start log stream: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
+
 		return
 	}
 
@@ -398,7 +441,7 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 	go d.streamLogs(safeConn, stdout, serverName, "stdout", cancel)
 	go d.streamLogs(safeConn, stderr, serverName, "stderr", cancel)
 
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(constants.WebSocketPingInterval)
 	defer pingTicker.Stop()
 
 	for {
@@ -406,16 +449,22 @@ func (d *DashboardServer) handleLogWebSocket(w http.ResponseWriter, r *http.Requ
 		case err := <-done:
 			if err != nil && err.Error() != "signal: killed" && !strings.Contains(err.Error(), "context canceled") {
 				d.logger.Error("Docker logs command for %s exited with error: %v", containerName, err)
-				safeConn.WriteJSON(map[string]string{
+				if writeErr := safeConn.WriteJSON(map[string]string{
 					"error": fmt.Sprintf("Log stream ended: %v", err),
-				})
+				}); writeErr != nil {
+					d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+				}
 			}
+
 			return
 		case <-pingTicker.C:
-			safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
+				d.logger.Debug("Failed to set write deadline for ping to client for %s: %v", serverName, err)
+			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to client for %s: %v", serverName, err)
 				cancel()
+
 				return
 			}
 		}
@@ -437,19 +486,24 @@ func (d *DashboardServer) streamLogs(safeConn *SafeWebSocketConn, reader io.Read
 			Message:   line,
 		}
 
-		safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
+			d.logger.Debug("Failed to set write deadline for log message to WebSocket for %s: %v", serverName, err)
+		}
 		if err := safeConn.WriteJSON(msg); err != nil {
 			d.logger.Debug("Failed to write log message to WebSocket for %s: %v", serverName, err)
 			cancel()
+
 			break
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		d.logger.Error("Error reading logs for %s: %v", serverName, err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Error reading %s logs: %v", source, err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
 	}
 }
 
@@ -457,26 +511,31 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		d.logger.Error("Failed to upgrade metrics websocket connection: %v", err)
+
 		return
 	}
 
 	safeConn := &SafeWebSocketConn{conn: conn}
 	defer func() {
-		safeConn.Close()
-		d.logger.Debug("Metrics WebSocket connection closed")
+		if err := safeConn.Close(); err != nil {
+			d.logger.Debug("Warning: Failed to close metrics WebSocket connection: %v", err)
+		} else {
+			d.logger.Debug("Metrics WebSocket connection closed")
+		}
 	}()
 
 	d.logger.Info("Starting metrics stream WebSocket")
 
 	conn.SetPongHandler(func(string) error {
 		d.logger.Debug("Received pong from metrics client")
+
 		return nil
 	})
 
-	metricsTicker := time.NewTicker(5 * time.Second)
+	metricsTicker := time.NewTicker(constants.MetricsUpdateInterval)
 	defer metricsTicker.Stop()
 
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(constants.WebSocketPingInterval)
 	defer pingTicker.Stop()
 
 	d.sendMetricsUpdate(safeConn)
@@ -486,9 +545,12 @@ func (d *DashboardServer) handleMetricsWebSocket(w http.ResponseWriter, r *http.
 		case <-metricsTicker.C:
 			d.sendMetricsUpdate(safeConn)
 		case <-pingTicker.C:
-			safeConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
+				d.logger.Debug("Failed to set write deadline for ping to metrics client: %v", err)
+			}
 			if err := safeConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				d.logger.Debug("Failed to send ping to metrics client: %v", err)
+
 				return
 			}
 		}
@@ -499,18 +561,24 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 	statusData, err := d.proxyRequest("/api/status")
 	if err != nil {
 		d.logger.Error("Failed to get status for metrics: %v", err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to get status: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
+
 		return
 	}
 
 	connectionsData, err := d.proxyRequest("/api/connections")
 	if err != nil {
 		d.logger.Error("Failed to get connections for metrics: %v", err)
-		safeConn.WriteJSON(map[string]string{
+		if writeErr := safeConn.WriteJSON(map[string]string{
 			"error": fmt.Sprintf("Failed to get connections: %v", err),
-		})
+		}); writeErr != nil {
+			d.logger.Error("Failed to write error message to WebSocket: %v", writeErr)
+		}
+
 		return
 	}
 
@@ -533,7 +601,9 @@ func (d *DashboardServer) sendMetricsUpdate(safeConn *SafeWebSocketConn) {
 		Connections: connections,
 	}
 
-	safeConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
+		d.logger.Debug("Failed to set write deadline for metrics WebSocket: %v", err)
+	}
 	if err := safeConn.WriteJSON(metrics); err != nil {
 		d.logger.Debug("Failed to write metrics to WebSocket: %v", err)
 	}
@@ -544,17 +614,22 @@ func (d *DashboardServer) parseLogLevel(message string) string {
 	msg := strings.ToUpper(message)
 
 	if strings.Contains(msg, "ERROR") || strings.Contains(msg, "FATAL") || strings.Contains(msg, "PANIC") {
+
 		return "ERROR"
 	}
 	if strings.Contains(msg, "WARN") || strings.Contains(msg, "WARNING") {
+
 		return "WARN"
 	}
 	if strings.Contains(msg, "INFO") {
+
 		return "INFO"
 	}
 	if strings.Contains(msg, "DEBUG") || strings.Contains(msg, "TRACE") {
+
 		return "DEBUG"
 	}
+
 
 	return "INFO"
 }
@@ -584,6 +659,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 	// Also send to dashboard service if running in distributed mode
 	jsonData, err := json.Marshal(activity)
 	if err != nil {
+
 		return
 	}
 
@@ -591,15 +667,21 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 		resp, err := http.Post("http://mcp-compose-dashboard:3001/api/activity", "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
 			log.Printf("[ACTIVITY] Failed to send to dashboard service: %v", err)
+
 			return
 		}
-		resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				log.Printf("[ACTIVITY] Warning: Failed to close response body: %v", closeErr)
+			}
+		}()
 	}()
 }
 
 // Utility functions
 func generateID() string {
-	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(6))
+
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(constants.RandomStringLength))
 }
 
 func randomString(length int) string {
@@ -614,5 +696,6 @@ func randomString(length int) string {
 			bytes[i] = charset[b%byte(len(charset))]
 		}
 	}
+
 	return string(bytes)
 }

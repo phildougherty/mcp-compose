@@ -25,6 +25,8 @@ func NewTokenStore() *TokenStore {
 		stopChan:      make(chan struct{}),
 	}
 	go ts.startCleanupRoutine()
+
+
 	return ts
 }
 
@@ -41,8 +43,11 @@ func (ts *TokenStore) GetAccessToken(tokenStr string) (*AccessToken, error) {
 	defer ts.mu.RUnlock()
 	token, ok := ts.accessTokens[tokenStr]
 	if !ok || token.IsExpired() {
+
 		return nil, fmt.Errorf("invalid or expired access token")
 	}
+
+
 	return token, nil
 }
 
@@ -59,8 +64,10 @@ func (ts *TokenStore) GetRefreshToken(tokenStr string) (*RefreshToken, error) {
 	defer ts.mu.RUnlock()
 	token, ok := ts.refreshTokens[tokenStr]
 	if !ok || token.IsExpired() {
+
 		return nil, fmt.Errorf("invalid or expired refresh token")
 	}
+
 	return token, nil
 }
 
@@ -77,11 +84,13 @@ func (ts *TokenStore) GetAndUseAuthorizationCode(codeStr string) (*Authorization
 	defer ts.mu.Unlock()
 	code, ok := ts.authCodes[codeStr]
 	if !ok || code.IsExpired() || code.Used {
+
 		return nil, fmt.Errorf("invalid, expired, or already used authorization code")
 	}
 	code.Used = true
 	// We leave the used code for a short time to detect replay attacks,
 	// the cleanup routine will remove it.
+
 	return code, nil
 }
 
@@ -105,13 +114,14 @@ func (ts *TokenStore) RevokeRefreshToken(tokenStr string) {
 
 // startCleanupRoutine periodically cleans expired tokens.
 func (ts *TokenStore) startCleanupRoutine() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(DefaultCleanupInterval * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			ts.performCleanup()
 		case <-ts.stopChan:
+
 			return
 		}
 	}

@@ -1,7 +1,9 @@
 // go.mod
 module mcpcompose
 
-go 1.19
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
 	github.com/fatih/color v1.15.0
@@ -9,6 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.7.0
+	golang.org/x/text v0.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

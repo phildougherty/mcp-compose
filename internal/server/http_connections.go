@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcpcompose/internal/constants"
 )
 
 // MCPHTTPConnection represents a persistent HTTP connection to an MCP server
@@ -37,6 +39,8 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 			conn.LastUsed = time.Now()
 			conn.mu.Unlock()
 			h.logger.Debug("Reusing healthy connection for %s", serverName)
+
+
 			return conn, nil
 		}
 		h.logger.Info("Existing connection for %s found unhealthy or uninitialized. Attempting to recreate.", serverName)
@@ -48,6 +52,8 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 	h.logger.Info("Creating new HTTP connection for server: %s", serverName)
 	serverConfig, cfgExists := h.Manager.config.Servers[serverName]
 	if !cfgExists {
+
+
 		return nil, fmt.Errorf("configuration for server '%s' not found", serverName)
 	}
 
@@ -57,10 +63,13 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 		for _, arg := range serverConfig.Args {
 			if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
 				isHTTPInArgs = true
+
 				break
 			}
 		}
 		if !isHTTPInArgs {
+
+
 			return nil, fmt.Errorf("server '%s' is not configured for HTTP transport ('protocol: http' or 'http_port' missing)", serverName)
 		}
 		h.logger.Warning("Server %s: 'protocol: http' or 'http_port' not explicit in YAML. Relying on command args for HTTP mode configuration.", serverName)
@@ -68,6 +77,8 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 
 	baseURL := h.getServerHTTPURL(serverName, serverConfig)
 	if strings.Contains(baseURL, "INVALID_PORT_CONFIG_ERROR") {
+
+
 		return nil, fmt.Errorf("cannot create connection for '%s' due to invalid port configuration", serverName)
 	}
 
@@ -89,6 +100,8 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 			h.ServerConnections[serverName] = newConn
 			h.ConnectionMutex.Unlock()
 			h.logger.Info("Successfully created and initialized HTTP connection for %s.", serverName)
+
+
 			return newConn, nil
 		}
 		lastErr = err
@@ -96,7 +109,7 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 		if attempt < maxRetries {
 			var waitDuration time.Duration
 			if strings.Contains(strings.ToLower(err.Error()), "connection refused") || strings.Contains(err.Error(), "no such host") {
-				waitDuration = time.Duration(attempt*3+2) * time.Second
+				waitDuration = time.Duration(attempt*constants.RetryBackoffMultiplier+constants.RetryBackoffBase) * time.Second
 				h.logger.Info("Server %s might be starting (connection refused), waiting %v before retry %d...", newConn.ServerName, waitDuration, attempt+1)
 			} else if strings.Contains(strings.ToLower(err.Error()), "timeout") {
 				waitDuration = time.Duration(attempt*2+1) * time.Second
@@ -108,10 +121,13 @@ func (h *ProxyHandler) getServerConnection(serverName string) (*MCPHTTPConnectio
 			select {
 			case <-time.After(waitDuration):
 			case <-h.ctx.Done():
+
+
 				return nil, fmt.Errorf("proxy shutting down during connection retry for %s: %w", serverName, h.ctx.Err())
 			}
 		}
 	}
+
 
 	return nil, fmt.Errorf("failed to establish and initialize HTTP connection for %s after %d attempts: %w", serverName, maxRetries, lastErr)
 }
@@ -139,20 +155,24 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		},
 	}
 
-	resp, err := h.doHTTPRequest(conn, initRequestPayload, 90*time.Second)
+	resp, err := h.doHTTPRequest(conn, initRequestPayload, constants.HTTPInitTimeout)
 	if err != nil {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("HTTP initialize POST to %s failed: %w", conn.BaseURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	rawResponseData, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("failed to read initialize response body from %s: %w", conn.BaseURL, readErr)
 	}
 
@@ -170,6 +190,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("HTTP initialize request to %s failed with status %d: %s", conn.BaseURL, resp.StatusCode, string(rawResponseData))
 	}
 
@@ -184,6 +206,7 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 			if strings.HasPrefix(line, "data:") {
 				responseJSONData = []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 				eventDataFound = true
+
 				break
 			}
 		}
@@ -191,6 +214,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 			conn.mu.Lock()
 			conn.Healthy = false
 			conn.mu.Unlock()
+
+
 			return fmt.Errorf("SSE stream from %s for initialize, but no 'data:' event parsed. Body: %s", conn.ServerName, string(rawResponseData))
 		}
 	} else if strings.HasPrefix(contentType, "application/json") {
@@ -199,6 +224,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("unexpected Content-Type '%s' from %s for initialize. Body: %s", contentType, conn.ServerName, string(rawResponseData))
 	}
 
@@ -207,6 +234,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("failed to parse initialize JSON from %s (Content-Type: %s): %w. Data: %s", conn.ServerName, contentType, err, string(responseJSONData))
 	}
 
@@ -216,6 +245,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("initialize error from %s: code=%v, message=%v, data=%v",
 			conn.ServerName, errResp["code"], errResp["message"], errResp["data"])
 	}
@@ -225,6 +256,8 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return fmt.Errorf("initialize response from %s missing 'result' or not an object. Parsed: %+v", conn.ServerName, responseMap)
 	}
 
@@ -250,12 +283,16 @@ func (h *ProxyHandler) initializeHTTPConnection(conn *MCPHTTPConnection) error {
 	}
 
 	h.logger.Info("HTTP MCP session initialized successfully for %s.", conn.ServerName)
+
+
 	return nil
 }
 
 func (h *ProxyHandler) doHTTPRequest(conn *MCPHTTPConnection, requestPayload map[string]interface{}, timeout time.Duration) (*http.Response, error) {
 	requestData, err := json.Marshal(requestPayload)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("marshal request for %s: %w", conn.ServerName, err)
 	}
 
@@ -268,6 +305,8 @@ func (h *ProxyHandler) doHTTPRequest(conn *MCPHTTPConnection, requestPayload map
 	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", targetURL, bytes.NewBuffer(requestData))
 	if err != nil {
 		cancel()
+
+
 		return nil, fmt.Errorf("create HTTP request for %s: %w", conn.ServerName, err)
 	}
 
@@ -288,6 +327,8 @@ func (h *ProxyHandler) doHTTPRequest(conn *MCPHTTPConnection, requestPayload map
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
 
@@ -298,12 +339,15 @@ func (h *ProxyHandler) doHTTPRequest(conn *MCPHTTPConnection, requestPayload map
 	}
 	conn.mu.Unlock()
 
+
 	return resp, nil
 }
 
 func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPayload map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
 	requestData, err := json.Marshal(requestPayload)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("marshal request for %s: %w", conn.ServerName, err)
 	}
 
@@ -315,6 +359,8 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", targetURL, bytes.NewBuffer(requestData))
 	if err != nil {
+
+
 		return nil, fmt.Errorf("create HTTP request for %s: %w", conn.ServerName, err)
 	}
 
@@ -334,9 +380,11 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	conn.mu.Lock()
 	conn.LastUsed = time.Now()
@@ -361,13 +409,17 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, constants.HTTPResponseBufferSize))
+
+
 		return nil, fmt.Errorf("HTTP request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(bodyBytes))
 	}
 
 	// Read and parse response
 	responseData, err := io.ReadAll(resp.Body)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to read response from %s: %w", targetURL, err)
 	}
 
@@ -375,25 +427,31 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 
 	var responseMap map[string]interface{}
 	if err := json.Unmarshal(responseData, &responseMap); err != nil {
+
+
 		return nil, fmt.Errorf("failed to parse JSON response from %s: %w. Data: %s", targetURL, err, string(responseData))
 	}
+
 
 	return responseMap, nil
 }
 
 func (h *ProxyHandler) sendHTTPNotification(conn *MCPHTTPConnection, notificationPayload map[string]interface{}) error {
-	resp, err := h.doHTTPRequest(conn, notificationPayload, 20*time.Second)
+	resp, err := h.doHTTPRequest(conn, notificationPayload, constants.HTTPNotificationTimeout)
 	if err != nil {
+
+
 		return fmt.Errorf("sending notification to %s failed: %w", conn.ServerName, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, constants.HTTPErrorBufferSize))
 		h.logger.Warning("HTTP notification to %s received non-202/200 status %d: %s", conn.ServerName, resp.StatusCode, string(bodyBytes))
 	} else {
 		h.logger.Debug("HTTP notification to %s sent, status %d.", conn.ServerName, resp.StatusCode)
 	}
+
 
 	return nil
 }
@@ -403,6 +461,8 @@ func (h *ProxyHandler) isConnectionHealthy(conn *MCPHTTPConnection) bool {
 	if !conn.Healthy {
 		conn.mu.Unlock()
 		h.logger.Debug("Skipping health check for %s; already marked unhealthy.", conn.ServerName)
+
+
 		return false
 	}
 	conn.mu.Unlock()
@@ -414,16 +474,20 @@ func (h *ProxyHandler) isConnectionHealthy(conn *MCPHTTPConnection) bool {
 	}
 
 	h.logger.Debug("Performing health check ping to %s at %s", conn.ServerName, conn.BaseURL)
-	_, err := h.sendHTTPJsonRequest(conn, pingRequestMap, 30*time.Second)
+	_, err := h.sendHTTPJsonRequest(conn, pingRequestMap, constants.PingTimeout)
 	if err != nil {
 		h.logger.Warning("Health check ping to %s FAILED: %v", conn.ServerName, err)
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return false
 	}
 
 	h.logger.Debug("Health check ping to %s SUCCEEDED.", conn.ServerName)
+
+
 	return true
 }
 
@@ -436,6 +500,8 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 
 	httpReq, err := http.NewRequestWithContext(reqCtx, "POST", targetURL, bytes.NewBuffer(requestData))
 	if err != nil {
+
+
 		return nil, fmt.Errorf("create HTTP request for %s: %w", conn.ServerName, err)
 	}
 
@@ -453,9 +519,11 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return nil, fmt.Errorf("HTTP POST to %s failed: %w", targetURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	conn.mu.Lock()
 	conn.LastUsed = time.Now()
@@ -467,6 +535,8 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 	// Read and parse response
 	responseData, err := io.ReadAll(resp.Body)
 	if err != nil {
+
+
 		return nil, fmt.Errorf("failed to read response from %s: %w", targetURL, err)
 	}
 
@@ -474,6 +544,8 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 		conn.mu.Lock()
 		conn.Healthy = false
 		conn.mu.Unlock()
+
+
 		return nil, fmt.Errorf("HTTP request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(responseData))
 	}
 
@@ -481,8 +553,11 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 
 	var responseMap map[string]interface{}
 	if err := json.Unmarshal(responseData, &responseMap); err != nil {
+
+
 		return nil, fmt.Errorf("failed to parse JSON response from %s: %w. Data: %s", targetURL, err, string(responseData))
 	}
+
 
 	return responseMap, nil
 }
@@ -496,7 +571,7 @@ func (h *ProxyHandler) maintainHttpConnections() {
 			continue
 		}
 		// Clean up old HTTP connections
-		maxIdleTime := 10 * time.Minute
+		maxIdleTime := constants.IdleTimeoutDefault
 		if time.Since(conn.LastUsed) > maxIdleTime {
 			h.logger.Info("Removing idle HTTP connection to %s (idle for %v)",
 				serverName, time.Since(conn.LastUsed))
@@ -514,15 +589,23 @@ func (h *ProxyHandler) getConnectionHealthStatus(conn *MCPHTTPConnection) string
 		if conn.SessionID != "" {
 			status += " (Session ID: " + conn.SessionID + ")"
 		}
+
+
 		return status
 	} else if conn.Initialized {
 		status := "Initialized but Unhealthy"
 		if conn.SessionID != "" {
 			status += " (Session ID: " + conn.SessionID + ")"
 		}
+
+
 		return status
 	} else if conn.Healthy {
+
+
 		return "Contactable but MCP Session Not Initialized"
 	}
+
+
 	return "Unhealthy / MCP Session Not Initialized"
 }

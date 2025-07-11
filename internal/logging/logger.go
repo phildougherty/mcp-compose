@@ -29,16 +29,22 @@ const (
 func (l LogLevel) String() string {
 	switch l {
 	case DEBUG:
+
 		return "DEBUG"
 	case INFO:
+
 		return "INFO"
 	case WARNING:
+
 		return "WARNING"
 	case ERROR:
+
 		return "ERROR"
 	case FATAL:
+
 		return "FATAL"
 	default:
+
 		return "UNKNOWN"
 	}
 }
@@ -68,6 +74,7 @@ func NewLogger(level string) *Logger {
 		logLevel = INFO
 	}
 
+
 	return &Logger{
 		level:      logLevel,
 		writer:     os.Stdout,
@@ -87,12 +94,14 @@ func (l *Logger) SetJSONFormat(useJSON bool) {
 
 // shouldLog determines if a message at the given level should be logged
 func (l *Logger) shouldLog(level LogLevel) bool {
+
 	return level >= l.level
 }
 
 // log logs a message at the given level with optional format arguments
 func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 	if !l.shouldLog(level) {
+
 		return
 	}
 
@@ -107,10 +116,16 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 		// Format as JSON
 		jsonLog := fmt.Sprintf(`{"timestamp":"%s","level":"%s","message":%q}`,
 			timestamp, level.String(), message)
-		fmt.Fprintln(l.writer, jsonLog)
+		if _, err := fmt.Fprintln(l.writer, jsonLog); err != nil {
+			// If we can't log, there's not much we can do. Print to stderr as fallback.
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
+		}
 	} else {
 		// Format as text
-		fmt.Fprintf(l.writer, "[%s] %s: %s\n", timestamp, level.String(), message)
+		if _, err := fmt.Fprintf(l.writer, "[%s] %s: %s\n", timestamp, level.String(), message); err != nil {
+			// If we can't log, there's not much we can do. Print to stderr as fallback.
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
+		}
 	}
 
 	// If this is a fatal message, exit after logging
@@ -147,6 +162,7 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 
 // WithFields creates a new logger with the specified fields
 func (l *Logger) WithFields(fields map[string]interface{}) *FieldLogger {
+
 	return &FieldLogger{
 		logger: l,
 		fields: fields,
@@ -162,6 +178,7 @@ type FieldLogger struct {
 // Debug logs a debug message with fields
 func (fl *FieldLogger) Debug(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(DEBUG) {
+
 		return
 	}
 	fl.logWithFields(DEBUG, format, args...)
@@ -170,6 +187,7 @@ func (fl *FieldLogger) Debug(format string, args ...interface{}) {
 // Info logs an informational message with fields
 func (fl *FieldLogger) Info(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(INFO) {
+
 		return
 	}
 	fl.logWithFields(INFO, format, args...)
@@ -178,6 +196,7 @@ func (fl *FieldLogger) Info(format string, args ...interface{}) {
 // Warning logs a warning message with fields
 func (fl *FieldLogger) Warning(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(WARNING) {
+
 		return
 	}
 	fl.logWithFields(WARNING, format, args...)
@@ -186,6 +205,7 @@ func (fl *FieldLogger) Warning(format string, args ...interface{}) {
 // Error logs an error message with fields
 func (fl *FieldLogger) Error(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(ERROR) {
+
 		return
 	}
 	fl.logWithFields(ERROR, format, args...)
@@ -194,6 +214,7 @@ func (fl *FieldLogger) Error(format string, args ...interface{}) {
 // Fatal logs a fatal message with fields and exits the program
 func (fl *FieldLogger) Fatal(format string, args ...interface{}) {
 	if !fl.logger.shouldLog(FATAL) {
+
 		return
 	}
 	fl.logWithFields(FATAL, format, args...)
@@ -224,14 +245,18 @@ func (fl *FieldLogger) logWithFields(level LogLevel, format string, args ...inte
 
 		// Combine into a JSON object
 		jsonLog := "{" + strings.Join(jsonParts, ",") + "}"
-		fmt.Fprintln(fl.logger.writer, jsonLog)
+		if _, err := fmt.Fprintln(fl.logger.writer, jsonLog); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write structured log: %v\n", err)
+		}
 	} else {
 		// Format as text with fields
 		fieldStr := ""
 		for k, v := range fl.fields {
 			fieldStr += fmt.Sprintf(" %s=%v", k, v)
 		}
-		fmt.Fprintf(fl.logger.writer, "[%s] %s: %s%s\n", timestamp, level.String(), message, fieldStr)
+		if _, err := fmt.Fprintf(fl.logger.writer, "[%s] %s: %s%s\n", timestamp, level.String(), message, fieldStr); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write structured log: %v\n", err)
+		}
 	}
 
 	// If this is a fatal message, exit after logging (handled by the caller)

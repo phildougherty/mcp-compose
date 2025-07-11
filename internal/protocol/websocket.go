@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -61,11 +63,12 @@ type WebSocketConnection struct {
 // NewWebSocketTransport creates a WebSocket transport from a URL
 func NewWebSocketTransport(url string) *WebSocketTransport {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &WebSocketTransport{
 		url:             url,
-		readChan:        make(chan MCPMessage, 100),
-		writeChan:       make(chan MCPMessage, 100),
-		errorChan:       make(chan error, 10),
+		readChan:        make(chan MCPMessage, constants.DefaultBufferSize),
+		writeChan:       make(chan MCPMessage, constants.DefaultBufferSize),
+		errorChan:       make(chan error, constants.ErrorChannelSize),
 		progressManager: NewProgressManager(),
 		lastUsed:        time.Now(),
 		healthy:         true,
@@ -77,12 +80,14 @@ func NewWebSocketTransport(url string) *WebSocketTransport {
 // NewWebSocketServer creates a new WebSocket MCP server
 func NewWebSocketServer() *WebSocketServer {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &WebSocketServer{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  4096,
-			WriteBufferSize: 4096,
+			ReadBufferSize:  constants.WebSocketBufferSizeLarge,
+			WriteBufferSize: constants.WebSocketBufferSizeLarge,
 			CheckOrigin: func(r *http.Request) bool {
 				// In production, implement proper origin checking
+
 				return true
 			},
 		},
@@ -95,6 +100,7 @@ func NewWebSocketServer() *WebSocketServer {
 
 // GetType returns the transport type
 func (wst *WebSocketTransport) GetType() string {
+
 	return "websocket"
 }
 
@@ -102,6 +108,7 @@ func (wst *WebSocketTransport) GetType() string {
 func (wst *WebSocketTransport) IsConnected() bool {
 	wst.mu.RLock()
 	defer wst.mu.RUnlock()
+
 	return wst.healthy && wst.initialized && !wst.closed
 }
 
@@ -109,6 +116,7 @@ func (wst *WebSocketTransport) IsConnected() bool {
 func (wst *WebSocketTransport) GetLastActivity() time.Time {
 	wst.mu.RLock()
 	defer wst.mu.RUnlock()
+
 	return wst.lastUsed
 }
 
@@ -117,6 +125,7 @@ func (wst *WebSocketTransport) Start() error {
 	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(wst.url, nil)
 	if err != nil {
+
 		return fmt.Errorf("WebSocket dial failed: %w", err)
 	}
 
@@ -133,8 +142,10 @@ func (wst *WebSocketTransport) Start() error {
 
 	// Set up ping/pong handlers
 	wst.conn.SetPongHandler(func(string) error {
-		return wst.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+		return wst.conn.SetReadDeadline(time.Now().Add(constants.WebSocketReadTimeout))
 	})
+
 
 	return nil
 }
@@ -144,6 +155,7 @@ func (wst *WebSocketTransport) Send(msg MCPMessage) error {
 	wst.mu.RLock()
 	if wst.closed {
 		wst.mu.RUnlock()
+
 		return fmt.Errorf("transport is closed")
 	}
 	wst.mu.RUnlock()
@@ -153,10 +165,13 @@ func (wst *WebSocketTransport) Send(msg MCPMessage) error {
 		wst.mu.Lock()
 		wst.lastUsed = time.Now()
 		wst.mu.Unlock()
+
 		return nil
-	case <-time.After(5 * time.Second):
+	case <-time.After(constants.WebSocketWriteDeadline):
+
 		return fmt.Errorf("send timeout")
 	case <-wst.ctx.Done():
+
 		return fmt.Errorf("transport closed")
 	}
 }
@@ -168,10 +183,13 @@ func (wst *WebSocketTransport) Receive() (MCPMessage, error) {
 		wst.mu.Lock()
 		wst.lastUsed = time.Now()
 		wst.mu.Unlock()
+
 		return msg, nil
 	case err := <-wst.errorChan:
+
 		return MCPMessage{}, err
 	case <-wst.ctx.Done():
+
 		return MCPMessage{}, fmt.Errorf("transport closed")
 	}
 }
@@ -182,6 +200,7 @@ func (wst *WebSocketTransport) Close() error {
 	defer wst.mu.Unlock()
 
 	if wst.closed {
+
 		return nil
 	}
 	wst.closed = true
@@ -191,11 +210,13 @@ func (wst *WebSocketTransport) Close() error {
 		wst.cancel()
 	}
 
+
 	return wst.conn.Close()
 }
 
 // SupportsProgress implements the Transport interface
 func (wst *WebSocketTransport) SupportsProgress() bool {
+
 	return true
 }
 
@@ -208,42 +229,61 @@ func (wst *WebSocketTransport) SendProgress(notification *ProgressNotification) 
 	}
 	params, err := json.Marshal(notification.Params)
 	if err != nil {
+
 		return err
 	}
 	msg.Params = params
+
 
 	return wst.Send(msg)
 }
 
 // readLoop reads messages from the WebSocket connection
 func (wst *WebSocketTransport) readLoop() {
-	defer wst.Close()
+	defer func() {
+		if err := wst.Close(); err != nil {
+			// Log the error but don't prevent cleanup
+			select {
+			case wst.errorChan <- fmt.Errorf("failed to close websocket: %w", err):
+			default:
+				// Channel might be closed, ignore
+			}
+		}
+	}()
 	for {
 		select {
 		case <-wst.ctx.Done():
+
 			return
 		default:
 		}
 
-		wst.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := wst.conn.SetReadDeadline(time.Now().Add(constants.WebSocketReadTimeout)); err != nil {
+			wst.errorChan <- fmt.Errorf("failed to set read deadline: %w", err)
+
+			return
+		}
 		var msg MCPMessage
 		err := wst.conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				wst.errorChan <- fmt.Errorf("websocket read error: %w", err)
 			}
+
 			return
 		}
 
 		// Validate message
 		if err := ValidateMessage(msg); err != nil {
 			wst.errorChan <- fmt.Errorf("invalid message: %w", err)
+
 			continue
 		}
 
 		select {
 		case wst.readChan <- msg:
 		case <-wst.ctx.Done():
+
 			return
 		}
 	}
@@ -251,24 +291,33 @@ func (wst *WebSocketTransport) readLoop() {
 
 // writeLoop writes messages to the WebSocket connection
 func (wst *WebSocketTransport) writeLoop() {
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(constants.WebSocketPingIntervalLegacy)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case msg := <-wst.writeChan:
-			wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := wst.conn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
+
+				return
+			}
 			if err := wst.conn.WriteJSON(msg); err != nil {
 				wst.errorChan <- fmt.Errorf("websocket write error: %w", err)
+
 				return
 			}
 		case <-ticker.C:
 			// Send ping
-			wst.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := wst.conn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteTimeout)); err != nil {
+
+				return
+			}
 			if err := wst.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+
 				return
 			}
 		case <-wst.ctx.Done():
+
 			return
 		}
 	}
@@ -278,6 +327,7 @@ func (wst *WebSocketTransport) writeLoop() {
 func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, handler WebSocketHandler) (*WebSocketTransport, error) {
 	conn, err := ws.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+
 		return nil, fmt.Errorf("websocket upgrade failed: %w", err)
 	}
 
@@ -285,9 +335,9 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 	ctx, cancel := context.WithCancel(ws.ctx)
 	transport := &WebSocketTransport{
 		conn:            conn,
-		readChan:        make(chan MCPMessage, 100),
-		writeChan:       make(chan MCPMessage, 100),
-		errorChan:       make(chan error, 10),
+		readChan:        make(chan MCPMessage, constants.DefaultBufferSize),
+		writeChan:       make(chan MCPMessage, constants.DefaultBufferSize),
+		errorChan:       make(chan error, constants.ErrorChannelSize),
 		progressManager: NewProgressManager(),
 		lastUsed:        time.Now(),
 		healthy:         true,
@@ -307,15 +357,19 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 
 	// Call connection handler
 	if err := handler.OnConnect(transport); err != nil {
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 		ws.mu.Lock()
 		delete(ws.connections, connectionID)
 		ws.mu.Unlock()
+
 		return nil, fmt.Errorf("connection handler failed: %w", err)
 	}
 
 	// Start message handling
 	go ws.handleConnection(connectionID, transport, handler)
+
 
 	return transport, nil
 }
@@ -323,24 +377,31 @@ func (ws *WebSocketServer) UpgradeHTTP(w http.ResponseWriter, r *http.Request, h
 // handleConnection handles messages for a WebSocket connection
 func (ws *WebSocketServer) handleConnection(connectionID string, transport *WebSocketTransport, handler WebSocketHandler) {
 	defer func() {
-		handler.OnDisconnect(transport)
+		if err := handler.OnDisconnect(transport); err != nil {
+			fmt.Printf("Warning: failed to handle disconnect: %v\n", err)
+		}
 		ws.mu.Lock()
 		delete(ws.connections, connectionID)
 		ws.mu.Unlock()
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 	}()
 
 	for {
 		select {
 		case <-ws.ctx.Done():
+
 			return
 		case <-transport.ctx.Done():
+
 			return
 		default:
 		}
 
 		msg, err := transport.Receive()
 		if err != nil {
+
 			return
 		}
 
@@ -352,7 +413,9 @@ func (ws *WebSocketServer) handleConnection(connectionID string, transport *WebS
 					ID:      msg.ID,
 					Error:   NewInternalError(err.Error()),
 				}
-				transport.Send(errorResponse)
+				if err := transport.Send(errorResponse); err != nil {
+					fmt.Printf("Warning: failed to send error response: %v\n", err)
+				}
 			}
 		}
 	}
@@ -363,10 +426,13 @@ func (ws *WebSocketServer) Close() error {
 	ws.cancel()
 	ws.mu.Lock()
 	for _, transport := range ws.connections {
-		transport.Close()
+		if err := transport.Close(); err != nil {
+			fmt.Printf("Warning: failed to close transport: %v\n", err)
+		}
 	}
 	ws.connections = make(map[string]*WebSocketTransport)
 	ws.mu.Unlock()
+
 	return nil
 }
 
@@ -378,6 +444,7 @@ func (ws *WebSocketServer) GetConnections() map[string]*WebSocketTransport {
 	for k, v := range ws.connections {
 		result[k] = v
 	}
+
 	return result
 }
 
@@ -393,5 +460,6 @@ func (ws *WebSocketServer) GetHandler(name string) (WebSocketHandler, bool) {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
 	handler, exists := ws.handlers[name]
+
 	return handler, exists
 }

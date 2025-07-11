@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +23,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 		if token != apiKeyToCheck {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			h.corsError(w, "Unauthorized", http.StatusUnauthorized)
+
 			return
 		}
 	}
@@ -72,6 +76,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 		tools, err := h.discoverServerTools(serverName)
 		if err != nil {
 			h.logger.Warning("Failed to discover tools for %s: %v", serverName, err)
+
 			continue
 		}
 
@@ -80,7 +85,7 @@ func (h *ProxyHandler) handleOpenAPISpec(w http.ResponseWriter, r *http.Request)
 			// Create FastAPI-style endpoint
 			paths[toolPath] = map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     strings.Title(strings.ReplaceAll(tool.Name, "_", " ")),
+					"summary":     cases.Title(language.English).String(strings.ReplaceAll(tool.Name, "_", " ")),
 					"description": tool.Description,
 					"operationId": tool.Name,
 					"tags":        []string{"default"},
@@ -137,7 +142,7 @@ func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, _ *http.Re
 	schema := map[string]interface{}{
 		"openapi": "3.1.0",
 		"info": map[string]interface{}{
-			"title":       fmt.Sprintf("%s MCP Server", strings.Title(serverName)),
+			"title":       fmt.Sprintf("%s MCP Server", cases.Title(language.English).String(serverName)),
 			"description": fmt.Sprintf("%s MCP Server\n\n- [back to tool list](/docs)", serverName),
 			"version":     "1.0.0",
 		},
@@ -186,7 +191,7 @@ func (h *ProxyHandler) handleServerOpenAPISpec(w http.ResponseWriter, _ *http.Re
 			toolPath := fmt.Sprintf("/%s", tool.Name)
 			paths[toolPath] = map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     strings.Title(strings.ReplaceAll(tool.Name, "_", " ")),
+					"summary":     cases.Title(language.English).String(strings.ReplaceAll(tool.Name, "_", " ")),
 					"description": tool.Description,
 					"operationId": tool.Name,
 					"tags":        []string{"default"},
@@ -273,7 +278,7 @@ func (h *ProxyHandler) handleServerDocs(w http.ResponseWriter, _ *http.Request, 
 </html>`, serverName, serverName, serverName, serverName, serverName)
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(docsHTML))
+	_, _ = w.Write([]byte(docsHTML))
 }
 
 func (h *ProxyHandler) handleServerDetails(w http.ResponseWriter, r *http.Request, serverName string, instance *ServerInstance) {

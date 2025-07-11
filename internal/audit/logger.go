@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/logging"
 )
 
 type Logger struct {
 	enabled    bool
-	storage    string
 	maxEntries int
 	maxAge     time.Duration
 	events     map[string]bool
@@ -36,13 +36,14 @@ type Entry struct {
 func NewLogger(maxEntries int, maxAge string, events []string, logger *logging.Logger) *Logger {
 	maxAgeDuration, _ := time.ParseDuration(maxAge)
 	if maxAgeDuration == 0 {
-		maxAgeDuration = 7 * 24 * time.Hour
+		maxAgeDuration = DefaultAuditRetentionDays * constants.HoursInDay * time.Hour
 	}
 
 	eventMap := make(map[string]bool)
 	for _, event := range events {
 		eventMap[event] = true
 	}
+
 
 	return &Logger{
 		enabled:    true,
@@ -56,6 +57,7 @@ func NewLogger(maxEntries int, maxAge string, events []string, logger *logging.L
 
 func (l *Logger) Log(event string, userID, clientID, ip, userAgent string, success bool, details map[string]interface{}, err error) {
 	if !l.enabled || !l.events[event] {
+
 		return
 	}
 
@@ -99,6 +101,7 @@ func (l *Logger) GetEntries(limit, offset int) ([]Entry, int) {
 	if end > total {
 		end = total
 	}
+
 
 	return l.entries[start:end], total
 }

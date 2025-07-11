@@ -114,6 +114,7 @@ type UnsubscribeRequest struct {
 
 // NewSubscriptionManager creates a new subscription manager
 func NewSubscriptionManager() *SubscriptionManager {
+
 	return &SubscriptionManager{
 		subscriptions: make(map[string]*ResourceSubscription),
 		clients:       make(map[string]*ClientSubscriptions),
@@ -127,6 +128,7 @@ func (sm *SubscriptionManager) Subscribe(clientID, sessionID string, req Subscri
 
 	// Validate URI
 	if req.URI == "" {
+
 		return nil, NewValidationError("uri", req.URI, "URI cannot be empty")
 	}
 
@@ -138,6 +140,7 @@ func (sm *SubscriptionManager) Subscribe(clientID, sessionID string, req Subscri
 
 	// Validate filters
 	if err := sm.validateFilters(req.Filters); err != nil {
+
 		return nil, err
 	}
 
@@ -170,6 +173,7 @@ func (sm *SubscriptionManager) Subscribe(clientID, sessionID string, req Subscri
 	sm.clients[clientID].Subscriptions[subscriptionID] = subscription
 	sm.clients[clientID].LastSeen = time.Now()
 
+
 	return &SubscribeResponse{
 		SubscriptionID: subscriptionID,
 	}, nil
@@ -182,11 +186,13 @@ func (sm *SubscriptionManager) Unsubscribe(clientID string, req UnsubscribeReque
 
 	subscription, exists := sm.subscriptions[req.SubscriptionID]
 	if !exists {
+
 		return NewValidationError("subscriptionId", req.SubscriptionID, "subscription not found")
 	}
 
 	// Verify ownership
 	if subscription.ClientID != clientID {
+
 		return NewAuthorizationError(req.SubscriptionID, "unsubscribe")
 	}
 
@@ -203,6 +209,7 @@ func (sm *SubscriptionManager) Unsubscribe(clientID string, req UnsubscribeReque
 		}
 	}
 
+
 	return nil
 }
 
@@ -213,6 +220,7 @@ func (sm *SubscriptionManager) NotifyResourceUpdate(uri string, updateType strin
 	sm.mu.RUnlock()
 
 	if len(matchingSubscriptions) == 0 {
+
 		return nil // No subscribers
 	}
 
@@ -241,6 +249,7 @@ func (sm *SubscriptionManager) NotifyResourceUpdate(uri string, updateType strin
 		}
 	}
 
+
 	return nil
 }
 
@@ -254,16 +263,19 @@ func (sm *SubscriptionManager) findMatchingSubscriptions(uri string) []*Resource
 		}
 	}
 
+
 	return matches
 }
 
 // doesURIMatch checks if a URI matches a subscription
 func (sm *SubscriptionManager) doesURIMatch(subscription *ResourceSubscription, uri string) bool {
 	if subscription.IsTemplate {
+
 		return sm.matchURITemplate(subscription.URI, uri)
 	}
 
 	// Exact match for non-template URIs
+
 	return subscription.URI == uri
 }
 
@@ -285,6 +297,7 @@ func (sm *SubscriptionManager) matchURITemplate(template, uri string) bool {
 	pattern = "^" + pattern + "$"
 
 	matched, _ := regexp.MatchString(pattern, uri)
+
 	return matched
 }
 
@@ -292,9 +305,11 @@ func (sm *SubscriptionManager) matchURITemplate(template, uri string) bool {
 func (sm *SubscriptionManager) shouldIncludeUpdate(subscription *ResourceSubscription, update ResourceUpdate) bool {
 	for _, filter := range subscription.Filters {
 		if !sm.applyFilter(filter, update) {
+
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -321,6 +336,7 @@ func (sm *SubscriptionManager) applyFilter(filter ResourceFilter, update Resourc
 		}
 	}
 
+
 	return sm.matchFilterValue(filter, value)
 }
 
@@ -328,10 +344,12 @@ func (sm *SubscriptionManager) applyFilter(filter ResourceFilter, update Resourc
 func (sm *SubscriptionManager) matchFilterValue(filter ResourceFilter, actualValue interface{}) bool {
 	switch filter.Type {
 	case "exact":
+
 		return actualValue == filter.Value
 	case "prefix":
 		if str, ok := actualValue.(string); ok {
 			if prefix, ok := filter.Value.(string); ok {
+
 				return strings.HasPrefix(str, prefix)
 			}
 		}
@@ -339,6 +357,7 @@ func (sm *SubscriptionManager) matchFilterValue(filter ResourceFilter, actualVal
 		if str, ok := actualValue.(string); ok {
 			if pattern, ok := filter.Value.(string); ok {
 				matched, _ := regexp.MatchString(globToRegex(pattern), str)
+
 				return matched
 			}
 		}
@@ -346,10 +365,12 @@ func (sm *SubscriptionManager) matchFilterValue(filter ResourceFilter, actualVal
 		if str, ok := actualValue.(string); ok {
 			if pattern, ok := filter.Value.(string); ok {
 				matched, _ := regexp.MatchString(pattern, str)
+
 				return matched
 			}
 		}
 	}
+
 	return false
 }
 
@@ -360,6 +381,7 @@ func (sm *SubscriptionManager) sendNotificationToClient(clientID string, updates
 	sm.mu.RUnlock()
 
 	if !exists {
+
 		return fmt.Errorf("client %s not found", clientID)
 	}
 
@@ -373,11 +395,13 @@ func (sm *SubscriptionManager) sendNotificationToClient(clientID string, updates
 	}
 
 	// Send notification
+
 	return client.NotifyFunc(notification)
 }
 
 // isURITemplate checks if a URI contains template variables
 func (sm *SubscriptionManager) isURITemplate(uri string) bool {
+
 	return strings.Contains(uri, "{") && strings.Contains(uri, "}")
 }
 
@@ -385,6 +409,7 @@ func (sm *SubscriptionManager) isURITemplate(uri string) bool {
 func (sm *SubscriptionManager) validateFilters(filters []ResourceFilter) error {
 	for i, filter := range filters {
 		if filter.Type == "" {
+
 			return NewValidationError(fmt.Sprintf("filters[%d].type", i), filter.Type, "filter type cannot be empty")
 		}
 
@@ -393,18 +418,22 @@ func (sm *SubscriptionManager) validateFilters(filters []ResourceFilter) error {
 		for _, validType := range validTypes {
 			if filter.Type == validType {
 				valid = true
+
 				break
 			}
 		}
 
 		if !valid {
+
 			return NewValidationError(fmt.Sprintf("filters[%d].type", i), filter.Type, fmt.Sprintf("must be one of: %v", validTypes))
 		}
 
 		if filter.Property == "" {
+
 			return NewValidationError(fmt.Sprintf("filters[%d].property", i), filter.Property, "filter property cannot be empty")
 		}
 	}
+
 	return nil
 }
 
@@ -412,6 +441,7 @@ func (sm *SubscriptionManager) validateFilters(filters []ResourceFilter) error {
 func globToRegex(glob string) string {
 	regex := strings.ReplaceAll(glob, "*", ".*")
 	regex = strings.ReplaceAll(regex, "?", ".")
+
 	return "^" + regex + "$"
 }
 
@@ -422,6 +452,7 @@ func (sm *SubscriptionManager) GetSubscriptions(clientID string) []*ResourceSubs
 
 	client, exists := sm.clients[clientID]
 	if !exists {
+
 		return nil
 	}
 
@@ -429,6 +460,7 @@ func (sm *SubscriptionManager) GetSubscriptions(clientID string) []*ResourceSubs
 	for _, sub := range client.Subscriptions {
 		subscriptions = append(subscriptions, sub)
 	}
+
 
 	return subscriptions
 }

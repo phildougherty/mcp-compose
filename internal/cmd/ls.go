@@ -13,8 +13,10 @@ func NewLsCommand() *cobra.Command {
 		Short: "List all defined MCP servers and their status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
+
 			return compose.List(file)
 		},
 	}
+
 	return cmd
 }

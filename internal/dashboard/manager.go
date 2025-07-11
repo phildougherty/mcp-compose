@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"fmt"
+	"log"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/logging"
 	"os"
@@ -38,6 +40,7 @@ func NewManager(cfg *config.ComposeConfig, runtime container.Runtime) *Manager {
 		}
 	}
 
+
 	return m
 }
 
@@ -47,6 +50,7 @@ func (m *Manager) SetConfigFile(configFile string) {
 
 func (m *Manager) Start() error {
 	if !m.config.Dashboard.Enabled {
+
 		return fmt.Errorf("dashboard is disabled in configuration")
 	}
 
@@ -54,15 +58,18 @@ func (m *Manager) Start() error {
 	status, err := m.runtime.GetContainerStatus("mcp-compose-dashboard")
 	if err == nil && status == "running" {
 		m.logger.Info("Dashboard container is already running")
+
 		return nil
 	}
 
 	// Build dashboard image
 	if err := m.buildDashboardImage(); err != nil {
+
 		return fmt.Errorf("failed to build dashboard image: %w", err)
 	}
 
 	// Start dashboard container
+
 	return m.startDashboardContainer()
 }
 
@@ -77,9 +84,11 @@ func (m *Manager) Stop() error {
 
 	err := m.runtime.StopContainer("mcp-compose-dashboard")
 	if err != nil {
+
 		return fmt.Errorf("failed to stop dashboard container: %w", err)
 	}
 	m.logger.Info("Dashboard container stopped")
+
 	return nil
 }
 
@@ -128,20 +137,27 @@ CMD ["/app/start.sh"]
 `
 
 	dockerfilePath := "Dockerfile.dashboard"
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
-	defer os.Remove(dockerfilePath)
+	defer func() {
+		if err := os.Remove(dockerfilePath); err != nil {
+			log.Printf("Warning: failed to remove dockerfile: %v", err)
+		}
+	}()
 
 	// Build the image
 	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", "mcp-compose-dashboard:latest", ".")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
+
 		return fmt.Errorf("docker build failed: %w", err)
 	}
 
 	m.logger.Info("Dashboard image built successfully")
+
 	return nil
 }
 
@@ -150,6 +166,7 @@ func (m *Manager) startDashboardContainer() error {
 	networkExists, _ := m.runtime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := m.runtime.CreateNetwork("mcp-net"); err != nil {
+
 			return fmt.Errorf("failed to create network: %w", err)
 		}
 	}
@@ -159,6 +176,7 @@ func (m *Manager) startDashboardContainer() error {
 	if m.configFile != "" {
 		absPath, err := filepath.Abs(m.configFile)
 		if err != nil {
+
 			return fmt.Errorf("failed to get absolute path for config file: %w", err)
 		}
 		configPath = absPath
@@ -166,6 +184,7 @@ func (m *Manager) startDashboardContainer() error {
 		// Default config file
 		cwd, err := os.Getwd()
 		if err != nil {
+
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 		configPath = filepath.Join(cwd, "mcp-compose.yaml")
@@ -173,6 +192,7 @@ func (m *Manager) startDashboardContainer() error {
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+
 		return fmt.Errorf("config file not found: %s", configPath)
 	}
 
@@ -236,6 +256,7 @@ func (m *Manager) startDashboardContainer() error {
 
 	containerID, err := m.runtime.StartContainer(opts)
 	if err != nil {
+
 		return fmt.Errorf("failed to start dashboard container: %w", err)
 	}
 
@@ -251,10 +272,12 @@ func (m *Manager) startDashboardContainer() error {
 		m.logger.Info("Activity storage disabled - no PostgreSQL URL configured")
 	}
 
+
 	return nil
 }
 
 // GetActivityStorage returns the activity storage instance (for use by other components)
 func (m *Manager) GetActivityStorage() *ActivityStorage {
+
 	return m.activityStorage
 }

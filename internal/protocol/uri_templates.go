@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	
+	"mcpcompose/internal/constants"
 )
 
 // URITemplate represents an RFC 6570 URI template
@@ -74,12 +76,13 @@ func ParseURITemplate(template string) (*URITemplate, error) {
 	positions := expressionRegex.FindAllStringIndex(template, -1)
 
 	for i, match := range matches {
-		if len(match) < 2 {
+		if len(match) < constants.MinMatchParts {
 			continue
 		}
 
 		expr, err := parseExpression(match[1])
 		if err != nil {
+
 			return nil, fmt.Errorf("invalid template expression '%s': %w", match[1], err)
 		}
 
@@ -92,6 +95,7 @@ func ParseURITemplate(template string) (*URITemplate, error) {
 		ut.Expressions = append(ut.Expressions, expr)
 	}
 
+
 	return ut, nil
 }
 
@@ -100,6 +104,7 @@ func parseExpression(expr string) (TemplateExpression, error) {
 	te := TemplateExpression{}
 
 	if len(expr) == 0 {
+
 		return te, fmt.Errorf("empty expression")
 	}
 
@@ -109,14 +114,17 @@ func parseExpression(expr string) (TemplateExpression, error) {
 		if strings.HasPrefix(expr, op) {
 			te.Operator = op
 			expr = expr[1:]
+
 			break
 		}
 	}
 
 	// Parse variable list
 	if err := parseVariableList(expr, &te); err != nil {
+
 		return te, err
 	}
+
 
 	return te, nil
 }
@@ -124,6 +132,7 @@ func parseExpression(expr string) (TemplateExpression, error) {
 // parseVariableList parses a comma-separated list of variables
 func parseVariableList(varList string, te *TemplateExpression) error {
 	if varList == "" {
+
 		return fmt.Errorf("empty variable list")
 	}
 
@@ -131,10 +140,12 @@ func parseVariableList(varList string, te *TemplateExpression) error {
 	for _, variable := range variables {
 		varSpec, err := parseVariableSpec(strings.TrimSpace(variable))
 		if err != nil {
+
 			return err
 		}
 		te.Variables = append(te.Variables, varSpec)
 	}
+
 
 	return nil
 }
@@ -144,6 +155,7 @@ func parseVariableSpec(varSpec string) (VariableSpec, error) {
 	vs := VariableSpec{}
 
 	if varSpec == "" {
+
 		return vs, fmt.Errorf("empty variable specification")
 	}
 
@@ -159,29 +171,35 @@ func parseVariableSpec(varSpec string) (VariableSpec, error) {
 		lengthStr := varSpec[idx+1:]
 		maxLength, err := strconv.Atoi(lengthStr)
 		if err != nil {
+
 			return vs, fmt.Errorf("invalid prefix length '%s': %w", lengthStr, err)
 		}
 
 		if maxLength <= 0 || maxLength > 10000 {
+
 			return vs, fmt.Errorf("prefix length must be between 1 and 10000")
 		}
 
 		vs.MaxLength = maxLength
+
 		return vs, nil
 	}
 
 	// Validate variable name
 	if !isValidVariableName(varSpec) {
+
 		return vs, fmt.Errorf("invalid variable name '%s'", varSpec)
 	}
 
 	vs.Name = varSpec
+
 	return vs, nil
 }
 
 // isValidVariableName checks if a variable name is valid per RFC 6570
 func isValidVariableName(name string) bool {
 	if len(name) == 0 {
+
 		return false
 	}
 
@@ -189,15 +207,18 @@ func isValidVariableName(name string) bool {
 		if i == 0 {
 			// First character must be letter, digit, or underscore
 			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+
 				return false
 			}
 		} else {
 			// Subsequent characters can be letter, digit, underscore, or dot
 			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' {
+
 				return false
 			}
 		}
 	}
+
 
 	return true
 }
@@ -211,12 +232,14 @@ func (ut *URITemplate) Expand(variables map[string]interface{}) (string, error) 
 		expr := ut.Expressions[i]
 		expansion, err := ut.expandExpression(expr, variables)
 		if err != nil {
+
 			return "", fmt.Errorf("failed to expand expression '%s': %w", expr.Raw, err)
 		}
 
 		// Replace the expression in the template
 		result = result[:expr.StartPos] + expansion + result[expr.EndPos:]
 	}
+
 
 	return result, nil
 }
@@ -225,22 +248,31 @@ func (ut *URITemplate) Expand(variables map[string]interface{}) (string, error) 
 func (ut *URITemplate) expandExpression(expr TemplateExpression, variables map[string]interface{}) (string, error) {
 	switch expr.Operator {
 	case "":
+
 		return ut.expandSimple(expr.Variables, variables)
 	case "+":
+
 		return ut.expandReserved(expr.Variables, variables)
 	case "#":
+
 		return ut.expandFragment(expr.Variables, variables)
 	case ".":
+
 		return ut.expandDot(expr.Variables, variables)
 	case "/":
+
 		return ut.expandSlash(expr.Variables, variables)
 	case ";":
+
 		return ut.expandSemicolon(expr.Variables, variables)
 	case "?":
+
 		return ut.expandQuery(expr.Variables, variables)
 	case "&":
+
 		return ut.expandQueryAmp(expr.Variables, variables)
 	default:
+
 		return "", fmt.Errorf("unsupported operator: %s", expr.Operator)
 	}
 }
@@ -272,6 +304,7 @@ func (ut *URITemplate) expandSimple(vars []VariableSpec, variables map[string]in
 		parts = append(parts, encoded)
 	}
 
+
 	return strings.Join(parts, ","), nil
 }
 
@@ -302,6 +335,7 @@ func (ut *URITemplate) expandReserved(vars []VariableSpec, variables map[string]
 		parts = append(parts, encoded)
 	}
 
+
 	return strings.Join(parts, ","), nil
 }
 
@@ -309,12 +343,15 @@ func (ut *URITemplate) expandReserved(vars []VariableSpec, variables map[string]
 func (ut *URITemplate) expandFragment(vars []VariableSpec, variables map[string]interface{}) (string, error) {
 	expansion, err := ut.expandReserved(vars, variables)
 	if err != nil {
+
 		return "", err
 	}
 
 	if expansion == "" {
+
 		return "", nil
 	}
+
 
 	return "#" + expansion, nil
 }
@@ -323,12 +360,15 @@ func (ut *URITemplate) expandFragment(vars []VariableSpec, variables map[string]
 func (ut *URITemplate) expandDot(vars []VariableSpec, variables map[string]interface{}) (string, error) {
 	expansion, err := ut.expandSimple(vars, variables)
 	if err != nil {
+
 		return "", err
 	}
 
 	if expansion == "" {
+
 		return "", nil
 	}
+
 
 	return "." + expansion, nil
 }
@@ -360,8 +400,10 @@ func (ut *URITemplate) expandSlash(vars []VariableSpec, variables map[string]int
 	}
 
 	if len(parts) == 0 {
+
 		return "", nil
 	}
+
 
 	return "/" + strings.Join(parts, "/"), nil
 }
@@ -394,8 +436,10 @@ func (ut *URITemplate) expandSemicolon(vars []VariableSpec, variables map[string
 	}
 
 	if len(parts) == 0 {
+
 		return "", nil
 	}
+
 
 	return ";" + strings.Join(parts, ";"), nil
 }
@@ -428,8 +472,10 @@ func (ut *URITemplate) expandQuery(vars []VariableSpec, variables map[string]int
 	}
 
 	if len(parts) == 0 {
+
 		return "", nil
 	}
+
 
 	return "?" + strings.Join(parts, "&"), nil
 }
@@ -438,35 +484,45 @@ func (ut *URITemplate) expandQuery(vars []VariableSpec, variables map[string]int
 func (ut *URITemplate) expandQueryAmp(vars []VariableSpec, variables map[string]interface{}) (string, error) {
 	expansion, err := ut.expandQuery(vars, variables)
 	if err != nil {
+
 		return "", err
 	}
 
 	if expansion == "" {
+
 		return "", nil
 	}
 
 	// Replace leading ? with &
+
 	return "&" + expansion[1:], nil
 }
 
 // valueToString converts a variable value to string
 func (ut *URITemplate) valueToString(value interface{}) string {
 	if value == nil {
+
 		return ""
 	}
 
 	switch v := value.(type) {
 	case string:
+
 		return v
 	case int:
+
 		return strconv.Itoa(v)
 	case int64:
+
 		return strconv.FormatInt(v, 10)
 	case float64:
+
 		return strconv.FormatFloat(v, 'f', -1, 64)
 	case bool:
+
 		return strconv.FormatBool(v)
 	default:
+
 		return fmt.Sprintf("%v", v)
 	}
 }
@@ -486,6 +542,7 @@ func (ut *URITemplate) encodeReserved(s string) string {
 		}
 	}
 
+
 	return encoded
 }
 
@@ -503,6 +560,7 @@ func (ut *URITemplate) GetVariableNames() []string {
 		}
 	}
 
+
 	return names
 }
 
@@ -513,21 +571,25 @@ func (ut *URITemplate) Validate() error {
 	closeBraces := strings.Count(ut.Template, "}")
 
 	if openBraces != closeBraces {
+
 		return fmt.Errorf("mismatched braces: %d open, %d close", openBraces, closeBraces)
 	}
 
 	// Validate each expression
 	for _, expr := range ut.Expressions {
 		if len(expr.Variables) == 0 {
+
 			return fmt.Errorf("expression '%s' has no variables", expr.Raw)
 		}
 
 		for _, varSpec := range expr.Variables {
 			if varSpec.Name == "" {
+
 				return fmt.Errorf("empty variable name in expression '%s'", expr.Raw)
 			}
 		}
 	}
+
 
 	return nil
 }

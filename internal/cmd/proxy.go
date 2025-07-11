@@ -12,10 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"mcpcompose/internal/compose"
 	"mcpcompose/internal/config"
+	"mcpcompose/internal/constants"
 	"mcpcompose/internal/container"
 	"mcpcompose/internal/server"
 
@@ -41,31 +44,36 @@ Servers must be configured to run in HTTP mode and expose their ports.`,
 			// Load the configuration
 			cfg, err := config.LoadConfig(file)
 			if err != nil {
+
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			projectName := getProjectName(file)
 
 			// If only generating config, do that and exit
 			if generateConfig {
+
 				return generateProxyClientConfig(cfg, projectName, port, clientType, outputDir)
 			}
 
 			// Run containerized Go proxy (if requested)
 			if containerized {
+
 				return startContainerizedGoProxy(cfg, projectName, port, outputDir, apiKey, file)
 			}
 
 			// Run native Go proxy (primary mode)
+
 			return startNativeGoProxy(cfg, projectName, port, apiKey, file)
 		},
 	}
 
-	cmd.Flags().IntVarP(&port, "port", "p", 9876, "Port to run the proxy server on")
+	cmd.Flags().IntVarP(&port, "port", "p", constants.DefaultProxyPort, "Port to run the proxy server on")
 	cmd.Flags().BoolVarP(&generateConfig, "generate-config", "g", false, "Generate client configuration file only")
 	cmd.Flags().StringVarP(&clientType, "client", "t", "claude", "Client type (claude, openai, anthropic, all)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "client-config", "Output directory for client configuration")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key for securing the proxy server")
 	cmd.Flags().BoolVarP(&containerized, "container", "C", false, "Run proxy server as a container (less common now)")
+
 	return cmd
 }
 
@@ -74,10 +82,12 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
 	if err := buildGoProxyImage(true); err != nil {
+
 		return fmt.Errorf("failed to build Go HTTP proxy image: %w", err)
 	}
 
@@ -85,6 +95,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 	networkExists, _ := cRuntime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := cRuntime.CreateNetwork("mcp-net"); err != nil {
+
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
 		fmt.Println("Created mcp-net network for proxy.")
@@ -92,6 +103,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 
 	absConfigFile, err := filepath.Abs(configFile)
 	if err != nil {
+
 		return fmt.Errorf("failed to get absolute path for config file: %w", err)
 	}
 
@@ -143,6 +155,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 
 	containerID, err := cRuntime.StartContainer(opts)
 	if err != nil {
+
 		return fmt.Errorf("failed to start HTTP proxy container: %w", err)
 	}
 
@@ -169,6 +182,7 @@ func startContainerizedGoProxy(cfg *config.ComposeConfig, projectName string, po
 	}
 
 	fmt.Println("To stop the proxy: mcp-compose stop proxy")
+
 	return nil
 }
 
@@ -178,12 +192,14 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	// Detect container runtime
 	cRuntime, err := container.DetectRuntime()
 	if err != nil {
+
 		return fmt.Errorf("failed to detect container runtime (for server management): %w", err)
 	}
 
 	// Create server manager
 	mgr, err := server.NewManager(cfg, cRuntime)
 	if err != nil {
+
 		return fmt.Errorf("failed to create server manager: %w", err)
 	}
 
@@ -233,15 +249,16 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	}()
 
 	// Get configurable timeouts or use defaults
-	readTimeout := 5 * time.Minute  // Default for large file operations
-	writeTimeout := 5 * time.Minute // Default for long-running tools
-	idleTimeout := 2 * time.Minute  // Default for connection keepalive
-	
+	readTimeout := constants.FileOperationTimeout  // Default for large file operations
+	writeTimeout := constants.FileOperationTimeout // Default for long-running tools
+	idleTimeout := constants.ConnectionKeepAlive  // Default for connection keepalive
+
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
 			readTimeout = conn.Timeouts.GetReadTimeout()
 			writeTimeout = conn.Timeouts.GetWriteTimeout()
 			idleTimeout = conn.Timeouts.GetIdleTimeout()
+
 			break // Use first connection's timeout config
 		}
 	}
@@ -269,10 +286,11 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 
 	// Print server-specific endpoints
 	for serverName := range cfg.Servers {
+		caser := cases.Title(language.English)
 		fmt.Printf("  %s Server:    http://localhost:%d/%s\n",
-			strings.Title(serverName), port, serverName)
+			caser.String(serverName), port, serverName)
 		fmt.Printf("  %s OpenAPI:   http://localhost:%d/%s/openapi.json\n",
-			strings.Title(serverName), port, serverName)
+			caser.String(serverName), port, serverName)
 	}
 
 	// Start HTTP server in goroutine
@@ -287,16 +305,18 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	<-ctx.Done()
 
 	// Graceful shutdown with configurable timeout
-	shutdownTimeout := 30 * time.Second // Default fallback
+	shutdownTimeout := constants.DefaultShutdownTimeout // Default fallback
 	if len(cfg.Connections) > 0 {
 		for _, conn := range cfg.Connections {
 			shutdownTimeout = conn.Timeouts.GetShutdownTimeout()
+
 			break
 		}
 	}
-	
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+
 
 	return httpServer.Shutdown(shutdownCtx)
 }
@@ -310,6 +330,7 @@ func getProjectName(configFile string) string {
 			projectName = "mcp-compose"
 		}
 	}
+
 	return projectName
 }
 
@@ -376,27 +397,31 @@ EXPOSE 9876
 CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
 `
 
-	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfileName, []byte(dockerfileContent), constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Dockerfile %s: %w", dockerfileName, err)
 	}
-	defer os.Remove(dockerfileName)
+	defer func() { _ = os.Remove(dockerfileName) }()
 
 	cmd := exec.Command("docker", "build", "-f", dockerfileName, "-t", imageName, ".")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
+
 		return fmt.Errorf("docker build for %s failed: %w", imageName, err)
 	}
 
 	fmt.Printf("Go proxy image %s built successfully.\n", imageName)
+
 	return nil
 }
 
 // generateProxyClientConfig remains useful for generating client-side import files
 // It should now generate httpEndpoint based on the proxy's address.
 func generateProxyClientConfig(cfg *config.ComposeConfig, _ string, proxyPort int, clientType string, outputDir string) error {
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, constants.DefaultDirMode); err != nil {
+
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -405,19 +430,23 @@ func generateProxyClientConfig(cfg *config.ComposeConfig, _ string, proxyPort in
 
 	if strings.ToLower(clientType) == "all" {
 		if err := generateProxyClaudeConfig(cfg, proxyBaseURL, outputDir); err != nil {
+
 			return fmt.Errorf("failed to generate Claude config: %w", err)
 		}
 		// Add other client config generations here if needed, adapting them for HTTP endpoints
 		fmt.Println("Successfully generated all client configurations pointing to the HTTP proxy.")
+
 		return nil
 	}
 
 	switch strings.ToLower(clientType) {
 	case "claude":
+
 		return generateProxyClaudeConfig(cfg, proxyBaseURL, outputDir)
 	// Add cases for 'openai', 'anthropic' if you have specific formats for them
 	// that point to an HTTP proxy.
 	default:
+
 		return fmt.Errorf("unknown client type: %s", clientType)
 	}
 }
@@ -470,10 +499,12 @@ func generateProxyClaudeConfig(cfg *config.ComposeConfig, proxyBaseURL string, o
 	configPath := filepath.Join(outputDir, "claude-desktop-servers.json")
 	configData, err := json.MarshalIndent(configObject, "", "  ")
 	if err != nil {
+
 		return fmt.Errorf("failed to marshal Claude Desktop config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, constants.DefaultFileMode); err != nil {
+
 		return fmt.Errorf("failed to write Claude Desktop config file: %w", err)
 	}
 
@@ -508,9 +539,10 @@ This configuration connects Claude Desktop to your MCP servers via the enhanced 
 If API key authentication is enabled, you'll need to configure the Authorization header.
 `, proxyBaseURL, proxyBaseURL, proxyBaseURL, proxyBaseURL)
 
-	if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
+	if err := os.WriteFile(readmePath, []byte(readmeContent), constants.DefaultFileMode); err != nil {
 		fmt.Printf("Warning: Failed to write README: %v\n", err)
 	}
+
 
 	return nil
 }
@@ -520,9 +552,11 @@ func isProgressSupported(serverCfg config.ServerConfig) bool {
 	// Check if server supports long-running operations
 	for _, cap := range serverCfg.Capabilities {
 		if cap == "tools" || cap == "resources" {
+
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -530,9 +564,11 @@ func isSubscriptionSupported(serverCfg config.ServerConfig) bool {
 	// Check if server supports resource subscriptions
 	for _, cap := range serverCfg.Capabilities {
 		if cap == "resources" {
+
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -540,8 +576,10 @@ func isSamplingSupported(serverCfg config.ServerConfig) bool {
 	// Check if server supports sampling
 	for _, cap := range serverCfg.Capabilities {
 		if cap == "sampling" {
+
 			return true
 		}
 	}
+
 	return false
 }
