@@ -128,13 +128,15 @@ func (d *DashboardServer) tryProxyContainerLogs(w http.ResponseWriter, r *http.R
 		endpoint += "?" + r.URL.RawQuery
 	}
 
+	d.logger.Info("Attempting to proxy container logs for %s to endpoint: %s", containerName, endpoint)
 	resp, err := d.proxyRequest(endpoint)
 	if err != nil {
-		d.logger.Debug("Failed to proxy container logs, will try local: %v", err)
+		d.logger.Error("Failed to proxy container logs for %s: %v", containerName, err)
 
 
 		return false
 	}
+	d.logger.Info("Successfully proxied container logs for %s", containerName)
 
 	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write(resp); err != nil {
