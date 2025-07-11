@@ -1023,7 +1023,7 @@ const MemoryViewer = {
                                         <div class="space-y-1">
                                             <div
                                                 v-for="relation in getEntityRelations(entity.name)"
-                                                :key="\`\${relation.from}-\${relation.to}-\${relation.relationType}\`"
+                                                :key="relation.from + '-' + relation.to + '-' + relation.relationType"
                                                 class="text-sm p-2 bg-white dark:bg-gray-800 rounded border"
                                             >
                                                 <span class="font-medium text-blue-600 dark:text-blue-400">{{ relation.from }}</span>
@@ -1247,7 +1247,7 @@ const MemoryViewer = {
                                 <div class="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                     <div
                                         class="bg-purple-500 h-2 rounded-full"
-                                        :style="{ width: \`\${(count / stats.totalEntities) * 100}%\` }"
+                                        :style="{ width: (count / stats.totalEntities) * 100 + '%' }"
                                     ></div>
                                 </div>
                                 <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ count }}</span>
@@ -1272,7 +1272,7 @@ const MemoryViewer = {
                                 <div class="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                     <div
                                         class="bg-blue-500 h-2 rounded-full"
-                                        :style="{ width: \`\${(count / stats.totalRelations) * 100}%\` }"
+                                        :style="{ width: (count / stats.totalRelations) * 100 + '%' }"
                                     ></div>
                                 </div>
                                 <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ count }}</span>
@@ -1327,7 +1327,7 @@ const MemoryViewer = {
                                     <div class="w-32 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                         <div 
                                             class="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                                            :style="{ width: `${(count / stats.totalEntities) * 100}%` }"
+                                            :style="{ width: (count / stats.totalEntities) * 100 + '%' }"
                                         ></div>
                                     </div>
                                     <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-8">{{ count }}</span>
@@ -1346,7 +1346,7 @@ const MemoryViewer = {
                                     <div class="w-32 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                         <div 
                                             class="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                                            :style="{ width: `${(count / stats.totalRelations) * 100}%` }"
+                                            :style="{ width: (count / stats.totalRelations) * 100 + '%' }"
                                         ></div>
                                     </div>
                                     <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-8">{{ count }}</span>
@@ -1361,7 +1361,7 @@ const MemoryViewer = {
                         <div class="space-y-3">
                             <div 
                                 v-for="relation in relations.slice(0, 5)" 
-                                :key="`${relation.from}-${relation.to}`"
+                                :key="relation.from + '-' + relation.to"
                                 class="flex items-center space-x-3 p-3 bg-white dark:bg-gray-700 rounded-lg"
                             >
                                 <div class="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full"></div>
