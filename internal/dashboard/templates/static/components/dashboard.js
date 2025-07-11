@@ -20,6 +20,7 @@ const DashboardApp = {
             
             // Mobile state
             isMobileView: false,
+            mobileMenuOpen: false,
             
             // Server tools discovered by inspector
             serverTools: {},
@@ -32,7 +33,7 @@ const DashboardApp = {
             return [
                 {
                     id: 'overview',
-                    name: 'Overview',
+                    name: 'Servers',
                     icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2v-6a2 2 0 00-2-2H5a2 2 0 00-2 2z',
                     enabled: true
                 },
@@ -482,13 +483,20 @@ const DashboardApp = {
         
         checkMobileView() {
             this.isMobileView = window.innerWidth < 768;
+            if (!this.isMobileView) {
+                this.mobileMenuOpen = false;
+            }
+        },
+        
+        toggleMobileMenu() {
+            this.mobileMenuOpen = !this.mobileMenuOpen;
         },
         
         showToast(toast) {
             // Create toast element
             const toastEl = document.createElement('div');
             toastEl.className = `
-                fixed top-4 right-4 z-50 max-w-sm w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg pointer-events-auto 
+                bg-white dark:bg-gray-800 shadow-lg rounded-lg pointer-events-auto 
                 ring-1 ring-black ring-opacity-5 transform transition-all duration-300 ease-in-out translate-x-0 opacity-100
                 ${toast.type === 'success' ? 'border-l-4 border-green-500' : 
                   toast.type === 'error' ? 'border-l-4 border-red-500' : 
@@ -551,6 +559,11 @@ const DashboardApp = {
             if (!this.$refs.refreshDropdown?.contains(e.target)) {
                 this.showRefreshDropdown = false;
             }
+            
+            // Close mobile menu when clicking outside
+            if (this.mobileMenuOpen && !e.target.closest('.mobile-menu-container')) {
+                this.mobileMenuOpen = false;
+            }
         });
     },
     
@@ -577,8 +590,8 @@ const DashboardApp = {
                         <h1 class="text-base font-semibold text-gray-900 dark:text-white hidden sm:block">MCP Dashboard</h1>
                     </div>
 
-                    <!-- Compact Controls -->
-                    <div class="flex items-center space-x-2">
+                    <!-- Desktop Controls -->
+                    <div class="hidden md:flex items-center space-x-2">
                         <!-- Auto Refresh Toggle -->
                         <div class="relative">
                             <button
@@ -591,10 +604,10 @@ const DashboardApp = {
                                         : 'bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600'
                                 ]"
                             >
-                                <svg class="w-3 h-3 mr-1.5" :class="{ 'animate-spin': loading }" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                                <svg class="w-4 h-4 mr-1.5" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                                 </svg>
-                                <span class="hidden sm:inline">{{ autoRefresh ? 'Auto' : 'Refresh' }}</span>
+                                <span>{{ autoRefresh ? 'Auto' : 'Refresh' }}</span>
                                 <!-- Active indicator -->
                                 <span v-if="autoRefresh" class="absolute -top-1 -right-1 flex h-3 w-3">
                                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -605,10 +618,11 @@ const DashboardApp = {
                             <!-- Settings Dropdown -->
                             <button
                                 @click="showRefreshDropdown = !showRefreshDropdown"
-                                class="ml-1 inline-flex items-center px-1.5 py-1.5 border border-gray-600 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                                class="ml-1 inline-flex items-center px-2 py-1.5 border border-gray-600 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                             >
-                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path>
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                 </svg>
                             </button>
 
@@ -671,27 +685,92 @@ const DashboardApp = {
                         <button
                             @click="reloadProxy"
                             :disabled="loading"
-                            class="inline-flex items-center px-2.5 py-1.5 border border-orange-600/30 text-xs font-medium rounded-md text-orange-200 bg-orange-900/40 hover:bg-orange-900/60 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all"
+                            class="inline-flex items-center px-3 py-1.5 border border-orange-600/30 text-xs font-medium rounded-md text-orange-200 bg-orange-900/40 hover:bg-orange-900/60 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all"
                             title="Restart Proxy"
                         >
-                            <svg class="w-3 h-3 sm:mr-1.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                             </svg>
-                            <span class="hidden sm:inline">Restart</span>
+                            <span>Restart</span>
+                        </button>
+                    </div>
+
+                    <!-- Mobile Hamburger Menu -->
+                    <div class="md:hidden">
+                        <button
+                            @click="toggleMobileMenu"
+                            class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+                        >
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path v-if="!mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                                <path v-if="mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
                         </button>
                     </div>
                 </div>
             </div>
         </header>
 
+        <!-- Mobile Menu Dropdown -->
+        <div v-if="mobileMenuOpen && isMobileView" class="md:hidden bg-gray-800 border-b border-gray-700 sticky top-12 z-40 mobile-menu-container">
+            <div class="px-4 py-3 space-y-3">
+                <!-- Mobile Actions -->
+                <div class="space-y-2">
+                    <button
+                        @click="loadData(); mobileMenuOpen = false"
+                        :disabled="loading"
+                        :class="[
+                            'w-full flex items-center justify-center px-3 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-all',
+                            autoRefresh
+                                ? 'bg-green-900/40 text-green-200 border border-green-600/30'
+                                : 'bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600'
+                        ]"
+                    >
+                        <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        {{ autoRefresh ? 'Auto Refresh' : 'Refresh' }}
+                    </button>
+                    
+                    <button
+                        @click="reloadProxy(); mobileMenuOpen = false"
+                        :disabled="loading"
+                        class="w-full flex items-center justify-center px-3 py-2 border border-orange-600/30 text-sm font-medium rounded-md text-orange-200 bg-orange-900/40 hover:bg-orange-900/60 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all"
+                    >
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        Restart Proxy
+                    </button>
+                </div>
+                
+                <!-- Mobile Auto Refresh Toggle -->
+                <div class="flex items-center justify-between py-2 border-t border-gray-700">
+                    <span class="text-sm font-medium text-gray-200">Auto Refresh</span>
+                    <button
+                        @click="toggleAutoRefresh"
+                        :class="[
+                            'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                            autoRefresh ? 'bg-blue-600' : 'bg-gray-600'
+                        ]"
+                    >
+                        <span :class="[
+                            'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out',
+                            autoRefresh ? 'translate-x-5' : 'translate-x-0'
+                        ]"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Compact Navigation Pills -->
-        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40">
+        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'top-32': mobileMenuOpen && isMobileView }">
             <div class="px-4 sm:px-6 lg:px-8">
                 <div class="flex items-center py-2 space-x-1 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
                     <button
                         v-for="tab in tabs"
                         :key="tab.id"
-                        @click="activeTab = tab.id"
+                        @click="activeTab = tab.id; mobileMenuOpen = false"
                         :class="[
                             'inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0',
                             activeTab === tab.id
