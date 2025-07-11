@@ -6,6 +6,8 @@
 
 A comprehensive orchestration tool for managing Model Context Protocol (MCP) servers with container and proxy capabilities. MCP-Compose provides a Docker Compose-style interface for deploying, configuring, and managing multiple MCP servers through a unified HTTP proxy.
 
+![MCP-Compose Demo](demo.gif)
+
 ## Overview
 
 MCP-Compose bridges the gap between traditional MCP STDIO servers and modern HTTP-based architectures. It combines the simplicity of Docker Compose configuration with robust MCP protocol support, enabling seamless integration with clients like Claude Desktop, OpenWebUI, and custom applications.
