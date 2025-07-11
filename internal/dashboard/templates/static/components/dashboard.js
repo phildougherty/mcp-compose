@@ -482,20 +482,14 @@ const DashboardApp = {
         },
         
         checkMobileView() {
-            const wasMobile = this.isMobileView;
             this.isMobileView = window.innerWidth < 768;
-            console.log('checkMobileView - window.innerWidth:', window.innerWidth, 'isMobileView:', this.isMobileView);
             if (!this.isMobileView) {
                 this.mobileMenuOpen = false;
             }
         },
         
         toggleMobileMenu() {
-            console.log('toggleMobileMenu clicked, isMobileView:', this.isMobileView, 'current mobileMenuOpen:', this.mobileMenuOpen);
             this.mobileMenuOpen = !this.mobileMenuOpen;
-            console.log('mobileMenuOpen after toggle:', this.mobileMenuOpen);
-            // Force update to ensure reactivity
-            this.$forceUpdate();
         },
         
         showToast(toast) {
@@ -568,7 +562,6 @@ const DashboardApp = {
             
             // Close mobile menu when clicking outside (but not on hamburger button)
             if (this.mobileMenuOpen && !e.target.closest('.mobile-menu-container') && !e.target.closest('.hamburger-menu-button')) {
-                console.log('Closing mobile menu due to outside click');
                 this.mobileMenuOpen = false;
             }
         });
@@ -595,8 +588,6 @@ const DashboardApp = {
                             </svg>
                         </div>
                         <h1 class="text-base font-semibold text-gray-900 dark:text-white hidden sm:block">MCP Dashboard</h1>
-                        <div class="md:hidden text-xs text-red-400" v-if="mobileMenuOpen">Menu: Open</div>
-                        <div class="md:hidden text-xs text-gray-400" v-else>Menu: Closed</div>
                     </div>
 
                     <!-- Desktop Controls -->
@@ -643,15 +634,18 @@ const DashboardApp = {
                                         <span class="text-xs font-medium text-gray-200">Auto Refresh</span>
                                         <button
                                             @click="toggleAutoRefresh"
+                                            class="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             :class="[
-                                                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                                                autoRefresh ? 'bg-blue-600' : 'bg-gray-600'
+                                                autoRefresh 
+                                                    ? 'bg-blue-600 text-white border-blue-600' 
+                                                    : 'bg-gray-600 text-gray-300 border-gray-600 hover:bg-gray-500'
                                             ]"
                                         >
-                                            <span :class="[
-                                                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out',
-                                                autoRefresh ? 'translate-x-4' : 'translate-x-0'
-                                            ]"></span>
+                                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path v-if="autoRefresh" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            {{ autoRefresh ? 'On' : 'Off' }}
                                         </button>
                                     </div>
                                     
@@ -723,8 +717,6 @@ const DashboardApp = {
         <!-- Mobile Menu Dropdown -->
         <div v-if="mobileMenuOpen" class="md:hidden bg-gray-800 border-b border-gray-700 fixed top-12 left-0 right-0 z-50 mobile-menu-container">
             <div class="px-4 py-3 space-y-3">
-                <!-- Debug indicator -->
-                <div class="text-green-400 text-sm">Mobile Menu Open (Debug)</div>
                 <!-- Mobile Actions -->
                 <div class="space-y-2">
                     <button
@@ -760,15 +752,18 @@ const DashboardApp = {
                     <span class="text-sm font-medium text-gray-200">Auto Refresh</span>
                     <button
                         @click="toggleAutoRefresh"
+                        class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                         :class="[
-                            'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                            autoRefresh ? 'bg-blue-600' : 'bg-gray-600'
+                            autoRefresh 
+                                ? 'bg-blue-600 text-white border-blue-600' 
+                                : 'bg-gray-600 text-gray-300 border-gray-600 hover:bg-gray-500'
                         ]"
                     >
-                        <span :class="[
-                            'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out',
-                            autoRefresh ? 'translate-x-5' : 'translate-x-0'
-                        ]"></span>
+                        <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path v-if="autoRefresh" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        {{ autoRefresh ? 'On' : 'Off' }}
                     </button>
                 </div>
             </div>
