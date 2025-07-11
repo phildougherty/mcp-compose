@@ -505,7 +505,7 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 
 	d.logger.Info("Successfully connected to proxy logs stream for %s", serverName)
 
-	// Stream logs from proxy response
+	// Stream logs from proxy response (SSE format)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		select {
@@ -519,19 +519,31 @@ func (d *DashboardServer) streamLogsViaProxyEndpoint(safeConn *SafeWebSocketConn
 			continue
 		}
 
-		msg := LogMessage{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Server:    serverName,
-			Level:     d.parseLogLevel(line),
-			Message:   line,
-		}
+		// Parse SSE format: "data: {json}" lines contain the actual log data
+		if strings.HasPrefix(line, "data: ") {
+			jsonData := strings.TrimPrefix(line, "data: ")
+			
+			// Try to parse as JSON to extract log content
+			var logData map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonData), &logData); err == nil {
+				// Check if it's a log event (has "content" field)
+				if content, ok := logData["content"].(string); ok {
+					msg := LogMessage{
+						Timestamp: time.Now().Format(time.RFC3339),
+						Server:    serverName,
+						Level:     d.parseLogLevel(content),
+						Message:   content,
+					}
 
-		if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
-			d.logger.Debug("Failed to set write deadline: %v", err)
-		}
-		if err := safeConn.WriteJSON(msg); err != nil {
-			d.logger.Debug("Failed to write log message: %v", err)
-			return true
+					if err := safeConn.SetWriteDeadline(time.Now().Add(constants.WebSocketWriteDeadline)); err != nil {
+						d.logger.Debug("Failed to set write deadline: %v", err)
+					}
+					if err := safeConn.WriteJSON(msg); err != nil {
+						d.logger.Debug("Failed to write log message: %v", err)
+						return true
+					}
+				}
+			}
 		}
 	}
 
