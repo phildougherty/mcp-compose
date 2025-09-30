@@ -62,17 +62,17 @@ curl -H "Authorization: Bearer $MCP_API_KEY" \
 # If successful, you'll see your filesystem server listed!
 ```
 
-🎉 **Congratulations!** Your MCP server is now running at `http://localhost:9876`
+**Congratulations!** Your MCP server is now running at `http://localhost:9876`
 
 ## What's Next? (Choose Your Path)
 
-### 🔰 Beginner: Add More Servers
+### Beginner: Add More Servers
 [→ Continue to "Adding More Servers"](#adding-more-servers)
 
-### 🎯 Practical: Connect to Claude Desktop  
+### Practical: Connect to Claude Desktop  
 [→ Jump to "Claude Desktop Setup"](#claude-desktop-setup)
 
-### 🚀 Advanced: Enterprise Features
+### Advanced: Enterprise Features
 [→ See Advanced Configuration](mcp-compose-advanced.yaml)
 
 ---
@@ -332,7 +332,7 @@ If you're still having issues:
 - **Content Creation:** Add research, writing, and media tools  
 - **Enterprise:** OAuth, audit logging, and monitoring
 
-### 🚀 Advanced Features
+### Advanced Features
 
 - **Multiple Environments:** Development, staging, production configs
 - **Custom Servers:** Build your own MCP servers
@@ -468,4 +468,4 @@ You now have a working MCP-Compose setup! Here are suggested next steps:
 4. **Share with your team** - Create configurations for different team members
 5. **Contribute back** - Share useful configurations and improvements
 
-Happy composing! 🚀
+Happy composing!

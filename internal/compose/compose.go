@@ -185,22 +185,13 @@ func Up(configFile string, serverNames []string) error {
 		return nil
 	}
 
-	fmt.Printf("Starting %d MCP server(s) in parallel...\n", len(serversToStart))
-
-	// Collect all networks needed by servers
 	requiredNetworks := collectRequiredNetworks(cfg, serversToStart)
 
-	// Ensure all required networks exist
 	if cRuntime.GetRuntimeName() != "none" {
 		for networkName := range requiredNetworks {
 			networkExists, _ := cRuntime.NetworkExists(networkName)
 			if !networkExists {
-				fmt.Printf("Network '%s' does not exist, attempting to create it...\n", networkName)
-				if err := cRuntime.CreateNetwork(networkName); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to create network '%s': %v. Some inter-server communication might fail.\n", networkName, err)
-				} else {
-					fmt.Printf("✅ Created network '%s'\n", networkName)
-				}
+				_ = cRuntime.CreateNetwork(networkName)
 			}
 		}
 	}
@@ -215,39 +206,17 @@ func Up(configFile string, serverNames []string) error {
 	results := make(chan startResult, len(serversToStart))
 	var wg sync.WaitGroup
 
-	// Start all servers in parallel
 	for _, serverName := range serversToStart {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
-
 			startTime := time.Now()
-			fmt.Printf("Processing server '%s'...\n", name)
 
 			serverCfg, exists := cfg.Servers[name]
 			if !exists {
 				results <- startResult{name, fmt.Errorf("not found in config"), time.Since(startTime)}
 
 				return
-			}
-
-			// Log transport mode
-			if serverCfg.Image != "" {
-				isHTTPIntended := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
-				hasHTTPArgs := false
-				for _, arg := range serverCfg.Args {
-					if strings.Contains(strings.ToLower(arg), "http") || strings.Contains(arg, "--port") {
-						hasHTTPArgs = true
-
-						break
-					}
-				}
-
-				if !isHTTPIntended && !hasHTTPArgs {
-					fmt.Printf("[i] Server %-30s will start in STDIO mode (no HTTP config detected).\n", name)
-				} else if isHTTPIntended || hasHTTPArgs {
-					fmt.Printf("[i] Server %-30s will start in HTTP mode.\n", name)
-				}
 			}
 
 			var err error
@@ -267,7 +236,6 @@ func Up(configFile string, serverNames []string) error {
 		close(results)
 	}()
 
-	// Collect and display results
 	var composeErrors []string
 	var successfulServers []string
 	successCount := 0
@@ -276,41 +244,26 @@ func Up(configFile string, serverNames []string) error {
 		if result.err != nil {
 			errMsg := fmt.Sprintf("Server '%s' failed to start: %v", result.serverName, result.err)
 			composeErrors = append(composeErrors, errMsg)
-			fmt.Printf("[✖] Server %-30s Error: %v (%s)\n", result.serverName, result.err, ShortDuration(result.duration))
+			fmt.Printf("[✖] %-35s %s\n", result.serverName, ShortDuration(result.duration))
 		} else {
 			successCount++
 			successfulServers = append(successfulServers, result.serverName)
-			fmt.Printf("[✔] Server %-30s Started (%s). Proxy will attempt HTTP connection.\n", result.serverName, ShortDuration(result.duration))
+			fmt.Printf("[✔] %-35s %s\n", result.serverName, ShortDuration(result.duration))
 		}
 	}
 
-	// Summary
-	fmt.Printf("\n=== PARALLEL STARTUP SUMMARY ===\n")
-	fmt.Printf("Servers processed: %d\n", len(serversToStart))
-	fmt.Printf("Successfully started: %d\n", successCount)
-	fmt.Printf("Failed: %d\n", len(composeErrors))
-
 	if len(composeErrors) > 0 {
-		fmt.Printf("\nErrors encountered:\n")
+		fmt.Printf("\nErrors:\n")
 		for _, e := range composeErrors {
-			fmt.Printf("- %s\n", e)
+			fmt.Printf("  %s\n", e)
 		}
 		if successCount == 0 {
-
-			return fmt.Errorf("failed to start any servers. Check server configurations and ensure commands/images are correct")
+			return fmt.Errorf("failed to start any servers")
 		}
 	}
 
 	if successCount > 0 {
-		// Generate dynamic network description
-		networkDesc := generateNetworkDescription(requiredNetworks)
-		fmt.Printf("\n✅ Startup completed. %d/%d servers are running.\n", successCount, len(serversToStart))
-		fmt.Printf("Servers are accessible%s\n", networkDesc)
-
-		// Show detailed network topology
-		showNetworkTopology(cfg, successfulServers)
-
-		fmt.Printf("Use 'mcp-compose down' to stop them.\n")
+		fmt.Printf("\nStarted %d/%d servers\n", successCount, len(serversToStart))
 	}
 
 	return nil
@@ -592,7 +545,6 @@ func Down(configFile string, serverNames []string) error {
 		return nil
 	}
 
-	fmt.Println("Stopping MCP servers...")
 	var serversToStop []string
 	if len(serverNames) > 0 {
 		serversToStop = serverNames
@@ -624,37 +576,33 @@ func Down(configFile string, serverNames []string) error {
 		if err := cRuntime.StopContainer(containerName); err != nil {
 			if !strings.Contains(err.Error(), "No such container") {
 				composeErrors = append(composeErrors, fmt.Sprintf("Failed to stop %s: %v", serverName, err))
-				fmt.Printf("[✖] Server %-30s Error stopping: %v\n", serverName, err)
+				fmt.Printf("[✖] %-35s\n", serverName)
 			} else {
-				fmt.Printf("[✔] Server %-30s (container %s) already stopped or removed.\n", serverName, containerName)
+				fmt.Printf("[✔] %-35s\n", serverName)
 				successCount++
 			}
 		} else {
 			successCount++
-			fmt.Printf("[✔] Server %-30s (container %s) stopped and removed.\n", serverName, containerName)
+			fmt.Printf("[✔] %-35s\n", serverName)
 		}
 	}
 
-	fmt.Printf("\n=== SHUTDOWN SUMMARY ===\n")
-	fmt.Printf("Containerized servers processed for shutdown: %d\n", len(serversToStop))
-	fmt.Printf("Successfully stopped/ensured stopped: %d\n", successCount)
-	fmt.Printf("Failed operations: %d\n", len(composeErrors))
 	if len(composeErrors) > 0 {
-		fmt.Printf("\nErrors encountered during stop operations:\n")
+		fmt.Printf("\nErrors:\n")
 		for _, e := range composeErrors {
-			fmt.Printf("- %s\n", e)
+			fmt.Printf("  %s\n", e)
 		}
 	}
+
+	fmt.Printf("\nStopped %d/%d servers\n", successCount, len(serversToStop))
 
 	return nil
 }
 
 func Start(configFile string, serverNames []string) error {
 	if len(serverNames) == 0 {
-
 		return fmt.Errorf("no server names specified to start")
 	}
-	fmt.Printf("Starting specified MCP servers (and their dependencies): %v\n", serverNames)
 
 	return Up(configFile, serverNames)
 }
@@ -1110,35 +1058,16 @@ func convertSecurityConfig(serverName string, serverCfg config.ServerConfig) con
 func startServerContainer(serverName string, serverCfg config.ServerConfig, cRuntime container.Runtime) error {
 	opts := convertSecurityConfig(serverName, serverCfg)
 
-	// Transport-specific configuration
 	isSocatHostedStdio := serverCfg.StdioHosterPort > 0
 	isHttp := serverCfg.Protocol == "http" || serverCfg.HttpPort > 0
 
 	if isSocatHostedStdio {
-		fmt.Printf("Starting container '%s' for server '%s' (Socat STDIO Hoster mode on internal port %d).\n",
-			opts.Name, serverName, serverCfg.StdioHosterPort)
 		opts.Env["MCP_SOCAT_INTERNAL_PORT"] = strconv.Itoa(serverCfg.StdioHosterPort)
 	} else if isHttp {
-		fmt.Printf("Starting container '%s' for server '%s' (HTTP mode on internal port %d).\n",
-			opts.Name, serverName, serverCfg.HttpPort)
 		if serverCfg.HttpPort > 0 {
 			opts.Env["MCP_HTTP_PORT"] = strconv.Itoa(serverCfg.HttpPort)
 		}
 		opts.Env["MCP_TRANSPORT"] = "http"
-	} else {
-		fmt.Printf("Starting container '%s' for server '%s' (Direct STDIO mode).\n",
-			opts.Name, serverName)
-	}
-
-	// Log security configuration
-	if len(opts.CapAdd) > 0 {
-		fmt.Printf("Container '%s' adding capabilities: %s\n", opts.Name, strings.Join(opts.CapAdd, ", "))
-	}
-	if len(opts.CapDrop) > 0 {
-		fmt.Printf("Container '%s' dropping capabilities: %s\n", opts.Name, strings.Join(opts.CapDrop, ", "))
-	}
-	if opts.Privileged {
-		fmt.Printf("Container '%s' running in privileged mode\n", opts.Name)
 	}
 
 	_, err := cRuntime.StartContainer(&opts)

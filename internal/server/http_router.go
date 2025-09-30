@@ -110,26 +110,28 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// CRITICAL FIX: Handle direct tool calls BEFORE server routing
+	// But check if it's a server name FIRST to avoid expensive tool discovery
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPost {
-		toolName := parts[0]
-		// First check if it's a known tool
-		if h.isKnownTool(toolName) {
-			h.logger.Info("Handling direct tool call for: %s", toolName)
-			h.handleDirectToolCall(w, r, toolName)
+		name := parts[0]
+
+		// First check if it's a server name (fast lookup)
+		if _, exists := h.Manager.GetServerInstance(name); exists {
+			h.logger.Info("Routing to server: %s", name)
+			// This is a server, handle as server request
+			goto handleServer
+		}
+
+		// Then check if it's a known tool (may trigger tool discovery)
+		if h.isKnownTool(name) {
+			h.logger.Info("Handling direct tool call for: %s", name)
+			h.handleDirectToolCall(w, r, name)
 			h.logger.Debug("Processed direct tool call %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 
 			return
 		}
 
-		// If not a known tool, check if it's a server name
-		if _, exists := h.Manager.GetServerInstance(toolName); exists {
-			h.logger.Info("Routing to server: %s", toolName)
-			// This is a server, handle as server request
-			goto handleServer
-		}
-
 		// Neither a tool nor a server
-		h.logger.Warning("Unknown tool or server: %s", toolName)
+		h.logger.Warning("Unknown tool or server: %s", name)
 		h.corsError(w, "Tool or server not found", http.StatusNotFound)
 
 		return
@@ -412,14 +414,6 @@ func (h *ProxyHandler) forwardToServerWithBody(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ONLY handle proxy-specific standard methods, NOT server methods
-	if isProxyStandardMethod(reqMethodVal) {
-		h.handleProxyStandardMethod(w, r, requestPayload, reqIDVal, reqMethodVal)
-
-		return
-	}
-
-	// FORWARD ALL OTHER METHODS TO THE ACTUAL MCP SERVERS
 	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {

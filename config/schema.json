@@ -1,0 +1,462 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP-Compose Configuration Schema",
+  "description": "Schema for mcp-compose.yaml configuration file",
+  "type": "object",
+  "required": ["version", "servers"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Configuration file version"
+    },
+    "proxy_auth": {
+      "type": "object",
+      "description": "Authentication settings for the HTTP proxy",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "api_key": {
+          "type": "string",
+          "description": "API key for proxy authentication (use environment variables)"
+        },
+        "oauth_fallback": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "oauth": {
+      "type": "object",
+      "description": "OAuth 2.1 configuration",
+      "required": ["enabled", "issuer"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "issuer": {
+          "type": "string",
+          "format": "uri"
+        },
+        "endpoints": {
+          "type": "object",
+          "properties": {
+            "authorization": {"type": "string"},
+            "token": {"type": "string"},
+            "userinfo": {"type": "string"},
+            "revoke": {"type": "string"},
+            "discovery": {"type": "string"}
+          }
+        },
+        "tokens": {
+          "type": "object",
+          "properties": {
+            "access_token_ttl": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m|h|d)$",
+              "default": "1h"
+            },
+            "refresh_token_ttl": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m|h|d)$",
+              "default": "168h"
+            },
+            "authorization_code_ttl": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m|h|d)$",
+              "default": "10m"
+            },
+            "algorithm": {
+              "type": "string",
+              "enum": ["RS256", "ES256", "HS256"],
+              "default": "RS256"
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "properties": {
+            "require_pkce": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "grant_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["authorization_code", "refresh_token", "client_credentials"]
+          }
+        },
+        "response_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["code", "token"]
+          }
+        },
+        "scopes_supported": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "log_level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        },
+        "storage": {
+          "type": "string",
+          "enum": ["file", "postgres"],
+          "default": "file"
+        },
+        "retention": {
+          "type": "object",
+          "properties": {
+            "max_entries": {"type": "integer", "minimum": 1},
+            "max_age": {"type": "string", "pattern": "^[0-9]+(s|m|h|d)$"}
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "servers": {
+      "type": "object",
+      "description": "MCP server configurations",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "string"},
+          "args": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "image": {"type": "string"},
+          "build": {
+            "type": "object",
+            "properties": {
+              "context": {"type": "string"},
+              "dockerfile": {"type": "string", "default": "Dockerfile"},
+              "args": {
+                "type": "object",
+                "additionalProperties": {"type": "string"}
+              },
+              "target": {"type": "string"},
+              "no_cache": {"type": "boolean", "default": false},
+              "pull": {"type": "boolean", "default": false},
+              "platform": {"type": "string"}
+            }
+          },
+          "runtime": {
+            "type": "string",
+            "enum": ["process", "docker", "podman"]
+          },
+          "pull": {"type": "boolean", "default": false},
+          "workdir": {"type": "string"},
+          "env": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          },
+          "ports": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^[0-9]+:[0-9]+$"}
+          },
+          "http_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "http_path": {"type": "string"},
+          "protocol": {
+            "type": "string",
+            "enum": ["stdio", "http", "sse", "tcp"],
+            "default": "stdio"
+          },
+          "sse_path": {"type": "string"},
+          "sse_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "sse_heartbeat": {"type": "integer", "minimum": 1},
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["resources", "tools", "prompts", "sampling", "logging", "roots"]
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "volumes": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "user": {"type": "string"},
+          "groups": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "privileged": {"type": "boolean", "default": false},
+          "read_only": {"type": "boolean", "default": false},
+          "cap_add": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "cap_drop": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "security_opt": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "restart": {
+            "type": "string",
+            "enum": ["no", "always", "on-failure", "unless-stopped"],
+            "default": "no"
+          },
+          "healthcheck": {
+            "type": "object",
+            "properties": {
+              "test": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "interval": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
+              "timeout": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
+              "retries": {"type": "integer", "minimum": 1},
+              "start_period": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"}
+            }
+          },
+          "networks": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "network_mode": {"type": "string"},
+          "labels": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          },
+          "authentication": {
+            "type": "object",
+            "properties": {
+              "enabled": {"type": "boolean"},
+              "required_scope": {"type": "string"},
+              "optional_auth": {"type": "boolean"},
+              "scopes": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "allow_api_key": {"type": "boolean"}
+            }
+          },
+          "security": {
+            "type": "object",
+            "properties": {
+              "allow_docker_socket": {"type": "boolean", "default": false},
+              "allow_host_mounts": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "allow_privileged_ops": {"type": "boolean", "default": false},
+              "trusted_image": {"type": "boolean", "default": false},
+              "no_new_privileges": {"type": "boolean", "default": true},
+              "apparmor": {"type": "string"},
+              "seccomp": {"type": "string"}
+            }
+          },
+          "deploy": {
+            "type": "object",
+            "properties": {
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "cpus": {"type": "string"},
+                      "memory": {"type": "string", "pattern": "^[0-9]+(b|k|m|g)$"},
+                      "memory_swap": {"type": "string", "pattern": "^[0-9]+(b|k|m|g)$"},
+                      "pids": {"type": "integer", "minimum": 0}
+                    }
+                  },
+                  "reservations": {
+                    "type": "object",
+                    "properties": {
+                      "cpus": {"type": "string"},
+                      "memory": {"type": "string", "pattern": "^[0-9]+(b|k|m|g)$"}
+                    }
+                  }
+                }
+              },
+              "restart_policy": {
+                "type": "string",
+                "enum": ["no", "always", "on-failure", "unless-stopped"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "object",
+      "description": "Connection configurations",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["transport"],
+        "properties": {
+          "transport": {
+            "type": "string",
+            "enum": ["stdio", "http", "https", "tcp", "websocket", "http+sse"]
+          },
+          "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "host": {"type": "string"},
+          "path": {"type": "string"},
+          "expose": {"type": "boolean", "default": false},
+          "tls": {"type": "boolean", "default": false},
+          "cert_file": {"type": "string"},
+          "key_file": {"type": "string"},
+          "auth": {
+            "type": "string",
+            "enum": ["none", "basic", "token"],
+            "default": "none"
+          },
+          "timeouts": {
+            "type": "object",
+            "properties": {
+              "connect": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "10s"},
+              "read": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "30s"},
+              "write": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "30s"},
+              "idle": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "60s"},
+              "health_check": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "5s"},
+              "shutdown": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "30s"},
+              "lifecycle_hook": {"type": "string", "pattern": "^[0-9]+(s|m|h)$", "default": "30s"}
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["text", "json"],
+          "default": "text"
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["file", "stdout"]
+              },
+              "path": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 9090}
+          }
+        }
+      }
+    },
+    "dashboard": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 8080},
+        "host": {"type": "string", "default": "0.0.0.0"},
+        "proxy_url": {"type": "string", "format": "uri"},
+        "postgres_url": {"type": "string"},
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "auto"],
+          "default": "auto"
+        },
+        "log_streaming": {"type": "boolean", "default": true},
+        "config_editor": {"type": "boolean", "default": true},
+        "metrics": {"type": "boolean", "default": true}
+      }
+    },
+    "networks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "driver": {"type": "string", "default": "bridge"},
+          "driver_opts": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          },
+          "attachable": {"type": "boolean", "default": false},
+          "enable_ipv6": {"type": "boolean", "default": false},
+          "internal": {"type": "boolean", "default": false},
+          "external": {"type": "boolean", "default": false},
+          "labels": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          }
+        }
+      }
+    },
+    "volumes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "driver": {"type": "string", "default": "local"},
+          "driver_opts": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          },
+          "external": {"type": "boolean", "default": false},
+          "labels": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 8001},
+        "host": {"type": "string", "default": "0.0.0.0"},
+        "database_url": {"type": "string"},
+        "postgres_enabled": {"type": "boolean", "default": false},
+        "postgres_port": {"type": "integer", "default": 5432},
+        "postgres_db": {"type": "string", "default": "mcp_memory"},
+        "postgres_user": {"type": "string", "default": "postgres"},
+        "postgres_password": {"type": "string"}
+      }
+    }
+  }
+}

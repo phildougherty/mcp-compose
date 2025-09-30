@@ -586,50 +586,54 @@ const DashboardApp = {
     },
     
     template: `
-        <div class="min-h-screen bg-gray-900 dark:bg-gray-900">
-        <!-- Compact Header -->
-        <header class="bg-gray-800 dark:bg-gray-800 shadow-sm border-b border-gray-700 dark:border-gray-700 sticky top-0 z-50">
+        <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <!-- Modern Header with Glass Effect -->
+        <header class="backdrop-blur-md bg-slate-800/70 border-b border-slate-700/50 sticky top-0 z-50 shadow-xl">
             <div class="px-4 sm:px-6 lg:px-8">
-                <div class="flex justify-between items-center h-12">
+                <div class="flex justify-between items-center h-14">
                     <!-- Logo and Title -->
                     <div class="flex items-center space-x-3">
-                        <div class="w-7 h-7 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <div class="relative w-9 h-9 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/50 transform hover:scale-105 transition-transform">
+                            <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
                             </svg>
+                            <div class="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-600 opacity-0 hover:opacity-20 transition-opacity"></div>
                         </div>
-                        <h1 class="text-base font-semibold text-gray-900 dark:text-white hidden sm:block">MCP Dashboard</h1>
+                        <div class="hidden sm:block">
+                            <h1 class="text-lg font-bold text-white tracking-tight">MCP Compose</h1>
+                            <p class="text-xs text-slate-400 -mt-0.5">Infrastructure Operations</p>
+                        </div>
                     </div>
 
                     <!-- Desktop Controls -->
-                    <div class="hidden md:flex items-center space-x-2">
+                    <div class="hidden md:flex items-center space-x-3">
                         <!-- Auto Refresh Toggle -->
                         <div class="relative">
                             <button
                                 @click="loadData"
                                 :disabled="loading"
                                 :class="[
-                                    'relative inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-all group',
+                                    'relative inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-all group shadow-lg',
                                     autoRefresh
-                                        ? 'bg-green-900/40 text-green-200 border border-green-600/30 shadow-sm'
-                                        : 'bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600'
+                                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 shadow-emerald-500/50'
+                                        : 'bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600'
                                 ]"
                             >
-                                <svg class="w-4 h-4 mr-1.5" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                                 </svg>
                                 <span>{{ autoRefresh ? 'Auto' : 'Refresh' }}</span>
                                 <!-- Active indicator -->
                                 <span v-if="autoRefresh" class="absolute -top-1 -right-1 flex h-3 w-3">
-                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                    <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+                                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400 ring-2 ring-white"></span>
                                 </span>
                             </button>
                             
                             <!-- Settings Dropdown -->
                             <button
                                 @click="showRefreshDropdown = !showRefreshDropdown"
-                                class="ml-1 inline-flex items-center px-2 py-1.5 border border-gray-600 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                                class="ml-2 inline-flex items-center px-3 py-2 border border-slate-600 bg-slate-700 text-slate-200 rounded-lg hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-lg"
                             >
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
@@ -638,7 +642,7 @@ const DashboardApp = {
                             </button>
 
                             <!-- Compact Dropdown -->
-                            <div v-if="showRefreshDropdown" class="absolute right-0 mt-2 w-64 rounded-lg shadow-lg bg-gray-800 ring-1 ring-black ring-opacity-5 border border-gray-600 z-50">
+                            <div v-if="showRefreshDropdown" class="absolute right-0 mt-3 w-72 rounded-xl shadow-2xl bg-slate-800 ring-1 ring-slate-700 border border-slate-600 z-50 backdrop-blur-sm">
                                 <div class="p-3 space-y-3">
                                     <!-- Auto Refresh Toggle -->
                                     <div class="flex items-center justify-between">
@@ -699,13 +703,13 @@ const DashboardApp = {
                         <button
                             @click="reloadProxy"
                             :disabled="loading"
-                            class="inline-flex items-center px-3 py-1.5 border border-orange-600/30 text-xs font-medium rounded-md text-orange-200 bg-orange-900/40 hover:bg-orange-900/60 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all"
+                            class="inline-flex items-center px-4 py-2 border border-orange-500/30 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 transition-all shadow-lg shadow-orange-500/30"
                             title="Restart Proxy"
                         >
-                            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                             </svg>
-                            <span>Restart</span>
+                            <span>Restart Proxy</span>
                         </button>
                     </div>
 
@@ -780,22 +784,22 @@ const DashboardApp = {
             </div>
         </div>
 
-        <!-- Compact Navigation Pills -->
-        <nav class="bg-gray-800 border-b border-gray-700 sticky top-12 z-40" :class="{ 'mt-20': mobileMenuOpen }">
+        <!-- Modern Navigation Pills -->
+        <nav class="backdrop-blur-md bg-slate-800/70 border-b border-slate-700/50 sticky top-14 z-40" :class="{ 'mt-20': mobileMenuOpen }">
             <div class="px-4 sm:px-6 lg:px-8">
-                <div class="flex items-center py-2 space-x-1 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                <div class="flex items-center py-3 space-x-2 overflow-x-auto" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
                     <button
                         v-for="tab in tabs"
                         :key="tab.id"
                         @click="activeTab = tab.id; mobileMenuOpen = false"
                         :class="[
-                            'inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0',
+                            'inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap flex-shrink-0 transform hover:scale-105',
                             activeTab === tab.id
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/50'
+                                : 'text-slate-300 hover:text-white hover:bg-slate-700/50 border border-slate-600/50'
                         ]"
                     >
-                        <svg class="w-3 h-3 mr-1.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon"></path>
                         </svg>
                         {{ tab.name }}
@@ -826,134 +830,167 @@ const DashboardApp = {
                 
                 <!-- Overview Tab Content -->
                 <div v-if="activeTab === 'overview'" class="space-y-6 animate-fade-in">
-                    <!-- Enhanced Stats Overview -->
-                    <div class="responsive-grid cols-5 gap-3 sm:gap-4">
+                    <!-- Modern Stats Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 lg:gap-6">
                         <!-- Total Servers -->
-                        <div class="enhanced-card p-3 sm:p-4">
-                            <div class="flex items-center">
+                        <div class="relative group overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-5 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-blue-500/20">
+                            <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Servers</p>
+                                    <p class="text-3xl font-bold text-white mb-1">{{ statusCounts.total }}</p>
+                                    <div class="flex items-center text-xs text-slate-500">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z"></path>
+                                        </svg>
+                                        Infrastructure
+                                    </div>
+                                </div>
                                 <div class="flex-shrink-0">
-                                    <div class="w-8 h-8 bg-gradient-to-r from-blue-400 to-blue-600 rounded-lg flex items-center justify-center">
-                                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/50 transform group-hover:rotate-6 transition-transform">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                             <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"></path>
                                         </svg>
                                     </div>
                                 </div>
-                                <div class="ml-3 flex-1 min-w-0">
-                                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">Total</p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-white">{{ statusCounts.total }}</p>
-                                </div>
                             </div>
                         </div>
-                        
+
                         <!-- Running -->
-                        <div class="enhanced-card p-3 sm:p-4">
-                            <div class="flex items-center">
+                        <div class="relative group overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-5 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/20">
+                            <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Running</p>
+                                    <p class="text-3xl font-bold text-white mb-1">{{ statusCounts.running }}</p>
+                                    <div class="flex items-center text-xs text-emerald-400">
+                                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full mr-1.5 animate-pulse"></span>
+                                        Active
+                                    </div>
+                                </div>
                                 <div class="flex-shrink-0">
-                                    <div class="w-8 h-8 bg-gradient-to-r from-green-400 to-green-600 rounded-lg flex items-center justify-center">
-                                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/50 transform group-hover:rotate-6 transition-transform">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
                                         </svg>
                                     </div>
                                 </div>
-                                <div class="ml-3 flex-1 min-w-0">
-                                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">Running</p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-white">{{ statusCounts.running }}</p>
-                                </div>
                             </div>
                         </div>
-                        
+
                         <!-- Healthy -->
-                        <div class="enhanced-card p-3 sm:p-4">
-                            <div class="flex items-center">
+                        <div class="relative group overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-5 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-green-500/20">
+                            <div class="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Healthy</p>
+                                    <p class="text-3xl font-bold text-white mb-1">{{ statusCounts.healthy }}</p>
+                                    <div class="flex items-center text-xs text-green-400">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        Operational
+                                    </div>
+                                </div>
                                 <div class="flex-shrink-0">
-                                    <div class="w-8 h-8 bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-lg flex items-center justify-center">
-                                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-500/50 transform group-hover:rotate-6 transition-transform">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                             <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                         </svg>
                                     </div>
                                 </div>
-                                <div class="ml-3 flex-1 min-w-0">
-                                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">Healthy</p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-white">{{ statusCounts.healthy }}</p>
-                                </div>
                             </div>
                         </div>
-                        
+
                         <!-- Proxy Uptime -->
-                        <div class="enhanced-card p-3 sm:p-4">
-                            <div class="flex items-center">
+                        <div class="relative group overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-5 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/20">
+                            <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Uptime</p>
+                                    <p class="text-2xl font-bold text-white mb-1">{{ formatUptime(status.proxyUptime) }}</p>
+                                    <div class="flex items-center text-xs text-purple-400">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        Proxy
+                                    </div>
+                                </div>
                                 <div class="flex-shrink-0">
-                                    <div class="w-8 h-8 bg-gradient-to-r from-purple-400 to-purple-600 rounded-lg flex items-center justify-center">
-                                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/50 transform group-hover:rotate-6 transition-transform">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"></path>
                                         </svg>
                                     </div>
                                 </div>
-                                <div class="ml-3 flex-1 min-w-0">
-                                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">Uptime</p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-white truncate">{{ formatUptime(status.proxyUptime) }}</p>
-                                </div>
                             </div>
                         </div>
-                        
+
                         <!-- Active Connections -->
-                        <div class="enhanced-card p-3 sm:p-4">
-                            <div class="flex items-center">
+                        <div class="relative group overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-5 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-indigo-500/20">
+                            <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-start justify-between">
+                                <div class="flex-1">
+                                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Connections</p>
+                                    <p class="text-3xl font-bold text-white mb-1">{{ status.activeHttpConnectionsToServers || 0 }}</p>
+                                    <div class="flex items-center text-xs text-indigo-400">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                        </svg>
+                                        Live
+                                    </div>
+                                </div>
                                 <div class="flex-shrink-0">
-                                    <div class="w-8 h-8 bg-gradient-to-r from-indigo-400 to-indigo-600 rounded-lg flex items-center justify-center">
-                                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/50 transform group-hover:rotate-6 transition-transform">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                             <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
                                         </svg>
                                     </div>
-                                </div>
-                                <div class="ml-3 flex-1 min-w-0">
-                                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">Active</p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-white">{{ status.activeHttpConnectionsToServers || 0 }}</p>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Enhanced Search and Filter Controls -->
-                    <div class="enhanced-card p-4 lg:p-6">
-                        <div class="flex flex-col space-y-3 lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
-                            <div class="flex-1 max-w-lg">
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                        <svg class="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                    <!-- Modern Search and Filter Controls -->
+                    <div class="rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/50 p-6 shadow-xl">
+                        <div class="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0 lg:space-x-6">
+                            <div class="flex-1 max-w-2xl">
+                                <div class="relative group">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <svg class="h-5 w-5 text-slate-400 group-focus-within:text-blue-400 transition-colors" fill="currentColor" viewBox="0 0 20 20">
                                             <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"></path>
                                         </svg>
                                     </div>
                                     <input
                                         v-model="searchTerm"
                                         type="text"
-                                        placeholder="Search servers..."
-                                        class="form-input pl-10 w-full"
+                                        placeholder="Search servers by name..."
+                                        class="w-full pl-12 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                                     >
                                 </div>
                             </div>
-                            
-                            <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+
+                            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
                                 <!-- Filter -->
                                 <select
                                     v-model="filterStatus"
-                                    class="form-input w-full sm:w-auto"
+                                    class="px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer hover:bg-slate-600"
                                 >
-                                    <option value="all">All ({{ statusCounts.total }})</option>
+                                    <option value="all">All Servers ({{ statusCounts.total }})</option>
                                     <option value="running">Running ({{ statusCounts.running }})</option>
                                     <option value="stopped">Stopped ({{ statusCounts.stopped }})</option>
                                     <option value="healthy">Healthy ({{ statusCounts.healthy }})</option>
                                 </select>
-                                
+
                                 <!-- Sort -->
                                 <select
                                     v-model="sortBy"
-                                    class="form-input w-full sm:w-auto"
+                                    class="px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer hover:bg-slate-600"
                                 >
-                                    <option value="name">Sort by Name</option>
-                                    <option value="status">Sort by Status</option>
-                                    <option value="health">Sort by Health</option>
-                                    <option value="tools">Sort by Tools</option>
+                                    <option value="name">Sort: Name</option>
+                                    <option value="status">Sort: Status</option>
+                                    <option value="health">Sort: Health</option>
+                                    <option value="tools">Sort: Tools</option>
                                 </select>
                             </div>
                         </div>
@@ -976,82 +1013,107 @@ const DashboardApp = {
                         <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Try adjusting your search or filter criteria.</p>
                     </div>
                     
-                    <!-- Enhanced Server Accordions -->
-                    <div v-else class="space-y-3">
+                    <!-- Modern Server Cards -->
+                    <div v-else class="space-y-4">
                         <div
                             v-for="server in filteredAndSortedServers"
                             :key="server.name"
-                            class="enhanced-card overflow-hidden transition-all duration-200"
-                            :class="{ 'ring-2 ring-blue-500 ring-opacity-50': isServerExpanded(server.name) }"
+                            class="group rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border overflow-hidden transition-all duration-300 hover:shadow-2xl"
+                            :class="isServerExpanded(server.name) ? 'border-blue-500 shadow-xl shadow-blue-500/20' : 'border-slate-700/50 hover:border-slate-600'"
                         >
                             <!-- Server Header (Accordion Trigger) -->
                             <div
                                 @click="toggleServerExpansion(server.name)"
-                                class="p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                                class="p-5 cursor-pointer hover:bg-slate-700/30 transition-all"
                             >
                                 <div class="flex items-center justify-between">
-                                    <div class="flex items-center space-x-3 min-w-0 flex-1">
-                                        <!-- Enhanced Status Indicators -->
+                                    <div class="flex items-center space-x-4 min-w-0 flex-1">
+                                        <!-- Modern Status Indicator -->
                                         <div class="flex-shrink-0 relative">
                                             <div :class="[
-                                                'w-3 h-3 rounded-full',
-                                                isServerHealthy(server) ? 'bg-green-500' :
-                                                isContainerRunning(server) ? 'bg-blue-500' :
-                                                'bg-gray-400'
+                                                'w-4 h-4 rounded-full ring-4 ring-slate-800/50',
+                                                isServerHealthy(server) ? 'bg-emerald-400 shadow-lg shadow-emerald-500/50' :
+                                                isContainerRunning(server) ? 'bg-blue-400 shadow-lg shadow-blue-500/50' :
+                                                'bg-slate-500 shadow-lg shadow-slate-500/50'
                                             ]"></div>
-                                            <div v-if="isServerHealthy(server)" class="absolute inset-0 w-3 h-3 bg-green-400 rounded-full animate-ping opacity-75"></div>
+                                            <div v-if="isServerHealthy(server)" class="absolute inset-0 w-4 h-4 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
                                         </div>
                                         
                                         <!-- Server Info -->
                                         <div class="min-w-0 flex-1">
-                                            <div class="flex items-center space-x-2 mb-1">
-                                                <h3 class="text-base font-semibold text-gray-900 dark:text-white truncate">
+                                            <div class="flex items-center flex-wrap gap-2 mb-2">
+                                                <h3 class="text-lg font-bold text-white truncate">
                                                     {{ server.name }}
                                                 </h3>
-                                                <span v-if="getServerToolCount(server) > 0" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                                <span v-if="getServerToolCount(server) > 0" class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 border border-purple-500/30">
+                                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"></path>
+                                                    </svg>
                                                     {{ getServerToolCount(server) }} tool{{ getServerToolCount(server) !== 1 ? 's' : '' }}
                                                 </span>
                                             </div>
-                                            <div class="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
-                                                <span>{{ server.configProtocol || 'stdio' }}</span>
-                                                <span v-if="server.configHttpPort">Port {{ server.configHttpPort }}</span>
+                                            <div class="flex items-center flex-wrap gap-2 text-sm text-slate-400">
+                                                <span class="inline-flex items-center">
+                                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    {{ server.configProtocol || 'stdio' }}
+                                                </span>
+                                                <span v-if="server.configHttpPort" class="inline-flex items-center">
+                                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    Port {{ server.configHttpPort }}
+                                                </span>
                                             </div>
                                         </div>
-                                        
-                                        <!-- Status Badges -->
-                                        <div class="flex items-center space-x-2">
+
+                                        <!-- Modern Status Badges -->
+                                        <div class="flex items-center gap-2 flex-wrap">
                                             <span :class="[
-                                                'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
+                                                'inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold shadow-lg transition-all',
                                                 isContainerRunning(server)
-                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                                    : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                                    ? 'bg-gradient-to-r from-emerald-500/20 to-emerald-600/20 text-emerald-300 border border-emerald-500/30'
+                                                    : 'bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-300 border border-red-500/30'
                                             ]">
+                                                <span :class="[
+                                                    'w-1.5 h-1.5 rounded-full mr-2',
+                                                    isContainerRunning(server) ? 'bg-emerald-400' : 'bg-red-400'
+                                                ]"></span>
                                                 {{ server.containerStatus || 'Unknown' }}
                                             </span>
-                                            
+
                                             <span :class="[
-                                                'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border',
-                                                getHealthStatusClass(isServerHealthy(server) ? 'healthy' : 'disconnected')
+                                                'inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold shadow-lg transition-all',
+                                                getConnectionStatus(server) === 'Connected'
+                                                    ? 'bg-gradient-to-r from-blue-500/20 to-blue-600/20 text-blue-300 border border-blue-500/30'
+                                                    : 'bg-gradient-to-r from-slate-500/20 to-slate-600/20 text-slate-400 border border-slate-600/30'
                                             ]">
+                                                <svg class="w-3 h-3 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                                </svg>
                                                 {{ getConnectionStatus(server) }}
                                             </span>
                                         </div>
                                     </div>
                                     
                                     <!-- Expand/Collapse Button -->
-                                    <div class="ml-2">
+                                    <div class="ml-4 flex items-center space-x-2">
                                         <div v-if="!isServerExpanded(server.name)" class="flex items-center space-x-2" @click.stop>
                                             <button
                                                 @click="viewServerLogs(server.name)"
-                                                class="text-xs px-2 py-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors touch-target"
+                                                class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-700 text-slate-300 hover:bg-slate-600 border border-slate-600 transition-all touch-target"
                                                 title="View Logs"
                                             >
+                                                <svg class="w-3 h-3 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                </svg>
                                                 Logs
                                             </button>
                                         </div>
-                                        <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1 ml-2 touch-target">
+                                        <button class="text-slate-400 hover:text-white transition-all p-2 hover:bg-slate-700/50 rounded-lg touch-target">
                                             <svg
-                                                :class="['w-5 h-5 transition-transform duration-200', isServerExpanded(server.name) ? 'rotate-180' : '']"
+                                                :class="['w-5 h-5 transition-transform duration-300', isServerExpanded(server.name) ? 'rotate-180' : '']"
                                                 fill="currentColor"
                                                 viewBox="0 0 20 20"
                                             >
@@ -1063,8 +1125,8 @@ const DashboardApp = {
                             </div>
                             
                             <!-- Expanded Content -->
-                            <div v-if="isServerExpanded(server.name)" class="border-t border-gray-200 dark:border-gray-700">
-                                <div class="p-4 lg:p-6 bg-gray-50 dark:bg-gray-700/30">
+                            <div v-if="isServerExpanded(server.name)" class="border-t border-slate-700/50">
+                                <div class="p-6 lg:p-8 bg-slate-800/50 backdrop-blur-sm">
                                     <!-- Connection Status Section -->
                                     <div class="mb-6">
                                         <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center">
@@ -1180,50 +1242,53 @@ const DashboardApp = {
                                         ></mcp-inspector>
                                     </div>
                                     
-                                    <!-- Action Buttons -->
-                                    <div class="space-y-3">
+                                    <!-- Modern Action Buttons -->
+                                    <div class="space-y-4">
                                         <!-- Primary Actions -->
-                                        <div class="responsive-grid cols-3 gap-2">
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                             <button
                                                 v-if="!isContainerRunning(server)"
                                                 @click="serverAction('start', server.name)"
                                                 :disabled="loading"
-                                                class="touch-target flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+                                                class="touch-target flex items-center justify-center px-4 py-3 text-sm font-semibold rounded-lg text-white bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-slate-600 disabled:to-slate-700 shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all transform hover:scale-105"
                                             >
                                                 <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path>
                                                 </svg>
-                                                Start
+                                                Start Server
                                             </button>
-                                            
+
                                             <button
                                                 v-if="isContainerRunning(server)"
                                                 @click="serverAction('stop', server.name)"
                                                 :disabled="loading"
-                                                class="touch-target flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 disabled:bg-gray-400 transition-colors"
+                                                class="touch-target flex items-center justify-center px-4 py-3 text-sm font-semibold rounded-lg text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-slate-600 disabled:to-slate-700 shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all transform hover:scale-105"
                                             >
                                                 <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path>
                                                 </svg>
-                                                Stop
+                                                Stop Server
                                             </button>
-                                            
+
                                             <button
                                                 v-if="isContainerRunning(server)"
                                                 @click="serverAction('restart', server.name)"
                                                 :disabled="loading"
-                                                class="touch-target flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 transition-colors"
+                                                class="touch-target flex items-center justify-center px-4 py-3 text-sm font-semibold rounded-lg text-white bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 disabled:from-slate-600 disabled:to-slate-700 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 transition-all transform hover:scale-105"
                                             >
                                                 <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
                                                 </svg>
                                                 Restart
                                             </button>
-                                            
+
                                             <button
                                                 @click="viewServerLogs(server.name)"
-                                                class="touch-target flex items-center justify-center px-3 py-2 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                                                class="touch-target flex items-center justify-center px-4 py-3 text-sm font-semibold rounded-lg text-slate-200 bg-slate-700 border border-slate-600 hover:bg-slate-600 hover:border-slate-500 shadow-lg transition-all transform hover:scale-105"
                                             >
+                                                <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                </svg>
                                                 View Logs
                                             </button>
                                         </div>

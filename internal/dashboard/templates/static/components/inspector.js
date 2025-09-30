@@ -135,7 +135,7 @@ const MCPInspector = {
                 // Try to discover tools automatically
                 await this.discoverTools();
                 this.$emit('tools-discovered', this.discoveredTools);
-                this.showToast(`Connected to ${this.serverName} inspector`, 'success');
+                this.showToast(`Connected to ${this.serverName}`, 'success');
             } catch (err) {
                 this.error = err.message;
                 this.connected = false;
@@ -163,7 +163,7 @@ const MCPInspector = {
             this.error = null;
             this.availableMethods = [];
             this.discoveredTools = [];
-            this.showToast('Inspector disconnected', 'info');
+            this.showToast('Disconnected', 'info');
         },
         discoverMethods(initializeResult) {
             const methods = ['initialize', 'shutdown'];
@@ -233,7 +233,7 @@ const MCPInspector = {
         async executeTemplate(templateName) {
             const template = this.requestTemplates[templateName];
             if (!template) {
-                this.showToast(`Template ${templateName} not found`, 'error');
+                this.showToast('Template not found', 'error');
                 return;
             }
             try {
@@ -245,7 +245,7 @@ const MCPInspector = {
         },
         async executeCustomRequest() {
             if (!this.request.trim()) {
-                this.showToast('Please enter a request', 'warning');
+                this.showToast('Enter a request', 'warning');
                 return;
             }
             try {
@@ -271,9 +271,9 @@ const MCPInspector = {
         copyToClipboard(text) {
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(text).then(() => {
-                    this.showToast('Copied to clipboard', 'success');
+                    this.showToast('Copied', 'success');
                 }).catch(err => {
-                    this.showToast('Failed to copy', 'error');
+                    this.showToast('Copy failed', 'error');
                 });
             }
         },

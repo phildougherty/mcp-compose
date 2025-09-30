@@ -17,14 +17,18 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
 
 	// Add subcommands
+	rootCmd.AddCommand(NewInitCommand())
 	rootCmd.AddCommand(NewUpCommand())
 	rootCmd.AddCommand(NewDownCommand())
 	rootCmd.AddCommand(NewStartCommand())
 	rootCmd.AddCommand(NewStopCommand())
 	rootCmd.AddCommand(NewRestartCommand())
+	rootCmd.AddCommand(NewPsCommand())
 	rootCmd.AddCommand(NewLsCommand())
 	rootCmd.AddCommand(NewLogsCommand())
 	rootCmd.AddCommand(NewValidateCommand())
+	rootCmd.AddCommand(NewTopCommand())
+	rootCmd.AddCommand(NewInspectCommand())
 	rootCmd.AddCommand(NewCompletionCommand())
 	rootCmd.AddCommand(NewCreateConfigCommand())
 	rootCmd.AddCommand(NewProxyCommand())
@@ -32,6 +36,8 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewDashboardCommand())
 	rootCmd.AddCommand(NewTaskSchedulerCommand())
 	rootCmd.AddCommand(NewMemoryCommand())
+	rootCmd.AddCommand(NewRotateSecretCommand())
+	rootCmd.AddCommand(NewSystemCommand())
 
 	return rootCmd
 }

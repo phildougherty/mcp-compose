@@ -372,50 +372,79 @@ const ActivityViewer = {
     },
 
     template: `
-    <div class="activity-viewer space-y-4 animate-fade-in max-w-full overflow-x-hidden">
-        <!-- Enhanced Header with proper dark theme -->
-        <div class="enhanced-card p-4 lg:p-6">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-                <div>
-                    <h2 class="text-2xl font-bold text-white mb-2">
-                        🔄 Activity Monitor
-                    </h2>
-                    <p class="text-gray-300">
-                        Real-time activity feed with persistent history
-                    </p>
+    <div class="activity-viewer space-y-6 animate-fade-in max-w-full overflow-x-hidden">
+        <!-- Modern Header with Gradient -->
+        <div class="enhanced-card p-6 lg:p-8 bg-gradient-to-br from-gray-800 via-gray-850 to-gray-900 border-gray-700">
+            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between space-y-6 lg:space-y-0 lg:space-x-8">
+                <div class="flex items-start space-x-4">
+                    <div class="flex-shrink-0">
+                        <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-lg">
+                            <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl lg:text-3xl font-bold text-white mb-2 tracking-tight">
+                            Activity Monitor
+                        </h2>
+                        <p class="text-gray-400 text-sm lg:text-base">
+                            Real-time activity stream with 6-hour persistent history
+                        </p>
+                        <div class="flex items-center space-x-2 mt-3">
+                            <div class="flex items-center space-x-1.5">
+                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                <span class="text-xs text-gray-400">Live</span>
+                            </div>
+                            <span class="text-gray-600">•</span>
+                            <span class="text-xs text-gray-400">{{ filteredActivities.length }} events</span>
+                        </div>
+                    </div>
                 </div>
-                
-                <!-- Stats Cards -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                    <div class="enhanced-card p-3 text-center">
-                        <div class="text-lg sm:text-xl font-bold text-white">{{ combinedStats.total }}</div>
-                        <div class="text-xs sm:text-sm text-gray-300">Total Activities</div>
+
+                <!-- Modern Stats Grid -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+                    <div class="bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:border-blue-500/30 transition-all duration-200">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            <div class="text-xs font-medium text-gray-400 uppercase tracking-wider">Total</div>
+                        </div>
+                        <div class="text-2xl font-bold text-white">{{ combinedStats.total }}</div>
                     </div>
-                    <div class="enhanced-card p-3 text-center">
-                        <div class="text-lg sm:text-xl font-bold text-white">{{ combinedStats.requests }}</div>
-                        <div class="text-xs sm:text-sm text-gray-300">Requests</div>
+                    <div class="bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:border-green-500/30 transition-all duration-200">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <div class="text-xs font-medium text-gray-400 uppercase tracking-wider">Requests</div>
+                        </div>
+                        <div class="text-2xl font-bold text-white">{{ combinedStats.requests }}</div>
                     </div>
-                    <div class="enhanced-card p-3 text-center">
-                        <div class="text-lg sm:text-xl font-bold text-white">{{ combinedStats.toolCalls }}</div>
-                        <div class="text-xs sm:text-sm text-gray-300">Tool Calls</div>
+                    <div class="bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:border-purple-500/30 transition-all duration-200">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <div class="text-xs font-medium text-gray-400 uppercase tracking-wider">Tools</div>
+                        </div>
+                        <div class="text-2xl font-bold text-white">{{ combinedStats.toolCalls }}</div>
                     </div>
-                    <div class="enhanced-card p-3 text-center">
-                        <div class="text-lg sm:text-xl font-bold text-white">{{ combinedStats.errors }}</div>
-                        <div class="text-xs sm:text-sm text-gray-300">Errors</div>
+                    <div class="bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-4 hover:border-red-500/30 transition-all duration-200">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                            <div class="text-xs font-medium text-gray-400 uppercase tracking-wider">Errors</div>
+                        </div>
+                        <div class="text-2xl font-bold text-white">{{ combinedStats.errors }}</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Filters and Controls -->
-        <div class="enhanced-card p-4">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
-                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+        <!-- Modern Filters and Controls -->
+        <div class="enhanced-card p-5 border-gray-700/50">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0 gap-4">
+                <div class="flex flex-col sm:flex-row flex-1 space-y-3 sm:space-y-0 sm:space-x-3">
                     <!-- Level Filter -->
-                    <div class="flex items-center space-x-2">
-                        <label for="levelFilter" class="text-sm font-medium text-gray-300">Level:</label>
-                        <select v-model="levelFilter" id="levelFilter" 
-                               class="form-input px-3 py-1 text-sm bg-gray-700 border-gray-600 text-white rounded">
+                    <div class="relative flex-1 sm:flex-initial sm:min-w-[140px]">
+                        <label for="levelFilter" class="block text-xs font-medium text-gray-400 mb-1.5">Level</label>
+                        <select v-model="levelFilter" id="levelFilter"
+                               class="form-input w-full px-3 py-2 text-sm bg-gray-800 border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                             <option value="">All Levels</option>
                             <option v-for="level in availableLevels" :key="level" :value="level">
                                 {{ level }}
@@ -424,10 +453,10 @@ const ActivityViewer = {
                     </div>
 
                     <!-- Type Filter -->
-                    <div class="flex items-center space-x-2">
-                        <label for="typeFilter" class="text-sm font-medium text-gray-300">Type:</label>
-                        <select v-model="typeFilter" id="typeFilter" 
-                               class="form-input px-3 py-1 text-sm bg-gray-700 border-gray-600 text-white rounded">
+                    <div class="relative flex-1 sm:flex-initial sm:min-w-[140px]">
+                        <label for="typeFilter" class="block text-xs font-medium text-gray-400 mb-1.5">Type</label>
+                        <select v-model="typeFilter" id="typeFilter"
+                               class="form-input w-full px-3 py-2 text-sm bg-gray-800 border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                             <option value="">All Types</option>
                             <option v-for="type in availableTypes" :key="type" :value="type">
                                 {{ type }}
@@ -436,107 +465,155 @@ const ActivityViewer = {
                     </div>
 
                     <!-- Search -->
-                    <div class="flex items-center space-x-2">
-                        <label for="searchFilter" class="text-sm font-medium text-gray-300">Search:</label>
-                        <input v-model="searchFilter" id="searchFilter" type="text" placeholder="Search activities..."
-                               class="form-input px-3 py-1 text-sm bg-gray-700 border-gray-600 text-white rounded w-48">
+                    <div class="relative flex-1 sm:min-w-[200px]">
+                        <label for="searchFilter" class="block text-xs font-medium text-gray-400 mb-1.5">Search</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
+                            </div>
+                            <input v-model="searchFilter" id="searchFilter" type="text" placeholder="Search activities..."
+                                   class="form-input w-full pl-10 pr-3 py-2 text-sm bg-gray-800 border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                        </div>
                     </div>
                 </div>
 
                 <!-- Control Buttons -->
                 <div class="flex space-x-2">
-                    <button @click="loadHistoricalActivities" 
+                    <button @click="loadHistoricalActivities"
                            :disabled="loading"
-                           class="btn bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm transition-colors">
-                        <span v-if="loading">🔄</span>
-                        <span v-else>🔄</span>
+                           class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-blue-500/20">
+                        <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
                         {{ loading ? 'Loading...' : 'Refresh' }}
                     </button>
-                    <button @click="clearActivities" 
-                           class="btn bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors">
-                        🗑️ Clear
+                    <button @click="clearActivities"
+                           class="inline-flex items-center px-4 py-2 bg-gray-700 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-red-500/20">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        Clear
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- Activity Feed with reverse chronological order -->
-        <div class="enhanced-card">
-            <div v-if="loading && allActivities.length === 0" class="p-8 text-center text-gray-400">
-                <div class="text-4xl mb-4">🔄</div>
-                <div>Loading activities...</div>
+        <div class="enhanced-card border-gray-700/50 overflow-hidden">
+            <div v-if="loading && allActivities.length === 0" class="p-12 text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-500/10 rounded-2xl mb-4">
+                    <svg class="w-8 h-8 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </div>
+                <p class="text-lg font-medium text-gray-300">Loading activities...</p>
+                <p class="text-sm text-gray-500 mt-2">Fetching historical data</p>
             </div>
 
-            <div v-else-if="filteredActivities.length === 0" class="p-8 text-center text-gray-400">
-                <div class="text-4xl mb-4">📭</div>
-                <div>No activities found</div>
-                <div class="text-sm mt-2">Try adjusting your filters or check back later</div>
+            <div v-else-if="filteredActivities.length === 0" class="p-12 text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-700/50 rounded-2xl mb-4">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                    </svg>
+                </div>
+                <p class="text-lg font-medium text-gray-300 mb-2">No activities found</p>
+                <p class="text-sm text-gray-500">Try adjusting your filters or wait for new events</p>
             </div>
 
-            <div v-else class="divide-y divide-gray-600">
-                <div v-for="activity in filteredActivities" :key="activity.id" 
-                     class="p-4 hover:bg-gray-700 transition-colors">
+            <div v-else class="divide-y divide-gray-700/50">
+                <div v-for="activity in filteredActivities" :key="activity.id"
+                     class="p-4 hover:bg-gray-800/40 transition-all duration-150 group">
                     <div class="flex items-start justify-between">
                         <div class="flex items-start space-x-3 flex-1 min-w-0">
-                            <!-- Level Badge -->
-                            <div :class="[
-                                'inline-flex items-center px-2 py-1 rounded text-xs font-medium flex-shrink-0',
-                                getLevelBadgeClass(activity.level)
-                            ]">
-                                {{ activity.level }}
+                            <!-- Level Indicator -->
+                            <div class="flex-shrink-0 mt-1">
+                                <div :class="[
+                                    'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all duration-200',
+                                    getLevelBadgeClass(activity.level)
+                                ]">
+                                    {{ activity.level.charAt(0) }}
+                                </div>
                             </div>
 
                             <!-- Content -->
                             <div class="flex-1 min-w-0">
-                                <div class="flex items-center space-x-2 mb-1">
+                                <div class="flex items-center flex-wrap gap-2 mb-2">
                                     <div :class="[
-                                        'inline-flex items-center px-2 py-1 rounded text-xs font-medium',
+                                        'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium shadow-sm',
                                         getTypeBadgeClass(activity.type)
                                     ]">
                                         {{ activity.type || 'unknown' }}
                                     </div>
-                                    <div v-if="activity.server" class="text-xs text-gray-400">
+                                    <div v-if="activity.server" class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-700 text-gray-300 border border-gray-600">
+                                        <svg class="w-3 h-3 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"></path>
+                                        </svg>
                                         {{ activity.server }}
                                     </div>
-                                    <div class="text-xs text-gray-400">
+                                    <div class="inline-flex items-center text-xs text-gray-400">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"></path>
+                                        </svg>
                                         {{ formatTimestamp(activity.timestamp) }}
                                     </div>
                                 </div>
 
-                                <div class="text-white mb-2">{{ activity.message }}</div>
+                                <div class="text-white text-sm leading-relaxed mb-3">{{ activity.message }}</div>
 
                                 <!-- Tool Calls -->
                                 <div v-if="activity.toolCalls && activity.toolCalls.length > 0" class="space-y-2">
-                                    <div v-for="(call, index) in activity.toolCalls" :key="index" 
-                                         class="bg-gray-800 rounded p-3 text-sm">
+                                    <div v-for="(call, index) in activity.toolCalls" :key="index"
+                                         class="bg-gradient-to-br from-purple-900/20 to-purple-800/10 border border-purple-500/30 rounded-lg p-3 text-sm hover:border-purple-500/50 transition-all duration-200">
                                         <div class="flex items-center justify-between mb-2">
-                                            <span class="font-medium text-blue-300">🔧 {{ call.tool }}</span>    
+                                            <div class="flex items-center space-x-2">
+                                                <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                </svg>
+                                                <span class="font-semibold text-purple-300">{{ call.tool }}</span>
+                                            </div>
                                             <button @click="toggleToolCall(activity.id + '-' + index)"
-                                                   class="text-gray-400 hover:text-white text-xs">
-                                                {{ expandedToolCalls[activity.id + '-' + index] ? '🔽' : '▶️' }}
+                                                   class="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-gray-700/50">
+                                                <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-90': expandedToolCalls[activity.id + '-' + index] }" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                                </svg>
                                             </button>
                                         </div>
-                                        <div v-if="expandedToolCalls[activity.id + '-' + index]" class="space-y-2">
-                                            <div v-if="call.arguments" class="bg-gray-900 rounded p-2">
-                                                <div class="text-xs text-gray-400 mb-1">Arguments:</div>
-                                                <pre class="text-xs text-gray-300 whitespace-pre-wrap">{{ JSON.stringify(call.arguments, null, 2) }}</pre>
+                                        <div v-if="expandedToolCalls[activity.id + '-' + index]" class="space-y-2 animate-fade-in">
+                                            <div v-if="call.arguments" class="bg-gray-900/60 border border-gray-700/50 rounded-lg p-3">
+                                                <div class="flex items-center space-x-1.5 mb-2">
+                                                    <svg class="w-3 h-3 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    <span class="text-xs font-medium text-blue-400">Arguments</span>
+                                                </div>
+                                                <pre class="text-xs text-gray-300 whitespace-pre-wrap font-mono">{{ JSON.stringify(call.arguments, null, 2) }}</pre>
                                             </div>
-                                            <div v-if="call.result" class="bg-gray-900 rounded p-2">
-                                                <div class="text-xs text-gray-400 mb-1">Result:</div>
-                                                <pre class="text-xs text-gray-300 whitespace-pre-wrap">{{ typeof call.result === 'object' ? JSON.stringify(call.result, null, 2) : call.result }}</pre>
+                                            <div v-if="call.result" class="bg-gray-900/60 border border-gray-700/50 rounded-lg p-3">
+                                                <div class="flex items-center space-x-1.5 mb-2">
+                                                    <svg class="w-3 h-3 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    <span class="text-xs font-medium text-green-400">Result</span>
+                                                </div>
+                                                <pre class="text-xs text-gray-300 whitespace-pre-wrap font-mono">{{ typeof call.result === 'object' ? JSON.stringify(call.result, null, 2) : call.result }}</pre>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- Details Toggle -->
-                                <div v-if="activity.details && Object.keys(activity.details).length > 0" class="mt-2">
-                                    <button @click="toggleDetails(activity.id)" 
-                                           class="text-sm text-blue-400 hover:text-blue-300">
-                                        {{ showDetails[activity.id] ? '🔽 Hide Details' : '▶️ Show Details' }}
+                                <div v-if="activity.details && Object.keys(activity.details).length > 0" class="mt-3">
+                                    <button @click="toggleDetails(activity.id)"
+                                           class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-lg transition-all duration-200">
+                                        <svg class="w-3 h-3 mr-1.5 transition-transform duration-200" :class="{ 'rotate-90': showDetails[activity.id] }" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        {{ showDetails[activity.id] ? 'Hide Details' : 'Show Details' }}
                                     </button>
-                                    <div v-if="showDetails[activity.id]" class="mt-2 bg-gray-800 rounded p-3">
-                                        <pre class="text-xs text-gray-300 whitespace-pre-wrap">{{ JSON.stringify(activity.details, null, 2) }}</pre>
+                                    <div v-if="showDetails[activity.id]" class="mt-3 bg-gray-900/60 border border-gray-700/50 rounded-lg p-4 animate-fade-in">
+                                        <pre class="text-xs text-gray-300 whitespace-pre-wrap font-mono overflow-x-auto">{{ JSON.stringify(activity.details, null, 2) }}</pre>
                                     </div>
                                 </div>
                             </div>

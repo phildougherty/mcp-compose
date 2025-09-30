@@ -107,7 +107,7 @@ client-config/           # Client configuration examples
 
 ## Security Requirements
 
-⚠️ **CRITICAL**: This project handles sensitive credentials and API keys. Follow these security practices:
+**CRITICAL**: This project handles sensitive credentials and API keys. Follow these security practices:
 
 ### Environment Variables
 Always use environment variables for sensitive data:

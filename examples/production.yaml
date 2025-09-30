@@ -1,0 +1,423 @@
+# MCP-Compose Production Example
+# Security-hardened production configuration with best practices
+#
+# Setup time: 15 minutes
+# Number of servers: 8
+# Complexity: High
+# Features:
+#   - Maximum security hardening
+#   - Non-root users for all containers
+#   - Strict resource limits
+#   - Comprehensive audit logging
+#   - Health checks and auto-restart
+#   - Network segmentation
+#   - Read-only filesystems where possible
+#   - Dropped capabilities
+#   - OAuth authentication only (no API keys)
+#   - TLS/HTTPS ready
+#
+# Required environment variables:
+#   - OAUTH_CLIENT_SECRET
+#   - POSTGRES_PASSWORD
+#   - JWT_SIGNING_KEY
+#   - GITHUB_TOKEN (if using GitHub)
+#
+# Usage:
+#   1. Review and customize this configuration
+#   2. Generate secrets: ./scripts/generate-secrets.sh
+#   3. source .env.production
+#   4. mcp-compose validate
+#   5. mcp-compose up
+#   6. mcp-compose proxy --port 9876
+
+version: '1'
+
+oauth:
+  enabled: true
+  issuer: "https://mcp.your-domain.com"
+  endpoints:
+    authorization: "/oauth/authorize"
+    token: "/oauth/token"
+    userinfo: "/oauth/userinfo"
+    revoke: "/oauth/revoke"
+    discovery: "/.well-known/oauth-authorization-server"
+  tokens:
+    access_token_ttl: "15m"
+    refresh_token_ttl: "7d"
+    authorization_code_ttl: "5m"
+    algorithm: "RS256"
+  security:
+    require_pkce: true
+  grant_types:
+    - "authorization_code"
+    - "refresh_token"
+  response_types:
+    - "code"
+  scopes_supported:
+    - "mcp:tools"
+    - "mcp:resources"
+    - "mcp:prompts"
+
+audit:
+  enabled: true
+  log_level: "info"
+  storage: "postgres"
+  retention:
+    max_entries: 100000
+    max_age: "90d"
+  events:
+    - "oauth.token.issued"
+    - "oauth.token.revoked"
+    - "oauth.user.login"
+    - "server.access.granted"
+    - "server.access.denied"
+    - "tool.executed"
+    - "resource.accessed"
+    - "error.occurred"
+
+rbac:
+  enabled: true
+  scopes:
+    - name: "mcp:tools"
+      description: "Execute MCP tools"
+    - name: "mcp:resources"
+      description: "Access MCP resources"
+    - name: "mcp:prompts"
+      description: "Use MCP prompts"
+  roles:
+    service:
+      name: "service"
+      description: "Service account access"
+      scopes: ["mcp:tools", "mcp:resources"]
+    user:
+      name: "user"
+      description: "Standard user access"
+      scopes: ["mcp:tools", "mcp:resources"]
+
+oauth_clients:
+  production-app:
+    client_id: "prod-app-2024"
+    client_secret: "${OAUTH_CLIENT_SECRET}"
+    name: "Production Application"
+    description: "Production web application"
+    redirect_uris:
+      - "https://app.your-domain.com/callback"
+    scopes: ["mcp:tools", "mcp:resources"]
+    grant_types: ["authorization_code", "refresh_token"]
+    public_client: false
+    auto_approve: false
+
+connections:
+  default:
+    tls: true
+    cert_file: "/etc/ssl/certs/mcp-compose.crt"
+    key_file: "/etc/ssl/private/mcp-compose.key"
+    timeouts:
+      connect: "5s"
+      read: "15s"
+      write: "15s"
+      idle: "30s"
+      health_check: "3s"
+      shutdown: "30s"
+
+servers:
+  postgres:
+    image: "postgres:15-alpine"
+    env:
+      POSTGRES_USER: "mcp"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "mcp_prod"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - "postgres-data:/var/lib/postgresql/data"
+    networks:
+      - backend
+    user: "postgres:postgres"
+    read_only: false
+    tmpfs:
+      - "/tmp"
+      - "/var/run/postgresql"
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"]
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp -d mcp_prod"]
+      interval: "10s"
+      timeout: "3s"
+      retries: 5
+      start_period: "30s"
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "2g"
+          pids: 200
+        reservations:
+          cpus: "1.0"
+          memory: "1g"
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "5"
+      compress: "true"
+
+  filesystem:
+    image: "mcp/filesystem:v1.0.0"
+    capabilities: [resources, tools]
+    protocol: "http"
+    http_port: 8080
+    volumes:
+      - "${DATA_DIR}:/workspace:ro"
+    networks:
+      - frontend
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+    authentication:
+      enabled: true
+      required_scope: "mcp:resources"
+      allow_api_key: false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+      start_period: "10s"
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256m"
+          pids: 50
+        reservations:
+          cpus: "0.25"
+          memory: "128m"
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "3"
+
+  memory:
+    image: "mcp/memory:v1.0.0"
+    capabilities: [tools, resources]
+    protocol: "http"
+    http_port: 8080
+    depends_on:
+      - postgres
+    env:
+      DATABASE_URL: "postgresql://mcp:${POSTGRES_PASSWORD}@postgres:5432/mcp_prod"
+      POOL_SIZE: "10"
+      POOL_TIMEOUT: "30s"
+    networks:
+      - frontend
+      - backend
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      allow_api_key: false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+      start_period: "20s"
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+        reservations:
+          cpus: "0.5"
+          memory: "256m"
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "3"
+
+  search:
+    image: "mcp/search:v1.0.0"
+    capabilities: [tools]
+    protocol: "http"
+    http_port: 8080
+    env:
+      SEARCH_ENGINE: "duckduckgo"
+      RATE_LIMIT: "10"
+      CACHE_TTL: "3600"
+    networks:
+      - frontend
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      allow_api_key: false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256m"
+          pids: 50
+        reservations:
+          cpus: "0.25"
+          memory: "128m"
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "3"
+
+  git:
+    image: "mcp/git:v1.0.0"
+    capabilities: [tools]
+    protocol: "http"
+    http_port: 8080
+    volumes:
+      - "git-workspace:/workspace"
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      GIT_USER_NAME: "MCP Service"
+      GIT_USER_EMAIL: "mcp@your-domain.com"
+    networks:
+      - frontend
+    user: "1000:1000"
+    read_only: false
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+    authentication:
+      enabled: true
+      required_scope: "mcp:tools"
+      allow_api_key: false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+        reservations:
+          cpus: "0.5"
+          memory: "256m"
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "3"
+
+  time:
+    image: "mcp/time:v1.0.0"
+    capabilities: [tools, resources]
+    protocol: "http"
+    http_port: 8080
+    networks:
+      - frontend
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+    authentication:
+      enabled: false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: "60s"
+      timeout: "3s"
+      retries: 3
+    restart: "unless-stopped"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: "128m"
+          pids: 25
+        reservations:
+          cpus: "0.1"
+          memory: "64m"
+    log_driver: "json-file"
+    log_options:
+      max-size: "5m"
+      max-file: "2"
+
+networks:
+  frontend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "mcp-frontend"
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.20.0.0/24"
+          gateway: "172.20.0.1"
+    labels:
+      com.mcp.network: "frontend"
+      com.mcp.environment: "production"
+
+  backend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "mcp-backend"
+    internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.21.0.0/24"
+          gateway: "172.21.0.1"
+    labels:
+      com.mcp.network: "backend"
+      com.mcp.environment: "production"
+
+volumes:
+  postgres-data:
+    driver: local
+    labels:
+      com.mcp.volume: "database"
+      com.mcp.environment: "production"
+      com.mcp.backup: "required"
+
+  git-workspace:
+    driver: local
+    labels:
+      com.mcp.volume: "workspace"
+      com.mcp.environment: "production"
+
+logging:
+  level: "info"
+  format: "json"
+  destinations:
+    - type: stdout
+    - type: file
+      path: "/var/log/mcp-compose-prod.log"
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090

@@ -7,7 +7,7 @@ import (
 	"github.com/phildougherty/mcp-compose/internal/cmd"
 )
 
-var version = "0.0.4"
+var version = "0.1.0"
 
 func main() {
 	rootCmd := cmd.NewRootCommand(version)

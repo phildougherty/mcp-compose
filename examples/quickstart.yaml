@@ -1,0 +1,19 @@
+# MCP-Compose Quickstart Example
+# The absolute minimal configuration - perfect for trying MCP-Compose for the first time
+#
+# Setup time: 30 seconds
+# Number of servers: 1
+# Complexity: Minimal
+#
+# Usage:
+#   1. export MCP_API_KEY=$(openssl rand -hex 32)
+#   2. mcp-compose up
+#   3. mcp-compose proxy --port 9876
+#   4. curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:9876/api/servers
+
+version: '1'
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]

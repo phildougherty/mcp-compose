@@ -413,7 +413,7 @@ const MemoryViewer = {
                 this.showCreateEntity = false;
                 this.resetNewEntity();
                 await this.loadEntities();
-                this.showToast('Entity created successfully', 'success');
+                this.showToast('Entity created', 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to create entity: ${err.message}`, 'error');
@@ -434,7 +434,7 @@ const MemoryViewer = {
                 });
                 
                 await this.loadEntities();
-                this.showToast('Entity deleted successfully', 'success');
+                this.showToast('Entity deleted', 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to delete entity: ${err.message}`, 'error');
@@ -457,7 +457,7 @@ const MemoryViewer = {
                 
                 this.selectedItems.clear();
                 await this.loadEntities();
-                this.showToast(`${entityNames.length} entities deleted successfully`, 'success');
+                this.showToast(`${entityNames.length} entities deleted`, 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to delete entities: ${err.message}`, 'error');
@@ -486,7 +486,7 @@ const MemoryViewer = {
                 this.showCreateRelation = false;
                 this.resetNewRelation();
                 await this.loadEntities();
-                this.showToast('Relationship created successfully', 'success');
+                this.showToast('Relationship created', 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to create relationship: ${err.message}`, 'error');
@@ -508,7 +508,7 @@ const MemoryViewer = {
                 });
                 
                 await this.loadEntities();
-                this.showToast('Observation added successfully', 'success');
+                this.showToast('Observation added', 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to add observation: ${err.message}`, 'error');
@@ -525,7 +525,7 @@ const MemoryViewer = {
                 });
                 
                 await this.loadEntities();
-                this.showToast('Observation deleted successfully', 'success');
+                this.showToast('Observation deleted', 'success');
                 
             } catch (err) {
                 this.showToast(`Failed to delete observation: ${err.message}`, 'error');
@@ -687,28 +687,42 @@ const MemoryViewer = {
     },
 
     template: `
-    <div class="memory-viewer space-y-4 animate-fade-in max-w-full overflow-x-hidden">
-        <!-- Enhanced Header -->
-        <div class="enhanced-card p-4 lg:p-6">
-            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                <div class="flex items-center space-x-3">
+    <div class="memory-viewer space-y-6 animate-fade-in max-w-full overflow-x-hidden">
+        <!-- Modern Header with Gradient -->
+        <div class="enhanced-card p-6 lg:p-8 bg-gradient-to-br from-purple-900/40 via-pink-900/30 to-purple-900/40 border-purple-500/30">
+            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between space-y-6 lg:space-y-0 lg:space-x-8">
+                <div class="flex items-start space-x-4">
                     <div class="flex-shrink-0">
-                        <div class="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
-                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        <div class="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-lg ring-4 ring-purple-500/20">
+                            <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
                             </svg>
                         </div>
                     </div>
                     <div>
-                        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">Memory Server</h1>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">PostgreSQL-backed knowledge graph with {{ stats.totalEntities }} entities and {{ stats.totalRelations }} relationships</p>
+                        <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2 tracking-tight">Memory Server</h1>
+                        <p class="text-gray-300 text-sm lg:text-base mb-3">PostgreSQL-backed persistent knowledge graph</p>
+                        <div class="flex items-center flex-wrap gap-3">
+                            <div class="flex items-center space-x-2 px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 rounded-lg">
+                                <svg class="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"></path>
+                                </svg>
+                                <span class="text-sm font-medium text-purple-300">{{ stats.totalEntities }} entities</span>
+                            </div>
+                            <div class="flex items-center space-x-2 px-3 py-1.5 bg-pink-500/20 border border-pink-500/30 rounded-lg">
+                                <svg class="w-4 h-4 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                </svg>
+                                <span class="text-sm font-medium text-pink-300">{{ stats.totalRelations }} relations</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                     <button
                         @click="showCreateEntity = true"
-                        class="touch-target inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-all"
+                        class="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-purple-500/30"
                     >
                         <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
@@ -717,7 +731,7 @@ const MemoryViewer = {
                     </button>
                     <button
                         @click="showCreateRelation = true"
-                        class="touch-target inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all"
+                        class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-blue-500/30"
                     >
                         <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
@@ -727,60 +741,65 @@ const MemoryViewer = {
                     <button
                         @click="loadAllData"
                         :disabled="loadingState.entities || loadingState.relations"
-                        class="touch-target inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 transition-all"
+                        class="inline-flex items-center px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-lg"
                     >
-                        <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loadingState.entities || loadingState.relations }" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                        <svg class="w-4 h-4 mr-2" :class="{ 'animate-spin': loadingState.entities || loadingState.relations }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                         </svg>
                         Refresh
                     </button>
-                    <label class="inline-flex items-center">
+                    <label class="inline-flex items-center px-3 py-2 bg-gray-800/60 border border-gray-700/50 rounded-lg cursor-pointer hover:bg-gray-700/60 transition-colors">
                         <input
                             v-model="autoRefresh"
                             type="checkbox"
-                            class="form-checkbox h-4 w-4 text-purple-600 rounded focus:ring-purple-500"
+                            class="form-checkbox h-4 w-4 text-purple-600 rounded focus:ring-purple-500 focus:ring-offset-gray-900"
                         >
-                        <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Auto-refresh</span>
+                        <span class="ml-2 text-sm font-medium text-gray-300">Auto-refresh</span>
                     </label>
                 </div>
             </div>
         </div>
 
         <!-- Error Display -->
-        <div v-if="error" class="enhanced-card border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
+        <div v-if="error" class="enhanced-card border-red-500/50 bg-gradient-to-br from-red-900/30 to-red-800/20 p-5">
             <div class="flex items-start">
-                <svg class="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
-                </svg>
-                <div class="ml-3 flex-1">
-                    <div class="text-sm text-red-800 dark:text-red-200">{{ error }}</div>
-                    <button @click="error = null" class="mt-2 text-xs text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-200 underline">
+                <div class="flex-shrink-0">
+                    <div class="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="ml-4 flex-1">
+                    <h3 class="text-sm font-medium text-red-300 mb-1">Error</h3>
+                    <div class="text-sm text-red-200">{{ error }}</div>
+                    <button @click="error = null" class="mt-3 inline-flex items-center px-3 py-1.5 text-xs font-medium text-red-300 hover:text-red-200 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-all duration-200">
                         Dismiss
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Tab Navigation -->
-        <div class="enhanced-card p-4">
-            <nav class="flex space-x-1 bg-gray-800 p-1 rounded-lg border border-gray-700">
+        <!-- Modern Tab Navigation -->
+        <div class="enhanced-card p-2 border-gray-700/50">
+            <nav class="flex space-x-1 bg-gray-800/60 p-1 rounded-lg border border-gray-700/50">
                 <button
                     v-for="tab in tabs"
                     :key="tab.id"
                     @click="activeTab = tab.id"
                     :class="[
-                        'px-4 py-2 text-sm font-medium rounded-md transition-colors touch-target',
+                        'flex-1 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200',
                         activeTab === tab.id
-                            ? 'bg-gray-700 text-white shadow-sm border border-gray-600'
-                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                            ? 'bg-gradient-to-br from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/20'
+                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/60'
                     ]"
                     :title="tab.description"
                 >
-                    <div class="flex items-center space-x-2">
+                    <div class="flex items-center justify-center space-x-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon"></path>
                         </svg>
-                        <span>{{ tab.name }}</span>
+                        <span class="hidden sm:inline">{{ tab.name }}</span>
                     </div>
                 </button>
             </nav>
@@ -865,28 +884,35 @@ const MemoryViewer = {
                 </div>
 
                 <!-- Loading State -->
-                <div v-if="loadingState.entities" class="p-8 text-center">
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
-                    <p class="text-lg font-medium text-gray-900 dark:text-white">Loading entities...</p>
+                <div v-if="loadingState.entities" class="p-12 text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-purple-500/10 rounded-2xl mb-4">
+                        <svg class="w-8 h-8 text-purple-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </div>
+                    <p class="text-lg font-medium text-gray-300">Loading entities...</p>
+                    <p class="text-sm text-gray-500 mt-2">Fetching knowledge graph data</p>
                 </div>
 
                 <!-- Empty State -->
-                <div v-else-if="filteredEntities.length === 0" class="p-8 text-center">
-                    <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                    </svg>
-                    <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No entities found</h2>
-                    <p class="text-gray-500 dark:text-gray-400 mb-4">
-                        {{ searchQuery || filterEntityType !== 'all' 
+                <div v-else-if="filteredEntities.length === 0" class="p-12 text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-700/50 rounded-2xl mb-4">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-lg font-medium text-gray-300 mb-2">No entities found</h2>
+                    <p class="text-sm text-gray-500 mb-6">
+                        {{ searchQuery || filterEntityType !== 'all'
                             ? 'Try adjusting your search or filters'
                             : 'Start building your knowledge graph by creating entities' }}
                     </p>
                     <button
                         v-if="!searchQuery && filterEntityType === 'all'"
                         @click="showCreateEntity = true"
-                        class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                        class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium rounded-lg hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-purple-500/30 transition-all duration-200"
                     >
-                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
                         </svg>
                         Create Your First Entity
@@ -894,52 +920,60 @@ const MemoryViewer = {
                 </div>
 
                 <!-- Entity Cards -->
-                <div v-else class="divide-y divide-gray-200 dark:divide-gray-700">
+                <div v-else class="divide-y divide-gray-700/50">
                     <div
                         v-for="entity in paginatedEntities"
                         :key="entity.name"
-                        class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+                        class="p-5 hover:bg-gray-800/40 transition-all duration-150 group"
                     >
                         <div class="flex items-start space-x-4">
                             <!-- Selection Checkbox -->
-                            <label class="flex-shrink-0 mt-1">
+                            <label class="flex-shrink-0 mt-1.5 cursor-pointer">
                                 <input
                                     type="checkbox"
                                     :checked="selectedItems.has(entity.name)"
                                     @change="toggleEntitySelection(entity.name)"
-                                    class="form-checkbox h-4 w-4 text-purple-600 rounded"
+                                    class="form-checkbox h-4 w-4 text-purple-600 rounded focus:ring-purple-500 focus:ring-offset-gray-900 transition-colors"
                                 >
                             </label>
-                            
+
                             <!-- Entity Content -->
                             <div class="flex-1 min-w-0">
                                 <!-- Entity Header -->
-                                <div class="flex items-start justify-between mb-2">
+                                <div class="flex items-start justify-between mb-3">
                                     <div class="flex-1 min-w-0">
-                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white truncate">
-                                            {{ entity.name }}
-                                        </h3>
-                                        <div class="flex items-center space-x-2 mt-1">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
+                                        <div class="flex items-center space-x-3 mb-2">
+                                            <h3 class="text-lg font-semibold text-white truncate">
+                                                {{ entity.name }}
+                                            </h3>
+                                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 text-purple-300">
                                                 {{ entity.entityType }}
                                             </span>
-                                            <span class="text-xs text-gray-500 dark:text-gray-400">
+                                        </div>
+                                        <div class="flex items-center flex-wrap gap-2">
+                                            <div class="inline-flex items-center px-2.5 py-1 rounded-md text-xs bg-gray-700/60 text-gray-300 border border-gray-600/50">
+                                                <svg class="w-3 h-3 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                                </svg>
                                                 {{ entity.observations.length }} observations
-                                            </span>
-                                            <span v-if="getEntityRelations(entity.name).length > 0" class="text-xs text-gray-500 dark:text-gray-400">
+                                            </div>
+                                            <div v-if="getEntityRelations(entity.name).length > 0" class="inline-flex items-center px-2.5 py-1 rounded-md text-xs bg-blue-500/10 text-blue-300 border border-blue-500/30">
+                                                <svg class="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                                </svg>
                                                 {{ getEntityRelations(entity.name).length }} relationships
-                                            </span>
+                                            </div>
                                         </div>
                                     </div>
-                                    
+
                                     <!-- Entity Actions -->
-                                    <div class="flex items-center space-x-2 ml-4">
+                                    <div class="flex items-center space-x-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                         <button
                                             @click="toggleEntityExpansion(entity.name)"
-                                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1 rounded transition-colors"
+                                            class="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-all duration-200"
                                         >
                                             <svg
-                                                :class="['w-5 h-5 transition-transform', isEntityExpanded(entity.name) ? 'rotate-180' : '']"
+                                                :class="['w-5 h-5 transition-transform duration-200', isEntityExpanded(entity.name) ? 'rotate-180' : '']"
                                                 fill="currentColor"
                                                 viewBox="0 0 20 20"
                                             >
@@ -949,38 +983,40 @@ const MemoryViewer = {
                                         <button
                                             @click="deleteEntity(entity.name)"
                                             :disabled="loadingState.operations"
-                                            class="text-red-400 hover:text-red-600 p-1 rounded transition-colors disabled:opacity-50"
+                                            class="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fill-rule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z M4 5a2 2 0 012-2v1a2 2 0 002 2h4a2 2 0 002-2V3a2 2 0 012 2v6.5l1.707 1.707A1 1 0 0017 10.414V5a4 4 0 00-8 0v5.586l1.707-1.707A1 1 0 0012 10.414z" clip-rule="evenodd"></path>
+                                                <path fill-rule="evenodd" d="M9 2a1 1 0 00-2 0H5a2 2 0 00-2 2v1a1 1 0 001 1h10a1 1 0 001-1V4a2 2 0 00-2-2h-2zm3 4H6v9a2 2 0 002 2h2a2 2 0 002-2V6z" clip-rule="evenodd"></path>
                                             </svg>
                                         </button>
                                     </div>
                                 </div>
                                 
                                 <!-- Expanded Entity Details -->
-                                <div v-if="isEntityExpanded(entity.name)" class="space-y-4 mt-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                <div v-if="isEntityExpanded(entity.name)" class="space-y-4 mt-4 p-5 bg-gray-800/60 border border-gray-700/50 rounded-xl animate-fade-in">
                                     <!-- Observations -->
                                     <div>
-                                        <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center">
-                                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                                            </svg>
+                                        <h4 class="text-sm font-semibold text-white mb-3 flex items-center">
+                                            <div class="w-6 h-6 bg-blue-500/20 rounded-lg flex items-center justify-center mr-2">
+                                                <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                                </svg>
+                                            </div>
                                             Observations
                                         </h4>
-                                        <div v-if="entity.observations.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
-                                            No observations
+                                        <div v-if="entity.observations.length === 0" class="text-sm text-gray-500 p-3 bg-gray-700/30 rounded-lg border border-gray-600/30">
+                                            No observations yet
                                         </div>
                                         <div v-else class="space-y-2">
                                             <div
                                                 v-for="(observation, index) in entity.observations"
                                                 :key="index"
-                                                class="flex items-start justify-between p-2 bg-white dark:bg-gray-800 rounded border"
+                                                class="group/obs flex items-start justify-between p-3 bg-gray-900/60 border border-gray-700/50 rounded-lg hover:border-gray-600 transition-all duration-150"
                                             >
-                                                <span class="text-sm text-gray-700 dark:text-gray-300 flex-1">{{ observation }}</span>
+                                                <span class="text-sm text-gray-300 flex-1 leading-relaxed">{{ observation }}</span>
                                                 <button
                                                     @click="deleteObservation(entity.name, observation)"
-                                                    class="text-red-400 hover:text-red-600 ml-2 p-1 rounded transition-colors"
+                                                    class="opacity-0 group-hover/obs:opacity-100 text-red-400 hover:text-red-300 hover:bg-red-500/10 ml-3 p-1.5 rounded-lg transition-all duration-150"
                                                 >
                                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                         <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
@@ -990,19 +1026,19 @@ const MemoryViewer = {
                                         </div>
                                         
                                         <!-- Add Observation -->
-                                        <div class="mt-3">
+                                        <div class="mt-4">
                                             <div class="flex space-x-2">
                                                 <input
                                                     v-model="newObservation"
                                                     type="text"
                                                     placeholder="Add new observation..."
-                                                    class="form-input flex-1 text-sm"
+                                                    class="form-input flex-1 text-sm bg-gray-900/60 border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                                                     @keyup.enter="if(newObservation.trim()) { addObservation(entity.name, newObservation); newObservation = ''; }"
                                                 >
                                                 <button
                                                     @click="if(newObservation.trim()) { addObservation(entity.name, newObservation); newObservation = ''; }"
                                                     :disabled="!newObservation.trim()"
-                                                    class="inline-flex items-center px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    class="inline-flex items-center px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-purple-500/30 transition-all duration-200"
                                                 >
                                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                         <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
@@ -1011,24 +1047,32 @@ const MemoryViewer = {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <!-- Relationships -->
                                     <div v-if="getEntityRelations(entity.name).length > 0">
-                                        <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center">
-                                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                                            </svg>
+                                        <h4 class="text-sm font-semibold text-white mb-3 flex items-center">
+                                            <div class="w-6 h-6 bg-green-500/20 rounded-lg flex items-center justify-center mr-2">
+                                                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                                </svg>
+                                            </div>
                                             Relationships
                                         </h4>
-                                        <div class="space-y-1">
+                                        <div class="space-y-2">
                                             <div
                                                 v-for="relation in getEntityRelations(entity.name)"
                                                 :key="relation.from + '-' + relation.to + '-' + relation.relationType"
-                                                class="text-sm p-2 bg-white dark:bg-gray-800 rounded border"
+                                                class="flex items-center p-3 bg-gray-900/60 border border-gray-700/50 rounded-lg hover:border-gray-600 transition-all duration-150"
                                             >
-                                                <span class="font-medium text-blue-600 dark:text-blue-400">{{ relation.from }}</span>
-                                                <span class="text-gray-500 dark:text-gray-400 mx-2">{{ relation.relationType }}</span>
-                                                <span class="font-medium text-green-600 dark:text-green-400">{{ relation.to }}</span>
+                                                <span class="font-medium text-blue-400">{{ relation.from }}</span>
+                                                <svg class="w-4 h-4 mx-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                                </svg>
+                                                <span class="text-gray-400 text-xs px-2 py-1 bg-gray-800/60 rounded border border-gray-700/50">{{ relation.relationType }}</span>
+                                                <svg class="w-4 h-4 mx-2 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L14.586 10l-4.293-4.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                                </svg>
+                                                <span class="font-medium text-green-400">{{ relation.to }}</span>
                                             </div>
                                         </div>
                                     </div>

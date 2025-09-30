@@ -261,7 +261,6 @@ func DetectRuntime() (Runtime, error) {
 	// Try Docker first
 	dockerPath, err := exec.LookPath("docker")
 	if err == nil {
-		fmt.Println("Detected Docker runtime")
 
 		return NewDockerRuntime(dockerPath)
 	}
@@ -269,13 +268,11 @@ func DetectRuntime() (Runtime, error) {
 	// Try Podman next
 	podmanPath, err := exec.LookPath("podman")
 	if err == nil {
-		fmt.Println("Detected Podman runtime")
 
 		return NewPodmanRuntime(podmanPath)
 	}
 
 	// Return a null runtime that can only handle process-based servers
-	fmt.Println("No container runtime detected, only process-based servers will be supported")
 
 	return NewNullRuntime(), nil
 }

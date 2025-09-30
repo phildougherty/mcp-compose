@@ -1,0 +1,64 @@
+# Example AI Provider Configuration for mcp-compose
+# Add this section to your mcp-compose.yaml to enable AI provider infrastructure
+
+ai_providers:
+  enabled: true
+
+  # Fallback order for AI providers (first to last)
+  # If Claude fails, falls back to OpenAI, then Ollama, then OpenRouter
+  fallback_order:
+    - claude
+    - openai
+    - ollama
+    - openrouter
+
+  # Health check configuration
+  health_check:
+    interval: 30s          # How often to check provider health
+    timeout: 10s           # Timeout for health checks
+
+  # Circuit breaker configuration
+  circuit_breaker:
+    threshold: 5           # Number of consecutive failures before opening circuit
+    reset_timeout: 60s     # How long to wait before retrying failed provider
+
+  # Claude (Anthropic) Configuration
+  claude:
+    enabled: true
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-5-sonnet-20241022"
+    max_tokens: 4096
+    temperature: 1.0
+    request_timeout: 60s
+
+  # OpenAI Configuration
+  openai:
+    enabled: true
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-4"           # Options: gpt-4, gpt-4-turbo, gpt-3.5-turbo
+    max_tokens: 4096
+    temperature: 1.0
+    request_timeout: 60s
+
+  # Ollama (Local) Configuration
+  ollama:
+    enabled: true
+    base_url: "http://localhost:11434"
+    model: "llama2"          # Options: llama2, mistral, codellama, etc.
+    request_timeout: 120s    # Longer timeout for local inference
+
+  # OpenRouter Configuration
+  openrouter:
+    enabled: true
+    api_key: "${OPENROUTER_API_KEY}"
+    model: "anthropic/claude-3-5-sonnet"
+    max_tokens: 4096
+    temperature: 1.0
+    request_timeout: 60s
+    site_url: "https://github.com/phildougherty/mcp-compose"
+    app_name: "mcp-compose"
+
+# Example environment variables (.env file)
+# ANTHROPIC_API_KEY=sk-ant-api03-...
+# OPENAI_API_KEY=sk-...
+# OPENROUTER_API_KEY=sk-or-v1-...

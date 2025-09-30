@@ -52,6 +52,13 @@ type ProxyHandler struct {
 	resourceMeta              *auth.ResourceMetadataHandler
 	oauthEnabled              bool
 	connectionManager         *ConnectionManager
+	rateLimiter               *RateLimiter
+	validationMiddleware      *RequestValidationMiddleware
+	connectionPools           map[string]*ConnectionPool
+	poolMutex                 sync.RWMutex
+	responseCache             *ResponseCache
+	metrics                   *MetricsCollector
+	profiling                 *ProfilingServer
 }
 
 // ConnectionStats tracks connection performance
@@ -125,6 +132,27 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		logger.Info("OAuth 2.1 authorization server initialized")
 	}
 
+	rlConfig := LoadRateLimiterConfigFromCompose(mgr.config)
+	rateLimiter := NewRateLimiter(rlConfig, logger)
+	if mgr.config.RateLimit.Enabled {
+		logger.Info("Rate limiting enabled (per-IP: %d req/min, per-API-key: %d req/min, per-OAuth: %d req/min)",
+			rlConfig.PerIPRate, rlConfig.PerAPIKeyRate, rlConfig.PerOAuthRate)
+	}
+
+	valConfig := LoadValidationConfigFromCompose(mgr.config)
+	validationMiddleware := NewRequestValidationMiddleware(valConfig, logger)
+	if mgr.config.Validation.Enabled {
+		logger.Info("Request validation enabled (max body size: %d bytes)", valConfig.MaxBodySize)
+	}
+
+	metrics := NewMetricsCollector()
+	responseCache := NewResponseCache(DefaultCacheConfig(), logger)
+	profiling := NewProfilingServer(false, apiKey, logger)
+
+	responseCache.SetMetricsCallback(func(hits, misses, evictions int64, size int) {
+		metrics.SetCacheSize(size)
+	})
+
 	handler := &ProxyHandler{
 		Manager:                mgr,
 		ConfigFile:             configFile,
@@ -155,9 +183,14 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 		authMiddleware:            authMiddleware,
 		resourceMeta:              resourceMeta,
 		oauthEnabled:              oauthEnabled,
+		rateLimiter:               rateLimiter,
+		validationMiddleware:      validationMiddleware,
+		connectionPools:           make(map[string]*ConnectionPool),
+		responseCache:             responseCache,
+		metrics:                   metrics,
+		profiling:                 profiling,
 	}
 
-	// Initialize connection manager after handler is created
 	handler.connectionManager = NewConnectionManager(handler)
 
 	if oauthEnabled && authServer != nil {
@@ -172,8 +205,9 @@ func NewProxyHandler(mgr *Manager, configFile, apiKey string) *ProxyHandler {
 	// Start connection monitoring
 	handler.connectionManager.StartMonitoring(constants.MonitoringInterval)
 
-	// Establish initial HTTP connections to all configured HTTP servers
 	go handler.establishInitialHTTPConnections()
+
+	go handler.startMetricsUpdateWorker()
 
 	return handler
 }
@@ -192,7 +226,16 @@ func (h *ProxyHandler) Shutdown() error {
 		h.cancel()
 	}
 
-	// Close HTTP client connections
+	if h.connectionManager != nil {
+		_ = h.connectionManager.Shutdown()
+	}
+
+	if h.rateLimiter != nil {
+		h.rateLimiter.Shutdown()
+	}
+
+	h.CloseConnectionPools()
+
 	h.httpClient.CloseIdleConnections()
 
 	// Close HTTP connections
@@ -252,7 +295,10 @@ func (h *ProxyHandler) Shutdown() error {
 	h.cacheExpiry = time.Now()
 	h.toolCacheMu.Unlock()
 
-	// Wait for goroutines
+	if h.responseCache != nil {
+		h.responseCache.Clear()
+	}
+
 	h.wg.Wait()
 
 	h.logger.Info("Proxy handler shutdown complete.")
