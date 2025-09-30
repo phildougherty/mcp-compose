@@ -72,7 +72,7 @@ Servers must be configured to run in HTTP mode and expose their ports.`,
 	cmd.Flags().StringVarP(&clientType, "client", "t", "claude", "Client type (claude, openai, anthropic, all)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "client-config", "Output directory for client configuration")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key for securing the proxy server")
-	cmd.Flags().BoolVarP(&containerized, "container", "C", false, "Run proxy server as a container (less common now)")
+	cmd.Flags().BoolVarP(&containerized, "container", "C", true, "Run proxy server as a container (default: true, use --container=false for native mode)")
 
 	return cmd
 }
@@ -215,15 +215,6 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 	// Create the proxy handler
 	handler := server.NewProxyHandler(mgr, configFile, apiKey)
 
-	// Set up cleanup on shutdown
-	if composer != nil {
-		defer func() {
-			if err := composer.Shutdown(); err != nil {
-				fmt.Printf("Warning: Composer shutdown error: %v\n", err)
-			}
-		}()
-	}
-
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -242,6 +233,13 @@ func startNativeGoProxy(cfg *config.ComposeConfig, _ string, port int, apiKey st
 
 		if err := mgr.Shutdown(); err != nil {
 			fmt.Printf("Warning: Manager shutdown error: %v\n", err)
+		}
+
+		// Only shutdown composer when actually exiting, not on function return
+		if composer != nil {
+			if err := composer.Shutdown(); err != nil {
+				fmt.Printf("Warning: Composer shutdown error: %v\n", err)
+			}
 		}
 
 		cancel()
@@ -342,15 +340,32 @@ func buildGoProxyImage(httpProxy bool) error {
 
 	fmt.Printf("Building Go proxy image (%s)...\n", imageName)
 
+	// Find the Dockerfile - check multiple locations
 	dockerfilePath := "dockerfiles/Dockerfile.proxy"
+	buildContext := "."
 
-	// Check if Dockerfile exists
+	// Check if Dockerfile exists in current directory
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+		// Try to find it relative to the mcp-compose binary location
+		execPath, err := os.Executable()
+		if err == nil {
+			execDir := filepath.Dir(execPath)
+			// Check if we're in a build/ or bin/ directory, go up one level
+			if filepath.Base(execDir) == "build" || filepath.Base(execDir) == "bin" {
+				projectRoot := filepath.Dir(execDir)
+				dockerfilePath = filepath.Join(projectRoot, "dockerfiles", "Dockerfile.proxy")
+				buildContext = projectRoot
+			}
+		}
 
-		return fmt.Errorf("dockerfile not found at %s", dockerfilePath)
+		// Final check if file exists
+		if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+
+			return fmt.Errorf("dockerfile not found. Please run 'mcp-compose proxy' from the project root directory (/home/phil/dev/mcp-compose)")
+		}
 	}
 
-	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", imageName, ".")
+	cmd := exec.Command("docker", "build", "-q", "-f", dockerfilePath, "-t", imageName, buildContext)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -1,0 +1,77 @@
+# Development Profile
+# Optimized for local development with minimal security, verbose logging
+#
+# Usage:
+#   export MCP_PROFILE=development
+#   mcp-compose up --profile development
+#
+# Or merge with your config:
+#   mcp-compose up -f mcp-compose.yaml -f config/profiles/development.yaml
+
+version: '1'
+
+proxy_auth:
+  enabled: false
+
+logging:
+  level: "debug"
+  format: "text"
+  destinations:
+    - type: stdout
+
+connections:
+  default:
+    timeouts:
+      connect: "30s"
+      read: "120s"
+      write: "120s"
+      idle: "300s"
+      health_check: "10s"
+      shutdown: "60s"
+
+development:
+  inspector:
+    enabled: true
+    port: 3002
+
+  testing:
+    scenarios:
+      - name: "basic-tool-test"
+        tools:
+          - name: "read_file"
+            input:
+              path: "/workspace/test.txt"
+            expected_status: "success"
+
+servers:
+  _defaults:
+    pull: false
+    restart: "no"
+    log_driver: "json-file"
+    log_options:
+      max-size: "50m"
+      max-file: "1"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "1g"
+
+    healthcheck:
+      interval: "60s"
+      timeout: "10s"
+      retries: 3
+
+    security:
+      allow_docker_socket: false
+      allow_host_mounts:
+        - "/tmp"
+        - "${HOME}"
+        - "/var/tmp"
+      allow_privileged_ops: false
+      trusted_image: true
+
+monitoring:
+  metrics:
+    enabled: false

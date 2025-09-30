@@ -608,7 +608,7 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 			// Show logs to help debug
 			showRecentLogs(runtime, "mcp-compose-task-scheduler")
 		} else {
-			fmt.Printf("✅ Task scheduler is healthy!\n")
+			fmt.Printf("Task scheduler is healthy!\n")
 		}
 	}
 

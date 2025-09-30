@@ -47,4 +47,4 @@ ENV MCP_ENABLE_SAMPLING=true
 
 EXPOSE 9876
 
-CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml"]
+CMD ["./mcp-compose-executable", "proxy", "--file", "/app/mcp-compose.yaml", "--container=false"]

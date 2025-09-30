@@ -14,53 +14,50 @@ import (
 
 func NewStopCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stop [SERVER|proxy|dashboard]...",
-		Short: "Stop MCP servers, proxy, or dashboard",
-		Long: `Stop MCP servers, the proxy server, or the dashboard.
+		Use:   "stop [SERVER...]",
+		Short: "Stop MCP user services",
+		Long: `Stop MCP user services defined in mcp-compose.yaml.
+
+For system services (proxy, dashboard, task-scheduler, memory), use:
+  mcp-compose system down [SERVICE...]
 
 Examples:
-  mcp-compose stop server1 server2   # Stop specific servers
-  mcp-compose stop proxy             # Stop the HTTP proxy
-  mcp-compose stop dashboard         # Stop the dashboard`,
+  mcp-compose stop server1 server2   # Stop specific user services`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-
-				return fmt.Errorf("no servers, proxy, or dashboard specified to stop")
+				return fmt.Errorf("no services specified to stop")
 			}
 
 			file, _ := cmd.Flags().GetString("file")
 
-			// Process each argument
-			for _, target := range args {
-				switch target {
-				case "proxy":
-					if err := stopProxy(); err != nil {
+			systemSvcs, userSvcs := SplitSystemAndUserServices(args)
 
-						return fmt.Errorf("failed to stop proxy: %w", err)
-					}
-				case "dashboard":
-					if err := stopDashboard(file); err != nil {
+			if len(systemSvcs) > 0 {
+				fmt.Printf("Warning: System services detected: %v\n", systemSvcs)
+				fmt.Println("Please use 'mcp-compose system down' for system services")
+				fmt.Println("This behavior will be removed in v2.0")
+				fmt.Println()
 
-						return fmt.Errorf("failed to stop dashboard: %w", err)
-					}
-				case "task-scheduler":
-					if err := stopTaskScheduler(file); err != nil {
-
-						return fmt.Errorf("failed to stop task scheduler: %w", err)
-					}
-				default:
-					// Regular server stop - collect all regular servers and stop them together
-					regularServers := []string{}
-					for _, arg := range args {
-						if arg != "proxy" && arg != "dashboard" {
-							regularServers = append(regularServers, arg)
+				for _, service := range systemSvcs {
+					switch service {
+					case "proxy":
+						if err := stopProxy(); err != nil {
+							fmt.Printf("Failed to stop proxy: %v\n", err)
+						}
+					case "dashboard":
+						if err := stopDashboard(file); err != nil {
+							fmt.Printf("Failed to stop dashboard: %v\n", err)
+						}
+					case "task-scheduler":
+						if err := stopTaskScheduler(file); err != nil {
+							fmt.Printf("Failed to stop task scheduler: %v\n", err)
 						}
 					}
-					if len(regularServers) > 0 {
-
-						return compose.Stop(file, regularServers)
-					}
 				}
+			}
+
+			if len(userSvcs) > 0 {
+				return compose.Stop(file, userSvcs)
 			}
 
 			return nil
@@ -86,7 +83,7 @@ func stopProxy() error {
 		return fmt.Errorf("failed to stop proxy container: %w", err)
 	}
 
-	fmt.Println("✅ Proxy stopped successfully.")
+	fmt.Println("Proxy stopped successfully.")
 
 	return nil
 }
@@ -114,7 +111,7 @@ func stopDashboard(configFile string) error {
 		return fmt.Errorf("failed to stop dashboard: %w", err)
 	}
 
-	fmt.Println("✅ Dashboard stopped successfully.")
+	fmt.Println("Dashboard stopped successfully.")
 
 	return nil
 }
@@ -141,7 +138,7 @@ func stopTaskScheduler(configFile string) error {
 		return fmt.Errorf("failed to stop task scheduler: %w", err)
 	}
 
-	fmt.Println("✅ Task scheduler stopped successfully.")
+	fmt.Println("Task scheduler stopped successfully.")
 
 	return nil
 }

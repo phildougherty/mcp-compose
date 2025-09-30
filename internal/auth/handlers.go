@@ -92,6 +92,7 @@ func (s *AuthorizationServer) showAutoApprovalPage(w http.ResponseWriter, _ *htt
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Authorization Request</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
@@ -236,15 +237,15 @@ func formatScopes(scope string) string {
 	for i, s := range scopes {
 		switch s {
 		case "mcp:*":
-			formatted[i] = "• Full access to all MCP resources"
+			formatted[i] = "- Full access to all MCP resources"
 		case "mcp:tools":
-			formatted[i] = "• Access to MCP tools"
+			formatted[i] = "- Access to MCP tools"
 		case "mcp:resources":
-			formatted[i] = "• Access to MCP resources"
+			formatted[i] = "- Access to MCP resources"
 		case "mcp:prompts":
-			formatted[i] = "• Access to MCP prompts"
+			formatted[i] = "- Access to MCP prompts"
 		default:
-			formatted[i] = "• " + s
+			formatted[i] = "- " + s
 		}
 	}
 
@@ -733,10 +734,21 @@ func (s *AuthorizationServer) generateAuthorizationCode(clientID, userID, redire
 }
 
 func (s *AuthorizationServer) generateAccessToken(clientID, userID, scope string) (*AccessToken, error) {
-	token, err := s.tokenGenerator.GenerateAccessToken()
-	if err != nil {
+	var token string
+	var err error
 
-		return nil, err
+	if s.jwtManager != nil {
+		token, err = s.jwtManager.GenerateAccessToken(clientID, userID, scope, s.tokenLifetime)
+		if err != nil {
+
+			return nil, fmt.Errorf("failed to generate JWT token: %w", err)
+		}
+	} else {
+		token, err = s.tokenGenerator.GenerateAccessToken()
+		if err != nil {
+
+			return nil, err
+		}
 	}
 
 	accessToken := &AccessToken{
@@ -880,7 +892,6 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Extract access token from Authorization header
 	token := s.extractBearerToken(r)
 	if token == "" {
 		s.sendUserInfoError(w, "invalid_token", "Access token required")
@@ -888,49 +899,66 @@ func (s *AuthorizationServer) HandleUserInfo(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validate access token
-	accessToken, err := s.ValidateAccessToken(token)
-	if err != nil {
-		s.sendUserInfoError(w, "invalid_token", err.Error())
+	s.mu.RLock()
+	if revokedAt, revoked := s.revokedTokens[token]; revoked {
+		s.mu.RUnlock()
+		s.logger.Info("Attempted use of revoked token (revoked at: %v)", revokedAt)
+		s.sendUserInfoError(w, "invalid_token", "Token has been revoked")
 
 		return
 	}
+	s.mu.RUnlock()
 
-	// Get client information
-	client, exists := s.GetClient(accessToken.ClientID)
+	var clientID, userID, scope string
+	var iat, exp int64
+
+	if s.jwtManager != nil {
+		claims, err := s.jwtManager.ValidateAccessToken(token)
+		if err != nil {
+			s.sendUserInfoError(w, "invalid_token", fmt.Sprintf("Invalid JWT token: %v", err))
+
+			return
+		}
+		clientID = claims.ClientID
+		userID = claims.UserID
+		scope = claims.Scope
+		iat = claims.IssuedAt.Unix()
+		exp = claims.ExpiresAt.Unix()
+	} else {
+		accessToken, err := s.ValidateAccessToken(token)
+		if err != nil {
+			s.sendUserInfoError(w, "invalid_token", err.Error())
+
+			return
+		}
+		clientID = accessToken.ClientID
+		userID = accessToken.UserID
+		scope = accessToken.Scope
+		iat = accessToken.CreatedAt.Unix()
+		exp = accessToken.ExpiresAt.Unix()
+	}
+
+	client, exists := s.GetClient(clientID)
 	if !exists {
 		s.sendUserInfoError(w, "invalid_token", "Invalid client")
 
 		return
 	}
 
-	// Build userinfo response
 	userInfo := map[string]interface{}{
-		"sub":        accessToken.UserID,
-		"client_id":  accessToken.ClientID,
-		"scope":      accessToken.Scope,
-		"iat":        accessToken.CreatedAt.Unix(),
-		"exp":        accessToken.ExpiresAt.Unix(),
+		"sub":        userID,
+		"client_id":  clientID,
+		"scope":      scope,
+		"iat":        iat,
+		"exp":        exp,
 		"token_type": "Bearer",
 		"active":     true,
 	}
 
-	// Add client information if available
 	if client.ClientName != "" {
 		userInfo["client_name"] = client.ClientName
 	}
 
-	// Add custom claims if they exist
-	if accessToken.Claims != nil {
-		for key, value := range accessToken.Claims {
-			// Don't override standard claims
-			if key != "sub" && key != "iat" && key != "exp" && key != "client_id" {
-				userInfo[key] = value
-			}
-		}
-	}
-
-	// Add MCP-specific information
 	userInfo["mcp_server"] = "mcp-compose"
 	userInfo["mcp_version"] = "1.0.0"
 
@@ -994,19 +1022,18 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 
 	revoked := false
 
-	// Try to revoke as access token first (or if hint suggests it)
 	if tokenTypeHint == "" || tokenTypeHint == "access_token" {
 		if accessToken, exists := s.accessTokens[token]; exists {
-			// Check if client owns this token (if client authenticated)
 			if authenticatedClient == nil || accessToken.ClientID == authenticatedClient.ID {
 				accessToken.Revoked = true
+				s.revokedTokens[token] = time.Now()
 				revoked = true
 				s.logger.Info("Revoked access token for client: %s", accessToken.ClientID)
 
-				// Also revoke associated refresh tokens
 				for _, refreshToken := range s.refreshTokens {
 					if refreshToken.ClientID == accessToken.ClientID && refreshToken.UserID == accessToken.UserID {
 						refreshToken.Revoked = true
+						s.revokedTokens[refreshToken.Token] = time.Now()
 						s.logger.Info("Revoked associated refresh token for client: %s", refreshToken.ClientID)
 					}
 				}
@@ -1014,19 +1041,18 @@ func (s *AuthorizationServer) HandleRevoke(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// Try to revoke as refresh token if not found as access token
 	if !revoked && (tokenTypeHint == "" || tokenTypeHint == "refresh_token") {
 		if refreshToken, exists := s.refreshTokens[token]; exists {
-			// Check if client owns this token (if client authenticated)
 			if authenticatedClient == nil || refreshToken.ClientID == authenticatedClient.ID {
 				refreshToken.Revoked = true
+				s.revokedTokens[token] = time.Now()
 				revoked = true
 				s.logger.Info("Revoked refresh token for client: %s", refreshToken.ClientID)
 
-				// Also revoke associated access tokens
 				for _, accessToken := range s.accessTokens {
 					if accessToken.ClientID == refreshToken.ClientID && accessToken.UserID == refreshToken.UserID {
 						accessToken.Revoked = true
+						s.revokedTokens[accessToken.Token] = time.Now()
 						s.logger.Info("Revoked associated access token for client: %s", accessToken.ClientID)
 					}
 				}

@@ -18,59 +18,71 @@ func NewCreateConfigCommand() *cobra.Command {
 	var outputDir string
 	var clientType string
 	cmd := &cobra.Command{
-		Use:   "create-config",
+		Use:   "create-config --type <type>",
 		Short: "Create client configuration for MCP servers",
 		Long: `Generate ready-to-use configuration files for MCP servers that can be
-imported directly into LLM clients like Claude Desktop, Anthropic API clients,
-or OpenAI compatible clients.
-This makes it easy to use your MCP servers with popular LLM client applications.`,
+imported directly into LLM clients like Claude Desktop, Claude Code, or API clients.
+
+Available types:
+  claude-desktop     Claude Desktop JSON config
+  claude-code        Claude Code configuration commands
+  mcp-add            Generate 'claude mcp add' commands
+  anthropic          Anthropic API Python example
+  openai             OpenAI API Node.js example
+  all                Generate all config types
+
+Examples:
+  mcp-compose create-config --type claude-code
+  mcp-compose create-config --type mcp-add
+  mcp-compose create-config --type claude-desktop`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if clientType == "" {
+				fmt.Println("Error: --type flag is required\n")
+				cmd.Help()
+				return fmt.Errorf("type flag is required")
+			}
+
 			file, _ := cmd.Flags().GetString("file")
-			// Create output directory if it doesn't exist
+
 			if outputDir == "" {
 				outputDir = "client-configs"
 			}
 			if err := os.MkdirAll(outputDir, constants.DefaultDirMode); err != nil {
-
 				return fmt.Errorf("failed to create output directory: %w", err)
 			}
-			// Load the MCP compose configuration
+
 			cfg, err := config.LoadConfig(file)
 			if err != nil {
-
 				return fmt.Errorf("failed to load config: %w", err)
 			}
-			// Generate client configuration based on type
+
 			switch strings.ToLower(clientType) {
-			case "claude":
-
+			case "claude", "claude-desktop":
 				return generateClaudeConfig(cfg, outputDir)
+			case "claude-code":
+				return generateClaudeCodeConfig(cfg)
+			case "mcp-add":
+				return generateMCPAddCommands(cfg)
 			case "anthropic":
-
 				return generateAnthropicConfig(cfg, outputDir)
 			case "openai":
-
 				return generateOpenAIConfig(cfg, outputDir)
 			case "all":
 				if err := generateClaudeConfig(cfg, outputDir); err != nil {
-
 					return err
 				}
 				if err := generateAnthropicConfig(cfg, outputDir); err != nil {
-
 					return err
 				}
-
 				return generateOpenAIConfig(cfg, outputDir)
 			default:
-
-				return fmt.Errorf("unknown client type: %s", clientType)
+				return fmt.Errorf("unknown client type: %s (valid: claude-desktop, claude-code, mcp-add, anthropic, openai, all)", clientType)
 			}
 		},
 	}
-	// Use different flag names to avoid conflict with the global -c flag
+
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "client-configs", "Directory to output client configurations")
-	cmd.Flags().StringVarP(&clientType, "type", "t", "all", "Client type (claude, anthropic, openai, all)")
+	cmd.Flags().StringVarP(&clientType, "type", "t", "", "Client type (required: claude-desktop, claude-code, mcp-add, anthropic, openai, all)")
 
 	return cmd
 }
@@ -485,4 +497,89 @@ func formatStrListJS(strs []string) string {
 	}
 
 	return "[" + strings.Join(items, ", ") + "]"
+}
+
+// generateClaudeCodeConfig generates configuration for Claude Code CLI
+func generateClaudeCodeConfig(cfg *config.ComposeConfig) error {
+	fmt.Println("\n=== Claude Code Configuration ===\n")
+
+	// Check if API key is configured
+	apiKey := cfg.ProxyAuth.APIKey
+	if apiKey == "" || strings.Contains(apiKey, "${") {
+		apiKey = "myapikey"
+	}
+
+	fmt.Println("Step 1: Start all MCP servers and the proxy:")
+	fmt.Println("  mcp-compose up          # Start all servers")
+	fmt.Println("  mcp-compose proxy       # Start proxy (in separate terminal)")
+	fmt.Println("\nStep 2: Add servers via the proxy:\n")
+
+	for name, srvCfg := range cfg.Servers {
+		fmt.Printf("# Server: %s\n", name)
+
+		// All servers should go through the proxy for OAuth and centralized routing
+		if srvCfg.Protocol == "http" || srvCfg.Protocol == "sse" || srvCfg.HttpPort > 0 || srvCfg.Image != "" {
+			fmt.Printf("claude mcp add %s --transport http http://localhost:9876/%s -H \"Authorization: Bearer %s\"\n\n", name, name, apiKey)
+		} else if srvCfg.Command != "" && srvCfg.Image == "" {
+			// STDIO process-based servers (not containerized) - these can't use proxy
+			args := ""
+			if len(srvCfg.Args) > 0 {
+				args = " " + strings.Join(srvCfg.Args, " ")
+			}
+			fmt.Printf("claude mcp add %s %s%s\n\n", name, srvCfg.Command, args)
+		}
+	}
+
+	fmt.Println("\n=== Why Use the Proxy? ===\n")
+	fmt.Println("The proxy provides:")
+	fmt.Println("  • Centralized OAuth authentication for all servers")
+	fmt.Println("  • Single endpoint for Claude Code, OpenWebUI, and other clients")
+	fmt.Println("  • Request routing and load balancing")
+	fmt.Printf("  • API Key: %s (set MCP_API_KEY env var to change)\n", apiKey)
+
+	if cfg.OAuth != nil && cfg.OAuth.Enabled {
+		fmt.Println("\n=== OAuth Configuration ===\n")
+		fmt.Printf("OAuth Issuer: %s\n", cfg.OAuth.Issuer)
+		fmt.Println("OAuth clients are configured in 'oauth_clients' section of mcp-compose.yaml")
+		fmt.Println("\nFor Claude Web UI:")
+		fmt.Println("  1. Go to https://claude.ai/settings")
+		fmt.Println("  2. Add Custom Connector")
+		fmt.Printf("  3. Enter proxy URL: %s\n", cfg.OAuth.Issuer)
+	}
+
+	return nil
+}
+
+// generateMCPAddCommands generates 'claude mcp add' commands
+func generateMCPAddCommands(cfg *config.ComposeConfig) error {
+	fmt.Println("\n=== Claude MCP Add Commands ===\n")
+	fmt.Println("# First, start the MCP proxy:")
+	fmt.Println("# mcp-compose proxy --port 9876\n")
+
+	// Check if API key is configured
+	apiKey := cfg.ProxyAuth.APIKey
+	if apiKey == "" || strings.Contains(apiKey, "${") {
+		apiKey = "myapikey"  // Default from your config
+	}
+
+	fmt.Println("# Then run these commands:\n")
+
+	for name, srvCfg := range cfg.Servers {
+		if srvCfg.Protocol == "http" || srvCfg.HttpPort > 0 || srvCfg.Image != "" {
+			// All HTTP and container servers go through the proxy
+			fmt.Printf("claude mcp add %s --transport http http://localhost:9876/%s -H \"Authorization: Bearer %s\"\n", name, name, apiKey)
+		} else if srvCfg.Command != "" {
+			// Only STDIO process-based servers use direct command
+			args := ""
+			if len(srvCfg.Args) > 0 {
+				args = " " + strings.Join(srvCfg.Args, " ")
+			}
+			fmt.Printf("claude mcp add %s %s%s\n", name, srvCfg.Command, args)
+		}
+	}
+
+	fmt.Println("\n# Note: The proxy is required for OAuth, authentication, and routing.")
+	fmt.Printf("# API Key: %s (set MCP_API_KEY env var to change)\n", apiKey)
+
+	return nil
 }

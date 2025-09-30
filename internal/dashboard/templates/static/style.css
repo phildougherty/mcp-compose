@@ -1,43 +1,112 @@
 /* Core styles with proper dark theme enforcement */
 html, body {
-    background-color: rgb(17, 24, 39) !important;
+    background-color: rgb(15, 23, 42) !important;
     color: rgb(243, 244, 246) !important;
     overflow-x: hidden !important;
     width: 100% !important;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
 }
+
 [v-cloak] { display: none !important; }
+
 * {
     box-sizing: border-box;
     max-width: 100%;
 }
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgb(17, 24, 39);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgb(75, 85, 99);
+    border-radius: 10px;
+    border: 2px solid rgb(17, 24, 39);
+    transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgb(96, 165, 250);
+}
+
+::-webkit-scrollbar-corner {
+    background: rgb(17, 24, 39);
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(75, 85, 99) rgb(17, 24, 39);
+}
+
 /* Force dark theme on ALL text elements */
 h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
     color: rgb(243, 244, 246) !important;
+    transition: color 0.2s ease;
 }
+
 /* Specific overrides for light text that should be white */
 .text-black, .text-gray-900 {
     color: rgb(243, 244, 246) !important;
 }
+
 .text-gray-800, .text-gray-700, .text-gray-600 {
     color: rgb(209, 213, 219) !important;
 }
 
 /* CONSOLIDATED Enhanced dark cards with proper section contrast */
 .enhanced-card {
-    background: rgb(31, 41, 55) !important;
-    border: 1px solid rgb(75, 85, 99) !important;
+    background: rgba(30, 41, 59, 0.95) !important;
+    border: 1px solid rgba(100, 116, 139, 0.3) !important;
     color: rgb(243, 244, 246) !important;
     border-radius: 1rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3),
+                0 4px 8px rgba(0, 0, 0, 0.2),
+                inset 0 1px 0 rgba(148, 163, 184, 0.1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    position: relative;
+    backdrop-filter: blur(16px);
 }
+
+.enhanced-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: rgba(59, 130, 246, 0.3);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.enhanced-card:hover::before {
+    opacity: 1;
+}
+
 .enhanced-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    transform: translateY(-6px) scale(1.015);
+    box-shadow: 0 20px 30px rgba(0, 0, 0, 0.4),
+                0 10px 15px rgba(0, 0, 0, 0.3),
+                0 0 0 1px rgba(59, 130, 246, 0.3),
+                inset 0 1px 0 rgba(148, 163, 184, 0.2);
+    border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+.enhanced-card:active {
+    transform: translateY(-2px) scale(1.005);
+    transition: all 0.1s ease;
 }
 
 /* Main card content - keep medium gray */
@@ -45,8 +114,9 @@ h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
 .enhanced-card .bg-white,
 .enhanced-card > div[class*="bg-gray-50"],
 .enhanced-card > div[class*="bg-white"] {
-    background-color: rgb(31, 41, 55) !important;
+    background-color: rgba(31, 41, 55, 0.6) !important;
     color: rgb(243, 244, 246) !important;
+    transition: background-color 0.3s ease;
 }
 
 /* Expanded/accordion content areas - darker for contrast */
@@ -54,8 +124,9 @@ h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
 .enhanced-card .border-t.border-gray-700 + div,
 .enhanced-card .bg-gray-50.dark\:bg-gray-700\/30,
 .enhanced-card .bg-gray-800\/50 {
-    background-color: rgb(17, 24, 39) !important;
+    background-color: rgba(17, 24, 39, 0.8) !important;
     color: rgb(243, 244, 246) !important;
+    backdrop-filter: blur(8px);
 }
 
 /* Inner content cards within expanded sections - medium gray for contrast */
@@ -65,13 +136,22 @@ h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
 .enhanced-card .border-t + div .bg-gray-50,
 .enhanced-card .bg-white.dark\\:bg-gray-800,
 .enhanced-card .bg-gray-50.dark\\:bg-gray-800 {
-    background-color: rgb(55, 65, 81) !important;
+    background-color: rgba(55, 65, 81, 0.9) !important;
     color: rgb(243, 244, 246) !important;
+    border: 1px solid rgba(75, 85, 99, 0.3) !important;
+    border-radius: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.enhanced-card .bg-gray-800 .bg-white:hover,
+.enhanced-card .border-t + div .bg-white:hover {
+    background-color: rgba(55, 65, 81, 1) !important;
+    border-color: rgba(75, 85, 99, 0.5) !important;
 }
 
 /* Keep inner content cards slightly lighter for contrast */
 .enhanced-card .bg-gray-900 {
-    background-color: rgb(31, 41, 55) !important;
+    background-color: rgba(31, 41, 55, 0.95) !important;
 }
 
 /* Text color enforcement for all enhanced card content */
@@ -81,7 +161,8 @@ h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
 .enhanced-card .text-gray-900 {
     color: rgb(209, 213, 219) !important;
 }
-.enhanced-card h1, .enhanced-card h2, .enhanced-card h3, 
+
+.enhanced-card h1, .enhanced-card h2, .enhanced-card h3,
 .enhanced-card h4, .enhanced-card h5, .enhanced-card h6,
 .enhanced-card p, .enhanced-card span, .enhanced-card div,
 .enhanced-card td, .enhanced-card th, .enhanced-card li, .enhanced-card a {
@@ -91,28 +172,48 @@ h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, a {
 /* Forms with proper dark styling */
 .form-input {
     width: 100%;
-    padding: 0.75rem;
-    background: rgb(55, 65, 81) !important;
-    border: 1px solid rgb(75, 85, 99) !important;
+    padding: 0.75rem 1rem;
+    background: rgba(30, 41, 59, 0.9) !important;
+    border: 1px solid rgba(100, 116, 139, 0.3) !important;
     color: white !important;
-    border-radius: 0.5rem;
-    font-size: 16px; /* Prevents zoom on iOS */
-    transition: all 0.2s ease;
+    border-radius: 0.75rem;
+    font-size: 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(12px);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
+
+.form-input:hover {
+    background: rgba(30, 41, 59, 0.95) !important;
+    border-color: rgba(100, 116, 139, 0.5) !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
 .form-input:focus {
     outline: none;
-    border-color: rgb(59, 130, 246);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    background: rgba(30, 41, 59, 1) !important;
+    border-color: rgb(59, 130, 246) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2),
+                0 4px 12px rgba(59, 130, 246, 0.15),
+                inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    transform: translateY(-2px);
 }
+
 input::placeholder, textarea::placeholder {
     color: rgb(156, 163, 175) !important;
+    transition: color 0.2s ease;
+}
+
+input:focus::placeholder, textarea:focus::placeholder {
+    color: rgb(107, 114, 128) !important;
 }
 
 /* Dark mode enforcement for all elements */
 input, select, textarea, button, table, th, td {
-    background-color: rgb(31, 41, 55) !important;
+    background-color: rgba(31, 41, 55, 0.9) !important;
     color: rgb(243, 244, 246) !important;
-    border-color: rgb(75, 85, 99) !important;
+    border-color: rgba(75, 85, 99, 0.5) !important;
+    transition: all 0.2s ease;
 }
 
 /* Touch targets with proper accessibility */
@@ -122,7 +223,23 @@ button, .btn, .touch-target, a[role="button"] {
     touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(59, 130, 246, 0.3);
     position: relative;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+button:hover, .btn:hover, .touch-target:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+button:active, .btn:active, .touch-target:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+button:focus-visible, .btn:focus-visible, .touch-target:focus-visible {
+    outline: 2px solid rgb(59, 130, 246);
+    outline-offset: 2px;
 }
 
 /* Enhanced badge visibility for iOS */
@@ -132,32 +249,52 @@ button, .btn, .touch-target, a[role="button"] {
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
     font-weight: 600 !important;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+
+.inline-flex.items-center.px-2\.5.py-0\.5.rounded-full:hover,
+.inline-flex.items-center.px-2.py-0\.5.rounded-full:hover,
+.inline-flex.items-center.px-2.py-1.rounded:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 /* Status indicators with better contrast */
 .bg-green-100 {
-    background-color: rgb(34, 197, 94) !important;
+    background: rgb(22, 163, 74) !important;
     color: rgb(255, 255, 255) !important;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
 }
+
 .bg-red-100 {
-    background-color: rgb(239, 68, 68) !important;
+    background: rgb(220, 38, 38) !important;
     color: rgb(255, 255, 255) !important;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
 }
+
 .bg-blue-100 {
-    background-color: rgb(59, 130, 246) !important;
+    background: rgb(37, 99, 235) !important;
     color: rgb(255, 255, 255) !important;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
+
 .bg-yellow-100 {
-    background-color: rgb(245, 158, 11) !important;
+    background: rgb(217, 119, 6) !important;
     color: rgb(0, 0, 0) !important;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
 }
+
 .bg-purple-100 {
-    background-color: rgb(168, 85, 247) !important;
+    background: rgb(147, 51, 234) !important;
     color: rgb(255, 255, 255) !important;
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
 }
+
 .bg-gray-100 {
-    background-color: rgb(107, 114, 128) !important;
+    background: rgb(75, 85, 99) !important;
     color: rgb(255, 255, 255) !important;
+    box-shadow: 0 2px 8px rgba(107, 114, 128, 0.3);
 }
 
 /* Force dark mode colors for status badges */
@@ -172,54 +309,65 @@ button, .btn, .touch-target, a[role="button"] {
 .task-scheduler .enhanced-card {
     margin: 0.25rem 0 !important;
 }
+
 .task-scheduler .enhanced-card .bg-gray-50,
 .task-scheduler .enhanced-card .bg-white,
 .task-scheduler .enhanced-card .px-6.pb-6.space-y-6.bg-gray-800,
 .task-scheduler .bg-gray-800,
 .task-scheduler .bg-gray-700 {
-    background-color: rgb(17, 24, 39) !important;
+    background-color: rgba(17, 24, 39, 0.8) !important;
     color: rgb(243, 244, 246) !important;
 }
+
 .task-scheduler .enhanced-card .px-6.pb-6.space-y-6.bg-gray-800 * {
     color: rgb(243, 244, 246) !important;
 }
+
 .task-scheduler .p-6 {
     padding: 1rem !important;
 }
+
 .task-scheduler .px-6 {
     padding-left: 1rem !important;
     padding-right: 1rem !important;
 }
+
 .task-scheduler .py-6 {
     padding-top: 1rem !important;
     padding-bottom: 1rem !important;
 }
+
 .task-scheduler h5 {
     font-size: 0.875rem !important;
     line-height: 1.25rem !important;
 }
+
 .task-scheduler .space-y-6 > * + * {
     margin-top: 1rem !important;
 }
+
 .task-scheduler .space-y-4 > * + * {
     margin-top: 0.75rem !important;
 }
+
 .task-scheduler .inline-flex.items-center {
     padding: 0.125rem 0.5rem !important;
     font-size: 0.75rem !important;
 }
+
 .task-scheduler .space-x-2 > * + * {
     margin-left: 0.375rem !important;
 }
 
 /* Specific task scheduler accordion fixes */
 .task-scheduler .enhanced-card .border-t + div {
-    background-color: rgb(17, 24, 39) !important;
+    background-color: rgba(17, 24, 39, 0.9) !important;
 }
+
 .task-scheduler .enhanced-card .border-t + div .bg-white,
 .task-scheduler .enhanced-card .border-t + div .bg-gray-50 {
-    background-color: rgb(55, 65, 81) !important;
-    border: 1px solid rgb(75, 85, 99) !important;
+    background-color: rgba(55, 65, 81, 0.9) !important;
+    border: 1px solid rgba(75, 85, 99, 0.5) !important;
 }
 
 /* Responsive grid - enhanced for better mobile stacking */
@@ -274,7 +422,7 @@ button, .btn, .touch-target, a[role="button"] {
 
 /* Card content should be flexible and properly sized */
 .responsive-grid .enhanced-card {
-    min-height: 120px; /* Ensure minimum height for consistency */
+    min-height: 120px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -282,7 +430,7 @@ button, .btn, .touch-target, a[role="button"] {
 
 .responsive-grid .enhanced-card .flex {
     flex: 1;
-    min-width: 0; /* Allow text truncation */
+    min-width: 0;
 }
 
 /* Prevent text overflow in stat cards */
@@ -297,14 +445,14 @@ button, .btn, .touch-target, a[role="button"] {
     .responsive-grid {
         gap: 0.75rem;
     }
-    
+
     .responsive-grid .enhanced-card {
         min-height: 100px;
         padding: 0.75rem !important;
     }
 }
 
-/* Status indicators */
+/* Status indicators with pulse animation */
 .status-dot {
     width: 10px;
     height: 10px;
@@ -312,37 +460,329 @@ button, .btn, .touch-target, a[role="button"] {
     margin-right: 0.5rem;
     position: relative;
     border: 1px solid currentColor;
+    transition: all 0.3s ease;
 }
-.status-running { background-color: rgb(34, 197, 94); }
-.status-stopped { background-color: rgb(239, 68, 68); }
-.status-warning { background-color: rgb(245, 158, 11); }
 
-/* Heroicons integration */
+.status-dot::after {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    border-radius: 50%;
+    background: inherit;
+    opacity: 0.5;
+    transition: all 0.3s ease;
+}
+
+.status-running {
+    background-color: rgb(34, 197, 94);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+
+.status-stopped {
+    background-color: rgb(239, 68, 68);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.status-warning {
+    background-color: rgb(245, 158, 11);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
+/* Heroicons integration with smooth transitions */
 .heroicon {
     width: 1.25rem;
     height: 1.25rem;
     stroke: currentColor;
     fill: none;
     stroke-width: 2;
+    transition: all 0.2s ease;
 }
+
 .heroicon-sm { width: 1rem; height: 1rem; }
 .heroicon-lg { width: 1.5rem; height: 1.5rem; }
 
-/* Animations */
+button:hover .heroicon,
+a:hover .heroicon {
+    transform: scale(1.1);
+}
+
+/* Advanced Animations */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
 @keyframes ping {
-    75%, 100% { transform: scale(2); opacity: 0; }
+    75%, 100% {
+        transform: scale(2);
+        opacity: 0;
+    }
 }
-.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+
+@keyframes pulse-glow {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 8px currentColor;
+    }
+    50% {
+        opacity: 0.7;
+        box-shadow: 0 0 16px currentColor;
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+@keyframes spin-slow {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-fade-in-scale {
+    animation: fadeInScale 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-slide-in-right {
+    animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-slide-in-left {
+    animation: slideInLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+}
+
 .status-dot.pulse::after {
+    animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Loading Skeleton Animation */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        rgba(55, 65, 81, 0.8) 0%,
+        rgba(75, 85, 99, 0.8) 50%,
+        rgba(55, 65, 81, 0.8) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: 0.5rem;
+}
+
+/* Loading Spinner */
+.spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(59, 130, 246, 0.2);
+    border-radius: 50%;
+    border-top-color: rgb(59, 130, 246);
+    animation: spin-slow 1s linear infinite;
+}
+
+.spinner-lg {
+    width: 40px;
+    height: 40px;
+    border-width: 3px;
+}
+
+/* Glassmorphism Effects */
+.glass {
+    background: rgba(31, 41, 55, 0.7) !important;
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.glass-strong {
+    background: rgba(31, 41, 55, 0.85) !important;
+    backdrop-filter: blur(20px) saturate(200%);
+    -webkit-backdrop-filter: blur(20px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* Professional Shadow Utilities */
+.shadow-soft {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08),
+                0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-medium {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12),
+                0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.shadow-strong {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18),
+                0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.shadow-glow-blue {
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3),
+                0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.shadow-glow-green {
+    box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3),
+                0 2px 8px rgba(34, 197, 94, 0.2);
+}
+
+.shadow-glow-red {
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3),
+                0 2px 8px rgba(239, 68, 68, 0.2);
+}
+
+
+/* Live Data Pulse Effects */
+.live-data {
+    position: relative;
+    overflow: hidden;
+}
+
+.live-data::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    border-radius: 50%;
-    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 2px;
+    background: rgb(59, 130, 246);
+    animation: slide-across 2s ease-in-out infinite;
+    opacity: 0.5;
+}
+
+@keyframes slide-across {
+    0% {
+        left: -100%;
+    }
+    100% {
+        left: 100%;
+    }
+}
+
+.data-updating {
+    animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* Focus States Enhancement */
+*:focus-visible {
+    outline: 2px solid rgb(59, 130, 246);
+    outline-offset: 2px;
+    transition: outline-offset 0.2s ease;
+}
+
+a:focus-visible {
+    outline-offset: 4px;
+}
+
+/* Link Hover Effects */
+a {
+    position: relative;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+a:not(.no-underline):hover {
+    color: rgb(96, 165, 250) !important;
+}
+
+a:not(.no-underline)::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: rgb(59, 130, 246);
+    transition: width 0.3s ease;
+}
+
+a:not(.no-underline):hover::after {
+    width: 100%;
+}
+
+/* Table Enhancements */
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+tr {
+    transition: all 0.2s ease;
+}
+
+tr:hover {
+    background-color: rgba(55, 65, 81, 0.5) !important;
+    transform: scale(1.01);
+}
+
+td, th {
+    border: 1px solid rgba(75, 85, 99, 0.3) !important;
+    transition: all 0.2s ease;
 }
 
 /* iOS Safari specific fixes */
@@ -351,21 +791,21 @@ button, .btn, .touch-target, a[role="button"] {
         -webkit-transform: translateZ(0);
         transform: translateZ(0);
     }
-    
+
     body, * {
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
     }
-    
+
     input:focus,
     select:focus,
     textarea:focus,
     button:focus {
-        background-color: rgb(55, 65, 81) !important;
+        background-color: rgba(55, 65, 81, 1) !important;
         color: rgb(243, 244, 246) !important;
         border-color: rgb(59, 130, 246) !important;
     }
-    
+
     .fixed.inset-0 {
         padding-top: env(safe-area-inset-top);
         padding-bottom: env(safe-area-inset-bottom);
@@ -377,13 +817,21 @@ input[type="checkbox"],
 input[type="radio"] {
     -webkit-appearance: none;
     appearance: none;
-    background-color: rgb(55, 65, 81) !important;
-    border: 2px solid rgb(75, 85, 99) !important;
+    background-color: rgba(55, 65, 81, 0.8) !important;
+    border: 2px solid rgba(75, 85, 99, 0.5) !important;
+    transition: all 0.2s ease;
 }
+
+input[type="checkbox"]:hover,
+input[type="radio"]:hover {
+    border-color: rgba(96, 165, 250, 0.7) !important;
+}
+
 input[type="checkbox"]:checked,
 input[type="radio"]:checked {
     background-color: rgb(59, 130, 246) !important;
     border-color: rgb(59, 130, 246) !important;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
 /* Mobile task details formatting */
@@ -392,46 +840,43 @@ input[type="radio"]:checked {
         padding-left: 0.75rem !important;
         padding-right: 0.75rem !important;
     }
-    
+
     .task-scheduler .enhanced-card .py-6 {
         padding-top: 0.75rem !important;
         padding-bottom: 0.75rem !important;
     }
-    
+
     .task-scheduler .enhanced-card .p-6 {
         padding: 0.75rem !important;
     }
-    
+
     .task-scheduler .enhanced-card .lg\\:p-6 {
         padding: 0.75rem !important;
     }
-    
+
     .task-scheduler .enhanced-card .space-y-6 > * + * {
         margin-top: 0.75rem !important;
     }
-    
+
     .task-scheduler .enhanced-card .space-y-4 > * + * {
         margin-top: 0.5rem !important;
     }
-    
-    /* Better text sizing on mobile */
+
     .task-scheduler .enhanced-card h5 {
         font-size: 0.75rem !important;
         line-height: 1rem !important;
     }
-    
+
     .task-scheduler .enhanced-card h4 {
         font-size: 0.875rem !important;
         line-height: 1.25rem !important;
     }
-    
-    /* Responsive grid improvements */
+
     .task-scheduler .grid.grid-cols-1.lg\\:grid-cols-2 {
         grid-template-columns: 1fr !important;
         gap: 0.5rem !important;
     }
-    
-    /* Make status indicators smaller on mobile */
+
     .task-scheduler .enhanced-card .inline-flex.items-center.px-2\.5.py-0\.5,
     .task-scheduler .enhanced-card .inline-flex.items-center.px-2.py-0\.5 {
         padding: 0.125rem 0.375rem !important;
@@ -443,12 +888,12 @@ input[type="radio"]:checked {
 /* Enhanced Toast Notifications */
 .toast-notification {
     position: relative;
-    max-width: 400px;
+    max-width: 320px;
     width: 100%;
     transform: translateX(100%);
     opacity: 0;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     pointer-events: auto;
     z-index: 9999;
 }
@@ -464,12 +909,20 @@ input[type="radio"]:checked {
 }
 
 .toast-content {
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
     border: 1px solid;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25),
+                0 2px 6px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(12px);
     overflow: hidden;
     position: relative;
+    transition: all 0.2s ease;
+}
+
+.toast-content:hover {
+    transform: scale(1.01);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3),
+                0 3px 8px rgba(0, 0, 0, 0.2);
 }
 
 .toast-close-btn {
@@ -477,15 +930,16 @@ input[type="radio"]:checked {
     padding: 0.125rem;
     transition: all 0.2s ease;
     -webkit-tap-highlight-color: transparent;
-    min-height: 24px;
-    min-width: 24px;
+    min-height: 20px;
+    min-width: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .toast-close-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.15);
+    transform: scale(1.1);
 }
 
 .toast-close-btn:active {
@@ -496,12 +950,12 @@ input[type="radio"]:checked {
     position: absolute;
     bottom: 0;
     left: 0;
-    height: 3px;
+    height: 2px;
     width: 100%;
     border-top: 1px solid;
-    background: linear-gradient(90deg, 
-        rgba(255, 255, 255, 0.3) 0%, 
-        rgba(255, 255, 255, 0.6) 50%, 
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0.3) 0%,
+        rgba(255, 255, 255, 0.5) 50%,
         rgba(255, 255, 255, 0.3) 100%
     );
     transform-origin: left;
@@ -520,20 +974,20 @@ input[type="radio"]:checked {
 @media (max-width: 640px) {
     .toast-notification {
         max-width: calc(100vw - 2rem);
-        margin: 0 1rem 0.75rem 1rem;
+        margin: 0 1rem 0.5rem 1rem;
     }
-    
+
     .toast-content {
-        border-radius: 0.5rem;
+        border-radius: 0.375rem;
     }
-    
-    .toast-content .flex.items-start {
-        padding: 0.75rem;
+
+    .toast-content .flex.items-center {
+        padding: 0.5rem 0.625rem;
     }
-    
+
     .toast-content p {
-        font-size: 0.875rem;
-        line-height: 1.25rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
     }
 }
 
@@ -554,46 +1008,39 @@ input[type="radio"]:checked {
     color: inherit !important;
 }
 
-/* Enhanced mobile task details formatting - ADD TO EXISTING MOBILE SECTION */
+/* Enhanced mobile task details formatting */
 @media (max-width: 640px) {
-    /* Improved task card spacing */
     .task-scheduler .enhanced-card .divide-y > div {
         padding: 1rem !important;
     }
-    
-    /* Better button sizing for mobile */
+
     .task-scheduler .touch-target {
         min-height: 40px !important;
         min-width: 60px !important;
         padding: 0.5rem 0.75rem !important;
         font-size: 0.75rem !important;
     }
-    
-    /* Task action button container */
+
     .task-scheduler .enhanced-card button[role="group"] {
         gap: 0.25rem !important;
     }
-    
-    /* Configuration section improvements */
+
     .task-scheduler .grid.grid-cols-1.sm\\:grid-cols-2 {
         grid-template-columns: 1fr !important;
         gap: 0.75rem !important;
     }
-    
-    /* Code blocks on mobile */
+
     .task-scheduler .bg-gray-900 {
         font-size: 0.75rem !important;
         line-height: 1.2 !important;
         padding: 0.75rem !important;
     }
-    
-    /* Status badges sizing */
+
     .task-scheduler .inline-flex.items-center {
         font-size: 0.625rem !important;
         padding: 0.25rem 0.5rem !important;
     }
-    
-    /* Schedule display improvements */
+
     .task-scheduler .font-mono {
         font-size: 0.7rem !important;
         word-break: break-all !important;
@@ -602,25 +1049,247 @@ input[type="radio"]:checked {
 
 /* New Mobile-First Task Layout */
 @media (max-width: 640px) {
-    /* Better mobile task header layout */
     .task-scheduler .enhanced-card > div > button {
         padding: 0.75rem !important;
     }
-    
-    /* Action buttons container - stack vertically on very small screens */
+
     .task-scheduler .flex.items-center.space-x-1 {
         flex-wrap: wrap !important;
         gap: 0.5rem !important;
     }
-    
-    /* Ensure buttons don't get too small */
+
     .task-scheduler .touch-target {
         flex-shrink: 0 !important;
     }
-    
-    /* Better accordion expansion indicator */
+
     .task-scheduler svg.w-4.h-4.text-gray-400 {
         width: 1.25rem !important;
         height: 1.25rem !important;
+        transition: transform 0.3s ease;
     }
+
+    .task-scheduler button:hover svg.w-4.h-4.text-gray-400 {
+        transform: rotate(90deg);
+    }
+}
+
+/* Smooth page transitions */
+@media (prefers-reduced-motion: no-preference) {
+    * {
+        scroll-behavior: smooth;
+    }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Enhanced modern button styles */
+button:not(.toast-close-btn) {
+    position: relative;
+    overflow: hidden;
+}
+
+button:not(.toast-close-btn)::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+button:not(.toast-close-btn):active::after {
+    width: 300px;
+    height: 300px;
+}
+
+
+/* Shimmer effect for loading states */
+@keyframes shimmer-slide {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+.shimmer {
+    background: rgba(51, 65, 85, 0.9);
+    background-size: 1000px 100%;
+    animation: shimmer-slide 2s infinite linear;
+}
+
+/* Floating animation for icons */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.float-animation {
+    animation: float 3s ease-in-out infinite;
+}
+
+/* Modern card hover glow effect */
+.card-glow {
+    position: relative;
+}
+
+.card-glow::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px;
+    background: rgba(59, 130, 246, 0.3);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+}
+
+.card-glow:hover::after {
+    opacity: 1;
+}
+
+/* Improved scrollbar */
+::-webkit-scrollbar-thumb {
+    background: rgb(59, 130, 246);
+    border-radius: 10px;
+    border: 2px solid rgb(17, 24, 39);
+    transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgb(96, 165, 250);
+}
+
+/* Enhanced focus rings */
+*:focus-visible {
+    outline: 2px solid rgb(59, 130, 246);
+    outline-offset: 3px;
+    transition: outline-offset 0.2s ease;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* Modern stat card styling */
+.stat-card {
+    background: rgba(30, 41, 59, 0.95);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: rgba(59, 130, 246, 0.05);
+    transition: left 0.5s ease;
+}
+
+.stat-card:hover::before {
+    left: 100%;
+}
+
+.stat-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    border-color: rgba(59, 130, 246, 0.4);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+/* Pulse ring animation for status indicators */
+@keyframes pulse-ring {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1.5);
+        opacity: 0;
+    }
+}
+
+.status-indicator {
+    position: relative;
+    display: inline-block;
+}
+
+.status-indicator::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: inherit;
+    animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Modern tab styling */
+.modern-tab {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.modern-tab::before {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    width: 0;
+    height: 3px;
+    background: rgb(59, 130, 246);
+    transform: translateX(-50%);
+    transition: width 0.3s ease;
+    border-radius: 2px;
+}
+
+.modern-tab.active::before,
+.modern-tab:hover::before {
+    width: 100%;
+}
+
+/* Improved badge styling */
+.modern-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+}
+
+.modern-badge:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }

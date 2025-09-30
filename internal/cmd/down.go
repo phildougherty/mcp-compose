@@ -15,58 +15,55 @@ import (
 
 func NewDownCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "down [SERVER|proxy|dashboard|task-scheduler|memory]...",
-		Short: "Stop and remove MCP servers, proxy, dashboard, task-scheduler, or memory server",
-		Long: `Stop and remove MCP servers, the proxy server, dashboard, task-scheduler, or memory server.
+		Use:   "down [SERVER...]",
+		Short: "Stop and remove MCP user services",
+		Long: `Stop and remove MCP user services defined in mcp-compose.yaml.
+
+For system services (proxy, dashboard, task-scheduler, memory), use:
+  mcp-compose system down [SERVICE...]
+
 Examples:
-  mcp-compose down                    # Stop and remove all servers
-  mcp-compose down server1 server2   # Stop and remove specific servers
-  mcp-compose down proxy             # Stop and remove the HTTP proxy
-  mcp-compose down dashboard         # Stop and remove the dashboard
-  mcp-compose down task-scheduler    # Stop and remove the task scheduler
-  mcp-compose down memory            # Stop and remove the memory server`,
+  mcp-compose down                    # Stop and remove all user services
+  mcp-compose down server1 server2   # Stop and remove specific user services`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
-			// If no args provided, stop all servers and built-in services
-			if len(args) == 0 {
 
+			if len(args) == 0 {
 				return downAll(file)
 			}
 
-			// Process each argument
-			regularServers := []string{}
-			for _, target := range args {
-				switch target {
-				case "proxy":
-					if err := downProxy(); err != nil {
+			systemSvcs, userSvcs := SplitSystemAndUserServices(args)
 
-						return fmt.Errorf("failed to stop/remove proxy: %w", err)
-					}
-				case "dashboard":
-					if err := downDashboard(file); err != nil {
+			if len(systemSvcs) > 0 {
+				fmt.Printf("Warning: System services detected: %v\n", systemSvcs)
+				fmt.Println("Please use 'mcp-compose system down' for system services")
+				fmt.Println("This behavior will be removed in v2.0")
+				fmt.Println()
 
-						return fmt.Errorf("failed to stop/remove dashboard: %w", err)
+				for _, service := range systemSvcs {
+					switch service {
+					case "proxy":
+						if err := downProxy(); err != nil {
+							fmt.Printf("Failed to stop/remove proxy: %v\n", err)
+						}
+					case "dashboard":
+						if err := downDashboard(file); err != nil {
+							fmt.Printf("Failed to stop/remove dashboard: %v\n", err)
+						}
+					case "task-scheduler":
+						if err := downTaskScheduler(file); err != nil {
+							fmt.Printf("Failed to stop/remove task scheduler: %v\n", err)
+						}
+					case "memory":
+						if err := downMemory(file); err != nil {
+							fmt.Printf("Failed to stop/remove memory server: %v\n", err)
+						}
 					}
-				case "task-scheduler":
-					if err := downTaskScheduler(file); err != nil {
-
-						return fmt.Errorf("failed to stop/remove task scheduler: %w", err)
-					}
-				case "memory":
-					if err := downMemory(file); err != nil {
-
-						return fmt.Errorf("failed to stop/remove memory server: %w", err)
-					}
-				default:
-					// Collect regular servers
-					regularServers = append(regularServers, target)
 				}
 			}
 
-			// Handle regular servers if any
-			if len(regularServers) > 0 {
-
-				return compose.Down(file, regularServers)
+			if len(userSvcs) > 0 {
+				return compose.Down(file, userSvcs)
 			}
 
 			return nil
@@ -143,7 +140,7 @@ func downProxy() error {
 		fmt.Printf("Note: Proxy container may not be running: %v\n", err)
 	}
 
-	fmt.Println("✅ Proxy stopped successfully.")
+	fmt.Println("Proxy stopped successfully.")
 
 	return nil
 }
@@ -169,7 +166,7 @@ func downDashboard(configFile string) error {
 		fmt.Printf("Note: Dashboard may not be running: %v\n", err)
 	}
 
-	fmt.Println("✅ Dashboard stopped successfully.")
+	fmt.Println("Dashboard stopped successfully.")
 
 	return nil
 }
@@ -195,7 +192,7 @@ func downTaskScheduler(configFile string) error {
 		fmt.Printf("Note: Task scheduler may not be running: %v\n", err)
 	}
 
-	fmt.Println("✅ Task scheduler stopped successfully.")
+	fmt.Println("Task scheduler stopped successfully.")
 
 	return nil
 }
@@ -221,7 +218,7 @@ func downMemory(configFile string) error {
 		fmt.Printf("Note: Memory server may not be running: %v\n", err)
 	}
 
-	fmt.Println("✅ Memory server stopped successfully.")
+	fmt.Println("Memory server stopped successfully.")
 
 	return nil
 }

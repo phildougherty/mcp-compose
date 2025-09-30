@@ -1,0 +1,166 @@
+# Production Profile
+# Maximum security hardening for production deployments
+#
+# Usage:
+#   export MCP_PROFILE=production
+#   mcp-compose up --profile production
+#
+# Or merge with your config:
+#   mcp-compose up -f mcp-compose.yaml -f config/profiles/production.yaml
+
+version: '1'
+
+oauth:
+  enabled: true
+  issuer: "${OAUTH_ISSUER}"
+  tokens:
+    access_token_ttl: "15m"
+    refresh_token_ttl: "7d"
+    authorization_code_ttl: "5m"
+    algorithm: "RS256"
+  security:
+    require_pkce: true
+  grant_types:
+    - "authorization_code"
+    - "refresh_token"
+
+audit:
+  enabled: true
+  log_level: "info"
+  storage: "postgres"
+  postgres:
+    database_url: "${AUDIT_DATABASE_URL}"
+    batch_size: 100
+    batch_timeout: "5s"
+    retention_period: "90d"
+  retention:
+    max_entries: 100000
+    max_age: "90d"
+  events:
+    - "oauth.token.issued"
+    - "oauth.token.revoked"
+    - "oauth.user.login"
+    - "server.access.granted"
+    - "server.access.denied"
+    - "tool.executed"
+    - "resource.accessed"
+    - "error.occurred"
+    - "security.violation"
+
+rbac:
+  enabled: true
+  roles:
+    service:
+      name: "service"
+      description: "Service account"
+      scopes: ["mcp:tools", "mcp:resources"]
+    user:
+      name: "user"
+      description: "Standard user"
+      scopes: ["mcp:tools", "mcp:resources"]
+
+logging:
+  level: "warn"
+  format: "json"
+  destinations:
+    - type: stdout
+    - type: file
+      path: "/var/log/mcp-compose-production.log"
+
+connections:
+  default:
+    tls: true
+    cert_file: "/etc/ssl/certs/mcp-compose.crt"
+    key_file: "/etc/ssl/private/mcp-compose.key"
+    timeouts:
+      connect: "5s"
+      read: "15s"
+      write: "15s"
+      idle: "30s"
+      health_check: "3s"
+      shutdown: "30s"
+
+rate_limit:
+  enabled: true
+  per_ip_rate: 100
+  per_ip_burst: 20
+  per_api_key_rate: 1000
+  per_api_key_burst: 200
+  per_oauth_rate: 500
+  per_oauth_burst: 100
+  cleanup_interval: "5m"
+  max_idle_time: "1h"
+
+validation:
+  enabled: true
+  max_body_size: "10MB"
+  require_content_type: true
+  allowed_content_types:
+    - "application/json"
+  strip_html: true
+  validate_json: true
+  require_jsonrpc: true
+
+servers:
+  _defaults:
+    pull: true
+    restart: "unless-stopped"
+    stop_signal: "SIGTERM"
+    stop_grace_period: 30
+
+    user: "1000:1000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512m"
+          pids: 100
+        reservations:
+          cpus: "0.5"
+          memory: "256m"
+      restart_policy: "on-failure"
+
+    healthcheck:
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+      start_period: "20s"
+
+    log_driver: "json-file"
+    log_options:
+      max-size: "10m"
+      max-file: "5"
+      compress: "true"
+
+    authentication:
+      enabled: true
+      allow_api_key: false
+
+    security:
+      allow_docker_socket: false
+      allow_host_mounts: []
+      allow_privileged_ops: false
+      trusted_image: true
+      no_new_privileges: true
+      apparmor: "default"
+      seccomp: "default"
+
+networks:
+  _defaults:
+    driver: bridge
+    attachable: false
+    internal: false
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+
+dashboard:
+  enabled: false

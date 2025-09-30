@@ -122,8 +122,17 @@ const TaskScheduler = {
             // Group all tasks by their actual type
             this.filteredTasks.forEach(task => {
                 let groupKey, groupConfig;
+
+                // Normalize legacy task types
+                let normalizedType = task.type;
+                if (task.type === 'AIs' || task.type === 'ais') {
+                    normalizedType = 'ai';
+                } else if (task.type === 'Shell_commands' || task.type === 'shell_commands' || task.type === 'shells') {
+                    normalizedType = 'shell';
+                }
+
                 // Handle special case for watcher tasks
-                if (task.type === 'watcher') {
+                if (normalizedType === 'watcher') {
                     groupKey = 'watchers';
                     groupConfig = {
                         type: 'watchers',
@@ -133,9 +142,9 @@ const TaskScheduler = {
                         color: 'indigo'
                     };
                 } else {
-                    // Use task type as group key
-                    groupKey = task.type;
-                    const typeConfig = this.getTaskTypeConfig(task.type);
+                    // Use normalized type as group key
+                    groupKey = normalizedType;
+                    const typeConfig = this.getTaskTypeConfig(normalizedType);
                     groupConfig = {
                         type: 'type',
                         name: typeConfig.label + 's',  // pluralize

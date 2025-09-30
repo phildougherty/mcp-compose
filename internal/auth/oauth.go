@@ -63,10 +63,12 @@ type AuthorizationServer struct {
 	accessTokens     map[string]*AccessToken
 	refreshTokens    map[string]*RefreshToken
 	deviceCodes      map[string]*DeviceCode
+	revokedTokens    map[string]time.Time
 	mu               sync.RWMutex
 	logger           *logging.Logger
 	tokenGenerator   TokenGenerator
 	codeVerifier     CodeVerifier
+	jwtManager       *JWTManager
 	dynamicClients   bool
 	supportedScopes  []string
 	authCodeLifetime time.Duration
@@ -349,6 +351,12 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 		config.ScopesSupported = []string{"mcp:*", "mcp:tools", "mcp:resources", "mcp:prompts"}
 	}
 
+	jwtManager, err := NewJWTManager(config.Issuer)
+	if err != nil {
+		logger.Error("Failed to create JWT manager: %v", err)
+		jwtManager = nil
+	}
+
 	return &AuthorizationServer{
 		config:           config,
 		clients:          make(map[string]*OAuthClient),
@@ -356,14 +364,16 @@ func NewAuthorizationServer(config *AuthorizationServerConfig, logger *logging.L
 		accessTokens:     make(map[string]*AccessToken),
 		refreshTokens:    make(map[string]*RefreshToken),
 		deviceCodes:      make(map[string]*DeviceCode),
+		revokedTokens:    make(map[string]time.Time),
 		logger:           logger,
 		tokenGenerator:   &DefaultTokenGenerator{},
 		codeVerifier:     &DefaultCodeVerifier{},
+		jwtManager:       jwtManager,
 		dynamicClients:   true,
 		supportedScopes:  config.ScopesSupported,
 		authCodeLifetime: AuthCodeLifetimeMinutes * time.Minute,
 		tokenLifetime:    1 * time.Hour,
-		refreshLifetime:  24 * 7 * time.Hour, // 1 week
+		refreshLifetime:  24 * 7 * time.Hour,
 	}
 }
 
@@ -534,24 +544,27 @@ func (s *AuthorizationServer) CleanupExpiredTokens() {
 
 	now := time.Now()
 
-	// Clean up expired access tokens
 	for token, accessToken := range s.accessTokens {
-		if now.After(accessToken.ExpiresAt) {
+		if now.After(accessToken.ExpiresAt) || accessToken.Revoked {
 			delete(s.accessTokens, token)
 		}
 	}
 
-	// Clean up expired refresh tokens
 	for token, refreshToken := range s.refreshTokens {
-		if now.After(refreshToken.ExpiresAt) {
+		if now.After(refreshToken.ExpiresAt) || refreshToken.Revoked {
 			delete(s.refreshTokens, token)
 		}
 	}
 
-	// Clean up expired authorization codes
 	for code, authCode := range s.authCodes {
-		if now.After(authCode.ExpiresAt) {
+		if now.After(authCode.ExpiresAt) || authCode.Used {
 			delete(s.authCodes, code)
+		}
+	}
+
+	for token, revokedAt := range s.revokedTokens {
+		if now.Sub(revokedAt) > 24*time.Hour {
+			delete(s.revokedTokens, token)
 		}
 	}
 }

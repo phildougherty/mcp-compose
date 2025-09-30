@@ -90,8 +90,6 @@ func (m *Manager) Stop() error {
 }
 
 func (m *Manager) buildDashboardImage() error {
-	m.logger.Info("Building dashboard Docker image...")
-
 	dockerfilePath := "dockerfiles/Dockerfile.dashboard"
 
 	// Check if Dockerfile exists
@@ -102,14 +100,12 @@ func (m *Manager) buildDashboardImage() error {
 
 	// Build the image
 	cmd := exec.Command("docker", "build", "-f", dockerfilePath, "-t", "mcp-compose-dashboard:latest", ".")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
 
 		return fmt.Errorf("docker build failed: %w", err)
 	}
-
-	m.logger.Info("Dashboard image built successfully")
 
 	return nil
 }
@@ -207,22 +203,10 @@ func (m *Manager) startDashboardContainer() error {
 		RestartPolicy: "unless-stopped",
 	}
 
-	containerID, err := m.runtime.StartContainer(opts)
+	_, err := m.runtime.StartContainer(opts)
 	if err != nil {
 
 		return fmt.Errorf("failed to start dashboard container: %w", err)
-	}
-
-	m.logger.Info("Dashboard container started with ID: %s", containerID[:12])
-	m.logger.Info("Dashboard available at http://localhost:%d", hostPort)
-	m.logger.Info("Config file mounted from: %s", configPath)
-	m.logger.Info("Container listening on port %d, mapped to host port %d", containerPort, hostPort)
-
-	// Log activity storage status
-	if m.config.Dashboard.PostgresURL != "" {
-		m.logger.Info("Activity storage enabled with PostgreSQL")
-	} else {
-		m.logger.Info("Activity storage disabled - no PostgreSQL URL configured")
 	}
 
 	return nil

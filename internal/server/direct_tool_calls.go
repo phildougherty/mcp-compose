@@ -197,14 +197,6 @@ func (h *ProxyHandler) handleServerForward(w http.ResponseWriter, r *http.Reques
 			"endpoint": r.URL.Path,
 		})
 
-	// ONLY handle proxy-specific standard methods, NOT server methods
-	if isProxyStandardMethod(reqMethodVal) {
-		h.handleProxyStandardMethod(w, r, requestPayload, reqIDVal, reqMethodVal)
-
-		return
-	}
-
-	// FORWARD ALL OTHER METHODS TO THE ACTUAL MCP SERVERS
 	// Get server config
 	serverConfig, exists := h.Manager.config.Servers[serverName]
 	if !exists {

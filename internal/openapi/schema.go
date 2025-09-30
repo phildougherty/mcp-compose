@@ -279,7 +279,7 @@ func buildToolDescription(tool Tool) string {
 			hints = append(hints, "read-only")
 		}
 		if tool.Annotations.DestructiveHint {
-			hints = append(hints, "⚠️ potentially destructive")
+			hints = append(hints, "WARNING: potentially destructive")
 		}
 		if tool.Annotations.IdempotentHint {
 			hints = append(hints, "idempotent")
@@ -303,7 +303,7 @@ func buildAnnotationDescription(annotations *ToolAnnotations) string {
 		parts = append(parts, "This tool is read-only and will not modify system state.")
 	}
 	if annotations.DestructiveHint {
-		parts = append(parts, "⚠️ WARNING: This tool may perform destructive operations.")
+		parts = append(parts, "WARNING: This tool may perform destructive operations.")
 	}
 	if annotations.IdempotentHint {
 		parts = append(parts, "This tool is idempotent - repeated calls with the same parameters will have the same effect.")

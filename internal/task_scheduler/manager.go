@@ -265,7 +265,6 @@ func (m *Manager) IsRunning() bool {
 
 // buildImage builds the task scheduler Docker image
 func (m *Manager) buildImage() error {
-	fmt.Println("Building task scheduler image...")
 	// Implementation would build from Dockerfile.task-scheduler
 	// For now, assume it exists or will be built externally
 

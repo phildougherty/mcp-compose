@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -8,12 +9,29 @@ import (
 	"github.com/phildougherty/mcp-compose/internal/constants"
 )
 
-// ConnectionManager manages enhanced SSE connection lifecycle
+// ConnectionManager manages enhanced SSE connection lifecycle with limits and backpressure
 type ConnectionManager struct {
-	handler    *ProxyHandler
-	mu         sync.RWMutex
-	metrics    map[string]*ConnectionMetrics
-	healthChan chan HealthCheckResult
+	handler                *ProxyHandler
+	mu                     sync.RWMutex
+	metrics                map[string]*ConnectionMetrics
+	healthChan             chan HealthCheckResult
+	globalConnectionLimit  int
+	perServerLimit         int
+	activeConnections      map[string]int
+	totalActiveConnections int
+	requestQueue           chan *QueuedRequest
+	queueTimeout           time.Duration
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	wg                     sync.WaitGroup
+}
+
+// QueuedRequest represents a queued request waiting for connection availability
+type QueuedRequest struct {
+	ServerName string
+	Request    interface{}
+	ResponseCh chan QueuedResponse
+	Timeout    time.Time
 }
 
 // ConnectionMetrics tracks detailed connection performance
@@ -41,14 +59,34 @@ type HealthCheckResult struct {
 	CheckedAt    time.Time
 }
 
-// NewConnectionManager creates a new connection manager
-func NewConnectionManager(handler *ProxyHandler) *ConnectionManager {
+// QueuedResponse represents the response to a queued request
+type QueuedResponse struct {
+	Response interface{}
+	Error    error
+}
 
-	return &ConnectionManager{
-		handler:    handler,
-		metrics:    make(map[string]*ConnectionMetrics),
-		healthChan: make(chan HealthCheckResult, constants.HealthCheckBufferSize),
+// NewConnectionManager creates a new connection manager with limits
+func NewConnectionManager(handler *ProxyHandler) *ConnectionManager {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cm := &ConnectionManager{
+		handler:                handler,
+		metrics:                make(map[string]*ConnectionMetrics),
+		healthChan:             make(chan HealthCheckResult, constants.HealthCheckBufferSize),
+		globalConnectionLimit:  1000,
+		perServerLimit:         100,
+		activeConnections:      make(map[string]int),
+		totalActiveConnections: 0,
+		requestQueue:           make(chan *QueuedRequest, 500),
+		queueTimeout:           30 * time.Second,
+		ctx:                    ctx,
+		cancel:                 cancel,
 	}
+
+	cm.wg.Add(1)
+	go cm.processRequestQueue()
+
+	return cm
 }
 
 // RecordRequest records a request attempt and its outcome
@@ -293,28 +331,183 @@ func (cm *ConnectionManager) GetConnectionSummary() map[string]interface{} {
 	return summary
 }
 
+// AcquireConnection attempts to acquire a connection slot for a server
+func (cm *ConnectionManager) AcquireConnection(serverName string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.totalActiveConnections >= cm.globalConnectionLimit {
+
+		return fmt.Errorf("global connection limit reached (%d)", cm.globalConnectionLimit)
+	}
+
+	serverConns := cm.activeConnections[serverName]
+	if serverConns >= cm.perServerLimit {
+
+		return fmt.Errorf("per-server connection limit reached for %s (%d)", serverName, cm.perServerLimit)
+	}
+
+	cm.activeConnections[serverName]++
+	cm.totalActiveConnections++
+
+	return nil
+}
+
+// ReleaseConnection releases a connection slot for a server
+func (cm *ConnectionManager) ReleaseConnection(serverName string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.activeConnections[serverName] > 0 {
+		cm.activeConnections[serverName]--
+		cm.totalActiveConnections--
+	}
+}
+
+// QueueRequest queues a request if connection limits are reached
+func (cm *ConnectionManager) QueueRequest(serverName string, request interface{}, timeout time.Duration) (interface{}, error) {
+	responseCh := make(chan QueuedResponse, 1)
+
+	queuedReq := &QueuedRequest{
+		ServerName: serverName,
+		Request:    request,
+		ResponseCh: responseCh,
+		Timeout:    time.Now().Add(timeout),
+	}
+
+	select {
+	case cm.requestQueue <- queuedReq:
+	case <-time.After(5 * time.Second):
+
+		return nil, fmt.Errorf("request queue full for server %s", serverName)
+	}
+
+	select {
+	case resp := <-responseCh:
+
+		return resp.Response, resp.Error
+	case <-time.After(timeout):
+
+		return nil, fmt.Errorf("queued request timed out for server %s", serverName)
+	}
+}
+
+// processRequestQueue processes queued requests when connections become available
+func (cm *ConnectionManager) processRequestQueue() {
+	defer cm.wg.Done()
+
+	for {
+		select {
+		case <-cm.ctx.Done():
+			cm.handler.logger.Info("Request queue processor stopping")
+
+			return
+		case req := <-cm.requestQueue:
+			if time.Now().After(req.Timeout) {
+				req.ResponseCh <- QueuedResponse{
+					Error: fmt.Errorf("request expired in queue"),
+				}
+
+				continue
+			}
+
+			if err := cm.AcquireConnection(req.ServerName); err != nil {
+				time.Sleep(100 * time.Millisecond)
+
+				select {
+				case cm.requestQueue <- req:
+				default:
+					req.ResponseCh <- QueuedResponse{
+						Error: fmt.Errorf("failed to requeue request: %w", err),
+					}
+				}
+
+				continue
+			}
+
+			go func(qr *QueuedRequest) {
+				defer cm.ReleaseConnection(qr.ServerName)
+
+				response, err := cm.handler.sendOptimalSSERequest(qr.ServerName, qr.Request.(map[string]interface{}))
+				qr.ResponseCh <- QueuedResponse{
+					Response: response,
+					Error:    err,
+				}
+			}(req)
+		}
+	}
+}
+
+// GetConnectionLimits returns current connection limits and usage
+func (cm *ConnectionManager) GetConnectionLimits() map[string]interface{} {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	perServerStats := make(map[string]int)
+	for server, count := range cm.activeConnections {
+		perServerStats[server] = count
+	}
+
+	return map[string]interface{}{
+		"global_limit":          cm.globalConnectionLimit,
+		"per_server_limit":      cm.perServerLimit,
+		"total_active":          cm.totalActiveConnections,
+		"per_server_active":     perServerStats,
+		"queue_size":            len(cm.requestQueue),
+		"queue_capacity":        cap(cm.requestQueue),
+		"global_utilization_pct": float64(cm.totalActiveConnections) / float64(cm.globalConnectionLimit) * 100,
+	}
+}
+
+// SetConnectionLimits updates connection limits
+func (cm *ConnectionManager) SetConnectionLimits(globalLimit, perServerLimit int) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.globalConnectionLimit = globalLimit
+	cm.perServerLimit = perServerLimit
+	cm.handler.logger.Info("Connection limits updated: global=%d, per-server=%d", globalLimit, perServerLimit)
+}
+
 // StartMonitoring starts background monitoring of connections
 func (cm *ConnectionManager) StartMonitoring(interval time.Duration) {
+	cm.wg.Add(1)
 	go func() {
+		defer cm.wg.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				// Perform health checks
 				cm.PerformHealthChecks()
 
-				// Clean up stale connections (15 minute idle time)
 				cleanedCount := cm.CleanupStaleConnections(constants.StaleConnectionThreshold)
 				if cleanedCount > 0 {
 					cm.handler.logger.Info("Cleaned up %d stale enhanced SSE connections", cleanedCount)
 				}
 
-			case <-cm.handler.ctx.Done():
+			case <-cm.ctx.Done():
 
 				return
 			}
 		}
 	}()
+}
+
+// Shutdown gracefully shuts down the connection manager
+func (cm *ConnectionManager) Shutdown() error {
+	cm.handler.logger.Info("Shutting down connection manager")
+
+	if cm.cancel != nil {
+		cm.cancel()
+	}
+
+	close(cm.requestQueue)
+
+	cm.wg.Wait()
+
+	cm.handler.logger.Info("Connection manager shutdown complete")
+
+	return nil
 }

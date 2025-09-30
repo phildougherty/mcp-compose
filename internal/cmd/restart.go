@@ -14,48 +14,52 @@ import (
 
 func NewRestartCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "restart [SERVER|proxy|dashboard]...",
-		Short: "Restart MCP servers, proxy, or dashboard",
-		Long: `Restart MCP servers, the proxy server, or the dashboard.
+		Use:   "restart [SERVER...]",
+		Short: "Restart MCP user services",
+		Long: `Restart MCP user services defined in mcp-compose.yaml.
+
+For system services (proxy, dashboard, task-scheduler, memory), use:
+  mcp-compose system restart [SERVICE...]
 
 Examples:
-  mcp-compose restart                    # Restart all servers
-  mcp-compose restart server1 server2   # Restart specific servers
-  mcp-compose restart proxy             # Restart the HTTP proxy
-  mcp-compose restart dashboard         # Restart the dashboard`,
+  mcp-compose restart                    # Restart all user services
+  mcp-compose restart server1 server2   # Restart specific user services`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
 
-			// If no args provided, restart all servers
 			if len(args) == 0 {
-
 				return restartAllServers(file)
 			}
 
-			// Process each argument
-			for _, target := range args {
-				switch target {
-				case "proxy":
-					if err := restartProxy(); err != nil {
+			systemSvcs, userSvcs := SplitSystemAndUserServices(args)
 
-						return fmt.Errorf("failed to restart proxy: %w", err)
-					}
-				case "dashboard":
-					if err := restartDashboard(file); err != nil {
+			if len(systemSvcs) > 0 {
+				fmt.Printf("Warning: System services detected: %v\n", systemSvcs)
+				fmt.Println("Please use 'mcp-compose system restart' for system services")
+				fmt.Println("This behavior will be removed in v2.0")
+				fmt.Println()
 
-						return fmt.Errorf("failed to restart dashboard: %w", err)
+				for _, service := range systemSvcs {
+					switch service {
+					case "proxy":
+						if err := restartProxy(); err != nil {
+							fmt.Printf("Failed to restart proxy: %v\n", err)
+						}
+					case "dashboard":
+						if err := restartDashboard(file); err != nil {
+							fmt.Printf("Failed to restart dashboard: %v\n", err)
+						}
+					case "task-scheduler":
+						if err := restartTaskScheduler(file); err != nil {
+							fmt.Printf("Failed to restart task scheduler: %v\n", err)
+						}
 					}
-				case "task-scheduler":
-					if err := restartTaskScheduler(file); err != nil {
+				}
+			}
 
-						return fmt.Errorf("failed to restart task scheduler: %w", err)
-					}
-				default:
-					// Regular server restart
-					if err := restartServer(file, target); err != nil {
-
-						return fmt.Errorf("failed to restart server '%s': %w", target, err)
-					}
+			for _, server := range userSvcs {
+				if err := restartServer(file, server); err != nil {
+					return fmt.Errorf("failed to restart server '%s': %w", server, err)
 				}
 			}
 
@@ -67,27 +71,17 @@ Examples:
 }
 
 func restartAllServers(configFile string) error {
-	fmt.Println("Restarting all MCP servers...")
-
-	// Stop all servers first
 	if err := compose.Down(configFile, []string{}); err != nil {
-		fmt.Printf("Warning: Error during shutdown: %v\n", err)
+		return err
 	}
-
-	// Start all servers
 
 	return compose.Up(configFile, []string{})
 }
 
 func restartServer(configFile string, serverName string) error {
-	fmt.Printf("Restarting server '%s'...\n", serverName)
-
-	// Stop the specific server
 	if err := compose.Stop(configFile, []string{serverName}); err != nil {
-		fmt.Printf("Warning: Error stopping server '%s': %v\n", serverName, err)
+		return err
 	}
-
-	// Start the specific server
 
 	return compose.Start(configFile, []string{serverName})
 }
@@ -120,7 +114,7 @@ func restartProxy() error {
 
 	// Get the original docker run command to restart with same parameters
 	// For simplicity, we'll just tell the user to restart manually
-	fmt.Println("✅ Proxy stopped successfully.")
+	fmt.Println("Proxy stopped successfully.")
 	fmt.Println("To restart the proxy, use: mcp-compose proxy [options]")
 	fmt.Println("Note: The proxy will restart with the same configuration as last started.")
 
@@ -167,7 +161,7 @@ func restartDashboard(configFile string) error {
 		return fmt.Errorf("failed to start dashboard: %w", err)
 	}
 
-	fmt.Println("✅ Dashboard restarted successfully.")
+	fmt.Println("Dashboard restarted successfully.")
 
 	return nil
 }
@@ -194,7 +188,7 @@ func restartTaskScheduler(configFile string) error {
 		return fmt.Errorf("failed to restart task scheduler: %w", err)
 	}
 
-	fmt.Println("✅ Task scheduler restarted successfully.")
+	fmt.Println("Task scheduler restarted successfully.")
 
 	return nil
 }

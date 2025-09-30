@@ -21,10 +21,36 @@ type ProxyAuthConfig struct {
 	OAuthFallback bool   `yaml:"oauth_fallback,omitempty"` // Allow OAuth as fallback
 }
 
+// RateLimitConfig defines rate limiting configuration for the proxy
+type RateLimitConfig struct {
+	Enabled           bool   `yaml:"enabled,omitempty"`
+	PerIPRate         int    `yaml:"per_ip_rate,omitempty"`          // Requests per minute per IP
+	PerIPBurst        int    `yaml:"per_ip_burst,omitempty"`         // Burst size per IP
+	PerAPIKeyRate     int    `yaml:"per_api_key_rate,omitempty"`     // Requests per minute per API key
+	PerAPIKeyBurst    int    `yaml:"per_api_key_burst,omitempty"`    // Burst size per API key
+	PerOAuthRate      int    `yaml:"per_oauth_rate,omitempty"`       // Requests per minute per OAuth client
+	PerOAuthBurst     int    `yaml:"per_oauth_burst,omitempty"`      // Burst size per OAuth client
+	CleanupInterval   string `yaml:"cleanup_interval,omitempty"`     // How often to cleanup old limiters
+	MaxIdleTime       string `yaml:"max_idle_time,omitempty"`        // How long before a limiter is removed
+}
+
+// ValidationConfig defines request validation configuration
+type ValidationConfig struct {
+	Enabled            bool     `yaml:"enabled,omitempty"`
+	MaxBodySize        string   `yaml:"max_body_size,omitempty"`        // e.g., "10MB"
+	RequireContentType bool     `yaml:"require_content_type,omitempty"`
+	AllowedContentTypes []string `yaml:"allowed_content_types,omitempty"`
+	StripHTML          bool     `yaml:"strip_html,omitempty"`
+	ValidateJSON       bool     `yaml:"validate_json,omitempty"`
+	RequireJSONRPC     bool     `yaml:"require_jsonrpc,omitempty"`
+}
+
 // ComposeConfig represents the entire mcp-compose.yaml file
 type ComposeConfig struct {
 	Version       string                       `yaml:"version"`
 	ProxyAuth     ProxyAuthConfig              `yaml:"proxy_auth,omitempty"`
+	RateLimit     RateLimitConfig              `yaml:"rate_limit,omitempty"`
+	Validation    ValidationConfig             `yaml:"validation,omitempty"`
 	OAuth         *OAuthConfig                 `yaml:"oauth,omitempty"`
 	Audit         *AuditConfig                 `yaml:"audit,omitempty"`
 	RBAC          *RBACConfig                  `yaml:"rbac,omitempty"`
@@ -42,6 +68,7 @@ type ComposeConfig struct {
 	Volumes       map[string]VolumeConfig      `yaml:"volumes,omitempty"`
 	TaskScheduler *TaskScheduler               `yaml:"task_scheduler,omitempty"`
 	Memory        MemoryConfig                 `yaml:"memory"`
+	Context       ContextConfig                `yaml:"context,omitempty"`
 }
 
 // OAuth 2.1 Configuration
@@ -82,11 +109,28 @@ type AuditConfig struct {
 	Storage   string          `yaml:"storage"`
 	Retention RetentionConfig `yaml:"retention"`
 	Events    []string        `yaml:"events"`
+	File      *FileAuditConfig      `yaml:"file,omitempty"`
+	Postgres  *PostgresAuditConfig  `yaml:"postgres,omitempty"`
 }
 
 type RetentionConfig struct {
 	MaxEntries int    `yaml:"max_entries"`
 	MaxAge     string `yaml:"max_age"`
+}
+
+type FileAuditConfig struct {
+	LogDir        string `yaml:"log_dir"`
+	MaxFileSize   string `yaml:"max_file_size"`
+	MaxAge        string `yaml:"max_age"`
+	BufferSize    int    `yaml:"buffer_size,omitempty"`
+	FlushInterval string `yaml:"flush_interval,omitempty"`
+}
+
+type PostgresAuditConfig struct {
+	DatabaseURL     string `yaml:"database_url"`
+	BatchSize       int    `yaml:"batch_size,omitempty"`
+	BatchTimeout    string `yaml:"batch_timeout,omitempty"`
+	RetentionPeriod string `yaml:"retention_period,omitempty"`
 }
 
 // RBAC Configuration
@@ -467,6 +511,17 @@ type MemoryConfig struct {
 	PostgresMemory   string            `yaml:"postgres_memory"`
 	Volumes          []string          `yaml:"volumes"`
 	Authentication   *ServerAuthConfig `yaml:"authentication"`
+}
+
+type ContextConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	MaxTokens          int    `yaml:"max_tokens"`
+	Model              string `yaml:"model"`
+	TruncationStrategy string `yaml:"truncation_strategy"`
+	PersistenceEnabled bool   `yaml:"persistence_enabled"`
+	DatabasePath       string `yaml:"database_path"`
+	ContextTTL         string `yaml:"context_ttl"`
+	VacuumInterval     string `yaml:"vacuum_interval"`
 }
 
 type TaskScheduler struct {

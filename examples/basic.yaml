@@ -1,0 +1,47 @@
+# MCP-Compose Basic Example
+# A simple but practical setup with 3 common MCP servers
+#
+# Setup time: 2 minutes
+# Number of servers: 3 (filesystem, memory, search)
+# Complexity: Low
+# Features:
+#   - File access (read-only to your Documents)
+#   - Persistent memory/notes with SQLite
+#   - Web search with DuckDuckGo
+#   - Simple API key authentication
+#
+# Usage:
+#   1. export MCP_API_KEY=$(openssl rand -hex 32)
+#   2. mcp-compose up
+#   3. mcp-compose proxy --port 9876
+
+version: '1'
+
+proxy_auth:
+  enabled: true
+  api_key: "${MCP_API_KEY}"
+
+servers:
+  filesystem:
+    image: "mcp/filesystem:latest"
+    capabilities: [resources, tools]
+    volumes:
+      - "${HOME}/Documents:/workspace:ro"
+
+  memory:
+    image: "mcp/memory:latest"
+    capabilities: [tools, resources]
+    env:
+      DATABASE_URL: "sqlite:///data/memory.db"
+    volumes:
+      - "mcp-memory:/data"
+
+  search:
+    image: "mcp/search:latest"
+    capabilities: [tools]
+    env:
+      SEARCH_ENGINE: "duckduckgo"
+
+volumes:
+  mcp-memory:
+    driver: local

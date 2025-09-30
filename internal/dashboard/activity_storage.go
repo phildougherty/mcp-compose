@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -30,16 +29,12 @@ type StoredActivity struct {
 }
 
 func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
-	log.Printf("[ACTIVITY] Initializing activity storage...")
-
 	// Parse the database URL to extract database name
 	dbName, err := extractDatabaseName(dbURL)
 	if err != nil {
 
 		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
-
-	log.Printf("[ACTIVITY] Target database: %s", dbName)
 
 	// Create database if it doesn't exist
 	if err := createDatabaseIfNotExists(dbURL, dbName); err != nil {
@@ -66,8 +61,6 @@ func NewActivityStorage(dbURL string) (*ActivityStorage, error) {
 
 		return nil, fmt.Errorf("failed to initialize tables: %w", err)
 	}
-
-	log.Printf("[ACTIVITY] Activity storage initialized successfully")
 
 	return storage, nil
 }
@@ -97,8 +90,6 @@ func extractDatabaseName(dbURL string) (string, error) {
 
 // createDatabaseIfNotExists ensures the target database exists
 func createDatabaseIfNotExists(dbURL, targetDB string) error {
-	log.Printf("[ACTIVITY] Checking if database '%s' exists...", targetDB)
-
 	// Parse the original URL
 	u, err := url.Parse(dbURL)
 	if err != nil {
@@ -118,9 +109,7 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 		return fmt.Errorf("failed to connect to postgres system database: %w", err)
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
-			fmt.Printf("Warning: failed to close database connection: %v\n", err)
-		}
+		_ = db.Close()
 	}()
 
 	// Check if target database exists
@@ -133,13 +122,11 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 	}
 
 	if exists {
-		log.Printf("[ACTIVITY] Database '%s' already exists", targetDB)
 
 		return nil
 	}
 
 	// Create the database
-	log.Printf("[ACTIVITY] Creating database '%s'...", targetDB)
 	createQuery := fmt.Sprintf("CREATE DATABASE %s", targetDB)
 	_, err = db.Exec(createQuery)
 	if err != nil {
@@ -147,14 +134,10 @@ func createDatabaseIfNotExists(dbURL, targetDB string) error {
 		return fmt.Errorf("failed to create database '%s': %w", targetDB, err)
 	}
 
-	log.Printf("[ACTIVITY] Database '%s' created successfully", targetDB)
-
 	return nil
 }
 
 func (s *ActivityStorage) initTables() error {
-	log.Printf("[ACTIVITY] Initializing activity tables...")
-
 	query := `
     CREATE TABLE IF NOT EXISTS activity_events (
         id BIGSERIAL PRIMARY KEY,
@@ -181,8 +164,6 @@ func (s *ActivityStorage) initTables() error {
 
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
-
-	log.Printf("[ACTIVITY] Activity tables initialized successfully")
 
 	return nil
 }
@@ -284,15 +265,10 @@ func (s *ActivityStorage) CleanupOldActivities(olderThan time.Duration) error {
 	cutoff := time.Now().Add(-olderThan)
 
 	query := "DELETE FROM activity_events WHERE created_at < $1"
-	result, err := s.db.Exec(query, cutoff)
+	_, err := s.db.Exec(query, cutoff)
 	if err != nil {
 
 		return err
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
-		log.Printf("[ACTIVITY] Cleaned up %d old activity records", rowsAffected)
 	}
 
 	return nil
@@ -361,7 +337,6 @@ func (s *ActivityStorage) GetActivityStats() (map[string]interface{}, error) {
 
 func (s *ActivityStorage) Close() error {
 	if s.db != nil {
-		log.Printf("[ACTIVITY] Closing activity storage connection")
 
 		return s.db.Close()
 	}

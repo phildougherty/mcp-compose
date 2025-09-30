@@ -59,7 +59,7 @@ func reloadProxy(port int, apiKey string) error {
 		return fmt.Errorf("reload failed with status: %d", resp.StatusCode)
 	}
 
-	fmt.Println("✅ Proxy configuration reloaded successfully")
+	fmt.Println("Proxy configuration reloaded successfully")
 
 	return nil
 }

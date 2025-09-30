@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -221,7 +220,6 @@ func (d *DashboardServer) handleActivityReceive(w http.ResponseWriter, r *http.R
 	}
 	var activity ActivityMessage
 	if err := json.NewDecoder(r.Body).Decode(&activity); err != nil {
-		log.Printf("[ACTIVITY] Invalid activity JSON: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 
 		return
@@ -231,31 +229,24 @@ func (d *DashboardServer) handleActivityReceive(w http.ResponseWriter, r *http.R
 	case activityBroadcaster.broadcast <- activity:
 		// Success
 	default:
-		log.Printf("[ACTIVITY] Channel full, dropping activity")
+		// Channel full, silently drop
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
 func (d *DashboardServer) handleActivityWebSocket(w http.ResponseWriter, r *http.Request) {
-	clientIP := getClientIP(r)
-	log.Printf("[WEBSOCKET] 🔌 New WebSocket connection from %s", clientIP)
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[WEBSOCKET] ❌ Failed to upgrade connection: %v", err)
 
 		return
 	}
 	defer func() {
-		if err := conn.Close(); err != nil {
-			d.logger.Error("Failed to close websocket connection: %v", err)
-		}
+		_ = conn.Close()
 	}()
-	log.Printf("[WEBSOCKET] ✅ WebSocket upgraded successfully")
 	safeConn := &SafeWebSocketConn{conn: conn}
 	activityBroadcaster.register <- safeConn
 	defer func() {
 		activityBroadcaster.unregister <- safeConn
-		log.Printf("[WEBSOCKET] 🔌 Connection closed")
 	}()
 	// Keep connection alive
 	for {
@@ -933,7 +924,7 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
 		title = "OAuth Authorization Failed"
 		content = fmt.Sprintf(`
             <div class="error-box">
-                <h3>❌ Authorization Failed</h3>
+                <h3>Authorization Failed</h3>
                 <div class="error-details">
                     <p><strong>Error:</strong> %s</p>
                     <p><strong>Description:</strong> %s</p>
@@ -944,31 +935,31 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
 		title = "OAuth Authorization Successful"
 		content = fmt.Sprintf(`
             <div class="success-box">
-                <h3>✅ Authorization Successful!</h3>
+                <h3>Authorization Successful!</h3>
                 <p>Authorization code received successfully. You can now exchange this code for an access token.</p>
                 <div class="code-section">
                     <strong>Authorization Code:</strong>
                     <div class="code-display">
                         <code>%s</code>
-                        <button onclick="copyToClipboard('%s')" class="copy-btn">📋 Copy</button>
+                        <button onclick="copyToClipboard('%s')" class="copy-btn">Copy</button>
                     </div>
                 </div>
                 <div class="state-section">
                     <strong>State:</strong> <code>%s</code>
                 </div>
                 <div class="next-steps">
-                    <h4>🎯 Automatic Token Exchange:</h4>
+                    <h4>Automatic Token Exchange:</h4>
                     <button onclick="exchangeCodeForToken()" class="exchange-btn">
-                        🔄 Exchange Code for Access Token
+                        Exchange Code for Access Token
                     </button>
                     <div id="token-result" class="token-result"></div>
                     
-                    <h4>💻 Manual cURL Example:</h4>
+                    <h4>Manual cURL Example:</h4>
                     <p>You can also exchange this code manually using the token endpoint:</p>
                     <div class="curl-example">
                         <div class="curl-header">
                             <span>Copy and run this command:</span>
-                            <button onclick="copyToClipboard(document.getElementById('curl-command').textContent)" class="copy-btn">📋 Copy</button>
+                            <button onclick="copyToClipboard(document.getElementById('curl-command').textContent)" class="copy-btn">Copy</button>
                         </div>
                         <pre><code id="curl-command">curl -X POST %s/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
@@ -1001,10 +992,10 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
             const resultDiv = document.getElementById('token-result');
             
             exchangeBtn.disabled = true;
-            exchangeBtn.textContent = '🔄 Exchanging...';
+            exchangeBtn.textContent = 'Exchanging...';
             resultDiv.style.display = 'block';
             resultDiv.className = 'token-result';
-            resultDiv.innerHTML = '<div>🔄 Exchanging authorization code for access token...</div>';
+            resultDiv.innerHTML = '<div>Exchanging authorization code for access token...</div>';
             
             try {
                 const response = await fetch('/oauth/token', {
@@ -1023,12 +1014,12 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
                     const token = await response.json();
                     resultDiv.className = 'token-result success';
                     resultDiv.innerHTML = '' +
-                        '<div><strong>✅ Success! Access Token Generated:</strong></div>' +
+                        '<div><strong>Success! Access Token Generated:</strong></div>' +
                         '<div style="margin: 10px 0;">' +
                             '<strong>Access Token:</strong>' +
                             '<div class="code-display">' +
                                 '<code>' + token.access_token + '</code>' +
-                                '<button onclick="copyToClipboard(\'' + token.access_token + '\')" class="copy-btn">📋</button>' +
+                                '<button onclick="copyToClipboard(\'' + token.access_token + '\')" class="copy-btn">Copy</button>' +
                             '</div>' +
                         '</div>' +
                         '<div><strong>Type:</strong> ' + token.token_type + '</div>' +
@@ -1038,18 +1029,18 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
                     const errorText = await response.text();
                     resultDiv.className = 'token-result error';
                     resultDiv.innerHTML = '' +
-                        '<div><strong>❌ Token Exchange Failed:</strong></div>' +
+                        '<div><strong>Token Exchange Failed:</strong></div>' +
                         '<div>Status: ' + response.status + '</div>' +
                         '<div>Error: ' + errorText + '</div>';
                 }
             } catch (error) {
                 resultDiv.className = 'token-result error';
                 resultDiv.innerHTML = '' +
-                    '<div><strong>❌ Network Error:</strong></div>' +
+                    '<div><strong>Network Error:</strong></div>' +
                     '<div>' + error.message + '</div>';
             } finally {
                 exchangeBtn.disabled = false;
-                exchangeBtn.textContent = '🔄 Exchange Code for Access Token';
+                exchangeBtn.textContent = 'Exchange Code for Access Token';
             }
         }`, code, r.Host)
 
@@ -1145,9 +1136,9 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
     <script>
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(function() {
-                event.target.textContent = '✓ Copied!';
+                event.target.textContent = 'Copied!';
                 setTimeout(() => {
-                    event.target.innerHTML = '📋 Copy';
+                    event.target.innerHTML = 'Copy';
                 }, 2000);
             }).catch(err => {
                 alert('Failed to copy to clipboard');
@@ -1210,7 +1201,7 @@ func (d *DashboardServer) createCallbackHTML(code, state, errorParam, errorDescr
     <div class="back-links">
         <a href="javascript:history.back()">← Back</a>
         <a href="/">← Return to Dashboard</a>
-        <a href="#" onclick="window.location.reload()">🔄 Refresh</a>
+        <a href="#" onclick="window.location.reload()">Refresh</a>
     </div>
 </body>
 </html>`, title, exchangeScript, code, state, errorParam, content)

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -108,10 +107,9 @@ func init() {
 	if dbURL != "" {
 		storage, err := NewActivityStorage(dbURL)
 		if err != nil {
-			log.Printf("[ACTIVITY] Failed to initialize activity storage: %v", err)
+			// Silent failure - activity storage is optional
 		} else {
 			activityBroadcaster.storage = storage
-			log.Printf("[ACTIVITY] Activity storage initialized")
 
 			// Start cleanup routine
 			go startActivityCleanup(storage, context.Background())
@@ -142,11 +140,8 @@ func startActivityCleanup(storage *ActivityStorage, ctx context.Context) {
 		select {
 		case <-ticker.C:
 			// Clean up activities older than 30 days
-			if err := storage.CleanupOldActivities(30 * 24 * time.Hour); err != nil {
-				log.Printf("[ACTIVITY] Cleanup error: %v", err)
-			}
+			_ = storage.CleanupOldActivities(30 * 24 * time.Hour)
 		case <-ctx.Done():
-			log.Printf("[ACTIVITY] Cleanup goroutine shutting down")
 
 			return
 		}
@@ -162,7 +157,6 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 	// Send last 50 activities to new client
 	activities, err := ab.storage.GetRecentActivities(constants.RecentActivitiesCount, nil)
 	if err != nil {
-		log.Printf("[ACTIVITY] Failed to get recent activities: %v", err)
 
 		return
 	}
@@ -181,23 +175,17 @@ func (ab *ActivityBroadcaster) sendRecentActivities(client *SafeWebSocketConn) {
 		}
 
 		// Send directly to the client using WriteJSON
-		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
-			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
-		}
+		_ = client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout))
 		if err := client.WriteJSON(activityMsg); err != nil {
-			log.Printf("[ACTIVITY] Failed to send historical activity to client: %v", err)
 
 			return // Client disconnected
 		}
 	}
-
-	log.Printf("[ACTIVITY] Sent %d historical activities to new client", len(activities))
 }
 
 func (ab *ActivityBroadcaster) run() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[ACTIVITY] Broadcaster panic recovered: %v", r)
 			time.Sleep(time.Second)
 			ab.runMutex.Lock()
 			ab.running = false
@@ -205,8 +193,6 @@ func (ab *ActivityBroadcaster) run() {
 			ab.start() // Restart
 		}
 	}()
-
-	log.Println("[ACTIVITY] Activity broadcaster running")
 
 	for {
 		select {
@@ -219,9 +205,7 @@ func (ab *ActivityBroadcaster) run() {
 		case message := <-ab.broadcast:
 			// Store the activity in database
 			if ab.storage != nil {
-				if err := ab.storage.StoreActivity(message); err != nil {
-					log.Printf("[ACTIVITY] Failed to store activity: %v", err)
-				}
+				_ = ab.storage.StoreActivity(message)
 			}
 
 			// Broadcast to connected clients
@@ -239,11 +223,8 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 	ab.mu.Lock()
 	ab.clients[client] = true
 	ab.clientCounter++
-	clientCount := len(ab.clients)
 	clientID := ab.clientCounter
 	ab.mu.Unlock()
-
-	log.Printf("[ACTIVITY] ✅ Client #%d registered (total: %d)", clientID, clientCount)
 
 	// Send recent activities to newly connected client
 	if ab.storage != nil {
@@ -255,22 +236,15 @@ func (ab *ActivityBroadcaster) handleClientRegistration(client *SafeWebSocketCon
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Level:     "INFO",
 		Type:      "connection",
-		Message:   fmt.Sprintf("Client #%d successfully registered to activity stream", clientID),
+		Message:   "Connected to activity stream",
 		Details: map[string]interface{}{
-			"client_id":     clientID,
-			"total_clients": clientCount,
+			"client_id": clientID,
 		},
 	}
 
 	go func() {
-		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
-			log.Printf("[ACTIVITY] Failed to set write deadline for client #%d: %v", clientID, err)
-		}
-		if err := client.WriteJSON(welcomeMsg); err != nil {
-			log.Printf("[ACTIVITY] ❌ Failed to send welcome message to client #%d: %v", clientID, err)
-		} else {
-			log.Printf("[ACTIVITY] ✅ Welcome message sent to client #%d", clientID)
-		}
+		_ = client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout))
+		_ = client.WriteJSON(welcomeMsg)
 	}()
 }
 
@@ -278,13 +252,9 @@ func (ab *ActivityBroadcaster) handleClientUnregistration(client *SafeWebSocketC
 	ab.mu.Lock()
 	if _, exists := ab.clients[client]; exists {
 		delete(ab.clients, client)
-		if err := client.Close(); err != nil {
-			log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", err)
-		}
+		_ = client.Close()
 	}
-	clientCount := len(ab.clients)
 	ab.mu.Unlock()
-	log.Printf("[ACTIVITY] ❌ Client unregistered (remaining: %d)", clientCount)
 }
 
 func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
@@ -293,43 +263,28 @@ func (ab *ActivityBroadcaster) handleBroadcast(message ActivityMessage) {
 	ab.mu.RUnlock()
 
 	if clientCount == 0 {
-		log.Printf("[ACTIVITY] 📭 No clients to broadcast to: %s", message.Message)
 
 		return
 	}
 
-	log.Printf("[ACTIVITY] 📢 Broadcasting to %d clients: %s", clientCount, message.Message)
-
 	ab.mu.Lock()
 	defer ab.mu.Unlock()
 
-	sentCount := 0
-	failedCount := 0
 	for client := range ab.clients {
-		if ab.sendToClient(client, message) {
-			sentCount++
-		} else {
-			failedCount++
+		if !ab.sendToClient(client, message) {
 			delete(ab.clients, client)
 		}
 	}
-
-	log.Printf("[ACTIVITY] 📊 Message delivered to %d/%d clients (%d failed)", sentCount, sentCount+failedCount, failedCount)
 }
 
 func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message ActivityMessage) bool {
 	done := make(chan bool, 1)
 	go func() {
-		if err := client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout)); err != nil {
-			log.Printf("[ACTIVITY] Failed to set write deadline for client: %v", err)
-		}
+		_ = client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout))
 		err := client.WriteJSON(message)
 		done <- (err == nil)
 		if err != nil {
-			log.Printf("[ACTIVITY] ❌ Failed to send to client: %v", err)
-			if closeErr := client.Close(); closeErr != nil {
-				log.Printf("[ACTIVITY] Warning: Failed to close client connection: %v", closeErr)
-			}
+			_ = client.Close()
 		}
 	}()
 
@@ -338,26 +293,19 @@ func (ab *ActivityBroadcaster) sendToClient(client *SafeWebSocketConn, message A
 
 		return success
 	case <-time.After(constants.DefaultConnectionTimeout):
-		log.Printf("[ACTIVITY] ⏰ Client send timeout, disconnecting slow client")
-		if err := client.Close(); err != nil {
-			log.Printf("[ACTIVITY] Warning: Failed to close slow client connection: %v", err)
-		}
+		_ = client.Close()
 
 		return false
 	}
 }
 
 func (ab *ActivityBroadcaster) handleShutdown() {
-	log.Println("[ACTIVITY] Shutting down broadcaster...")
 	ab.mu.Lock()
 	for client := range ab.clients {
-		if err := client.Close(); err != nil {
-			log.Printf("[ACTIVITY] Warning: Failed to close client connection during shutdown: %v", err)
-		}
+		_ = client.Close()
 	}
 	ab.clients = make(map[*SafeWebSocketConn]bool)
 	ab.mu.Unlock()
-	log.Println("[ACTIVITY] All clients disconnected")
 }
 
 // Dashboard WebSocket handlers
@@ -742,8 +690,7 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 	case activityBroadcaster.broadcast <- activity:
 		// Successfully queued for broadcast
 	default:
-		// Broadcast channel is full, log warning
-		log.Printf("[ACTIVITY] ⚠️ Broadcast channel full, dropping activity: %s", message)
+		// Broadcast channel is full, silently drop
 	}
 
 	// Also send to dashboard service if running in distributed mode
@@ -756,14 +703,11 @@ func BroadcastActivity(level, activityType, server, client, message string, deta
 	go func() {
 		resp, err := http.Post("http://mcp-compose-dashboard:3001/api/activity", "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Printf("[ACTIVITY] Failed to send to dashboard service: %v", err)
 
 			return
 		}
 		defer func() {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				log.Printf("[ACTIVITY] Warning: Failed to close response body: %v", closeErr)
-			}
+			_ = resp.Body.Close()
 		}()
 	}()
 }
