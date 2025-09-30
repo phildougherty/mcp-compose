@@ -5,28 +5,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Quick Reference
 
 ### New Users
-- **[Getting Started Guide](GETTING-STARTED.md)** - 10-minute setup tutorial
-- **[Basic Examples](mcp-compose-basic.yaml)** - Simple 3-server configuration
-- **[Quickstart](mcp-compose-quickstart.yaml)** - Minimal 1-server configuration
-
-### Migration
-- **[Migration Guide](MIGRATION.md)** - Migrate from existing MCP setups
-- **[Docker Compose Migration](MIGRATION.md#from-docker-compose--mcp-compose)** - Convert docker-compose.yml
-- **[Individual Servers Migration](MIGRATION.md#from-individual-mcp-servers--mcp-compose)** - Replace manual server management
+- **[README](README.md)** - Main documentation and quick start
+- **[Basic Example](examples/basic.yaml)** - Filesystem + Memory + Search
+- **[Quickstart Example](examples/quickstart.yaml)** - Minimal 1-server configuration
+- **[Complete Example](examples/complete.yaml)** - All available MCP servers
 
 ### Advanced Configuration
-- **[Enterprise Configuration](mcp-compose-advanced.yaml)** - OAuth, audit logging, monitoring
-- **[Security Best Practices](README.md#security-notice)** - Production security
-- **[Performance Tuning](README.md#troubleshooting)** - Optimization guides
+- **[Advanced Configuration](mcp-compose-advanced.yaml)** - Full configuration reference
+- **[Security Best Practices](README.md#security)** - Environment variables and secrets
 
 ## Common Commands
 
 ### Basic Usage
 ```bash
-# Quick start (see GETTING-STARTED.md for details)
+# Quick start
+./mcp-compose init                  # Interactive setup wizard
 ./mcp-compose up                    # Start all servers
 ./mcp-compose proxy --port 9876     # Start HTTP proxy
-./mcp-compose ls                    # List server status
+./mcp-compose ps                    # List server status
 ./mcp-compose down                  # Stop all servers
 ```
 

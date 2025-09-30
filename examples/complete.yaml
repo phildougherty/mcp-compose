@@ -1,0 +1,115 @@
+version: '1'
+
+# Optional: Enable proxy authentication
+# proxy_auth:
+#   enabled: true
+#   api_key: "${MCP_API_KEY}"
+
+servers:
+  # Filesystem - read/write/search files
+  filesystem:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "${HOME}"
+    capabilities: [resources, tools]
+    volumes:
+      - "${HOME}:${HOME}:rw"
+    env:
+      NODE_ENV: production
+
+  # Memory - persistent key-value storage
+  memory:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-memory"
+    capabilities: [resources, tools]
+
+  # Git - interact with git repositories
+  git:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-git"
+      - "${HOME}/code"
+    capabilities: [tools]
+    volumes:
+      - "${HOME}/code:${HOME}/code:rw"
+
+  # GitHub - interact with GitHub API
+  github:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    capabilities: [tools, resources]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+
+  # Brave Search - web search
+  brave-search:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-brave-search"
+    capabilities: [tools]
+    env:
+      BRAVE_API_KEY: "${BRAVE_API_KEY}"
+
+  # PostgreSQL - database access
+  postgres:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-postgres"
+      - "postgresql://user:password@localhost:5432/dbname"
+    capabilities: [tools, resources]
+
+  # Puppeteer - browser automation
+  puppeteer:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-puppeteer"
+    capabilities: [tools]
+
+  # Slack - Slack workspace access
+  slack:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-slack"
+    capabilities: [tools, resources]
+    env:
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
+      SLACK_TEAM_ID: "${SLACK_TEAM_ID}"
+
+  # Google Drive - access Google Drive files
+  gdrive:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-gdrive"
+    capabilities: [tools, resources]
+
+  # Google Maps - location and mapping data
+  google-maps:
+    protocol: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-google-maps"
+    capabilities: [tools]
+    env:
+      GOOGLE_MAPS_API_KEY: "${GOOGLE_MAPS_API_KEY}"

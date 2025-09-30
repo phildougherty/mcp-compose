@@ -49,22 +49,12 @@ Create `mcp-compose.yaml`:
 version: '1'
 servers:
   filesystem:
-    image: mcp/filesystem
     protocol: stdio
     command: npx
     args:
       - "-y"
       - "@modelcontextprotocol/server-filesystem"
       - "/tmp"
-    capabilities: [resources, tools]
-
-  memory:
-    image: mcp/memory
-    protocol: stdio
-    command: npx
-    args:
-      - "-y"
-      - "@modelcontextprotocol/server-memory"
     capabilities: [resources, tools]
 ```
 
@@ -86,15 +76,14 @@ Test it:
 curl http://localhost:9876/api/servers
 ```
 
-## Working Configuration Example
+## Working Examples
 
-This configuration has been tested and works:
+### Basic - Filesystem + Memory
 
 ```yaml
 version: '1'
 servers:
   filesystem:
-    image: mcp/filesystem
     protocol: stdio
     command: npx
     args:
@@ -102,37 +91,40 @@ servers:
       - "@modelcontextprotocol/server-filesystem"
       - "${HOME}"
     capabilities: [resources, tools]
-    environment:
-      NODE_ENV: production
     volumes:
       - "${HOME}:${HOME}:ro"
 
   memory:
-    image: mcp/memory
     protocol: stdio
     command: npx
     args:
       - "-y"
       - "@modelcontextprotocol/server-memory"
     capabilities: [resources, tools]
+```
 
+### With Web Search
+
+Add Brave Search (requires API key from https://brave.com/search/api/):
+
+```yaml
   brave-search:
-    image: mcp/brave-search
     protocol: stdio
     command: npx
     args:
       - "-y"
       - "@modelcontextprotocol/server-brave-search"
     capabilities: [tools]
-    environment:
+    env:
       BRAVE_API_KEY: "${BRAVE_API_KEY}"
 ```
 
-Set required environment variables:
-
 ```bash
-export BRAVE_API_KEY="your-api-key-here"
+export BRAVE_API_KEY="your-api-key"
+mcp-compose up
 ```
+
+See [examples/](examples/) for more configurations.
 
 ## Commands
 
@@ -196,12 +188,11 @@ proxy_auth:
 
 servers:
   my-server:
-    image: string              # Container image name
-    protocol: string           # stdio, http, sse, tcp
-    command: string            # Executable to run
+    protocol: string           # stdio, http, sse
+    command: string            # Executable (e.g., npx, python, node)
     args: [string]             # Command arguments
     capabilities: [string]     # tools, resources, prompts, sampling
-    environment:               # Environment variables
+    env:                       # Environment variables
       KEY: value
     volumes:                   # Volume mounts
       - "host:container:mode"
@@ -215,7 +206,7 @@ servers:
   my-server:
     protocol: stdio
     command: npx
-    args: ["-y", "@modelcontextprotocol/server-name"]
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 ```
 
 **HTTP**:
@@ -231,6 +222,7 @@ servers:
 servers:
   my-server:
     protocol: sse
+    http_port: 8080
     sse_path: /events
 ```
 
@@ -247,7 +239,7 @@ volumes:
 
 In your config:
 ```yaml
-environment:
+env:
   API_KEY: "${MY_API_KEY}"
 ```
 
