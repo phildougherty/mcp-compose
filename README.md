@@ -20,32 +20,15 @@ Docker Compose for Model Context Protocol servers. Run multiple MCP servers with
 
 ## Installation
 
-### From Binary
-
-```bash
-# Linux
-curl -LO https://github.com/phildougherty/mcp-compose/releases/latest/download/mcp-compose-linux-amd64
-chmod +x mcp-compose-linux-amd64
-sudo mv mcp-compose-linux-amd64 /usr/local/bin/mcp-compose
-
-# macOS (Intel)
-curl -LO https://github.com/phildougherty/mcp-compose/releases/latest/download/mcp-compose-darwin-amd64
-chmod +x mcp-compose-darwin-amd64
-sudo mv mcp-compose-darwin-amd64 /usr/local/bin/mcp-compose
-
-# macOS (Apple Silicon)
-curl -LO https://github.com/phildougherty/mcp-compose/releases/latest/download/mcp-compose-darwin-arm64
-chmod +x mcp-compose-darwin-arm64
-sudo mv mcp-compose-darwin-arm64 /usr/local/bin/mcp-compose
-```
-
-### From Source
-
 ```bash
 git clone https://github.com/phildougherty/mcp-compose.git
 cd mcp-compose
 make build
+
+# Add to PATH
 sudo cp build/mcp-compose /usr/local/bin/
+# OR
+export PATH="$PWD/build:$PATH"
 ```
 
 ## Quick Start
