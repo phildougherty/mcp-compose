@@ -104,7 +104,7 @@ const (
 	StreamChannelSize = 100
 
 	// Container and task scheduler constants
-	TaskSchedulerDefaultPort = 8080
+	TaskSchedulerDefaultPort = 8018
 	TaskSchedulerRetryLimit  = 3
 	ContainerHealthTimeout   = 30 * time.Second
 	ImageBuildRetryLimit     = 3

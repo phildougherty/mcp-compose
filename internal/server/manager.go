@@ -151,12 +151,18 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 	if cfg.Memory.Enabled {
 		logger.Info("Memory server enabled in config, adding as built-in server")
 
+		// Use default port 3001 if not specified
+		memoryPort := cfg.Memory.Port
+		if memoryPort == 0 {
+			memoryPort = 3001
+		}
+
 		// Create memory server config
 		memoryConfig := config.ServerConfig{
 			// Use the built image name that will be created by the memory manager
 			Image:        "mcp-compose-memory:latest",
 			Protocol:     "http",
-			HttpPort:     cfg.Memory.Port,
+			HttpPort:     memoryPort,
 			User:         "root",
 			ReadOnly:     false,
 			Privileged:   false,
@@ -194,7 +200,7 @@ func NewManager(cfg *config.ComposeConfig, rt container.Runtime) (*Manager, erro
 		cfg.Servers["memory"] = memoryConfig
 		cfg.Servers["postgres-memory"] = postgresMemoryConfig
 
-		logger.Info("Added memory as built-in server on port %d", cfg.Memory.Port)
+		logger.Info("Added memory as built-in server on port %d", memoryPort)
 	}
 
 	// Validate each server configuration using our method
@@ -480,9 +486,10 @@ func (m *Manager) startContainerServer(serverKeyName, containerNameToUse string,
 		Env:         envVars,
 		Pull:        srvCfg.Pull,
 		Volumes:     volumes,
-		Ports:       ports,    // Only explicitly configured ports, no auto HTTP ports
-		NetworkMode: "",       // Don't use NetworkMode, use Networks instead
-		Networks:    networks, // Ensure mcp-net is included
+		Ports:       ports,     // Only explicitly configured ports, no auto HTTP ports
+		NetworkMode: "",        // Don't use NetworkMode, use Networks instead
+		Networks:    networks,  // Ensure mcp-net is included
+		DNSSearch:   []string{"."},
 		WorkDir:     srvCfg.WorkDir,
 	}
 
@@ -1612,6 +1619,23 @@ func (m *Manager) Shutdown() error {
 	}
 
 	m.logger.Info("MANAGER: Shutdown completed successfully")
+
+	return nil
+}
+
+func (m *Manager) ReloadConfig(configFile string) error {
+	m.logger.Info("MANAGER: Reloading configuration from %s", configFile)
+
+	newConfig, err := config.LoadConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	m.mu.Lock()
+	m.config = newConfig
+	m.mu.Unlock()
+
+	m.logger.Info("MANAGER: Configuration reloaded successfully, now tracking %d servers", len(newConfig.Servers))
 
 	return nil
 }

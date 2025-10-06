@@ -1345,7 +1345,21 @@ func (d *DashboardServer) handleAPIProxy(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// Update the task scheduler proxy to use the inspector service
+// handleTaskSchedulerProxy proxies REST API calls to task-scheduler MCP server
+// Routes:
+//   GET    /api/task-scheduler/tasks              → list_tasks
+//   POST   /api/task-scheduler/tasks              → add_task
+//   GET    /api/task-scheduler/tasks/:id          → get_task
+//   PUT    /api/task-scheduler/tasks/:id          → update_task
+//   DELETE /api/task-scheduler/tasks/:id          → remove_task
+//   POST   /api/task-scheduler/tasks/:id/run      → run_task
+//   POST   /api/task-scheduler/tasks/:id/enable   → enable_task
+//   POST   /api/task-scheduler/tasks/:id/disable  → disable_task
+//   GET    /api/task-scheduler/tasks/:id/history  → get_task_history
+//   GET    /api/task-scheduler/tasks/:id/output   → get_run_output
+//   GET    /api/task-scheduler/runs/status        → list_run_status
+//   GET    /api/task-scheduler/metrics            → get_metrics
+//   GET    /api/task-scheduler/stats              → get_metrics
 func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *http.Request) {
 	// Extract the path after /api/task-scheduler/
 	path := strings.TrimPrefix(r.URL.Path, "/api/task-scheduler")
@@ -1371,6 +1385,59 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 		}
 		if err := json.Unmarshal(body, &toolArgs); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+
+			return
+		}
+
+	case strings.HasPrefix(path, "/tasks/") && !strings.Contains(path, "/run") && !strings.Contains(path, "/enable") && !strings.Contains(path, "/disable") && !strings.Contains(path, "/output") && !strings.Contains(path, "/history") && r.Method == "GET":
+		toolName = "get_task"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+
+			return
+		}
+
+	case strings.HasPrefix(path, "/tasks/") && !strings.Contains(path, "/run") && !strings.Contains(path, "/enable") && !strings.Contains(path, "/disable") && !strings.Contains(path, "/output") && !strings.Contains(path, "/history") && r.Method == "PUT":
+		toolName = "update_task"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read body", http.StatusBadRequest)
+
+				return
+			}
+			var updates map[string]interface{}
+			if err := json.Unmarshal(body, &updates); err != nil {
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+
+				return
+			}
+			updates["id"] = pathParts[1]
+			toolArgs = updates
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+
+			return
+		}
+
+	case strings.Contains(path, "/tasks/") && strings.HasSuffix(path, "/history"):
+		toolName = "get_task_history"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"task_id": pathParts[1],
+			}
+			if limit := r.URL.Query().Get("limit"); limit != "" {
+				toolArgs["limit"] = limit
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
 
 			return
 		}
@@ -1428,11 +1495,28 @@ func (d *DashboardServer) handleTaskSchedulerProxy(w http.ResponseWriter, r *htt
 			return
 		}
 
+	case strings.HasPrefix(path, "/tasks/") && r.Method == "DELETE":
+		toolName = "remove_task"
+		pathParts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(pathParts) >= 2 && pathParts[0] == "tasks" {
+			toolArgs = map[string]interface{}{
+				"id": pathParts[1],
+			}
+		} else {
+			http.Error(w, "Invalid task ID in path", http.StatusBadRequest)
+
+			return
+		}
+
 	case path == "/runs/status" || path == "/runs/status/":
 		toolName = "list_run_status"
 		toolArgs = map[string]interface{}{}
 
 	case path == "/metrics" || path == "/metrics/":
+		toolName = "get_metrics"
+		toolArgs = map[string]interface{}{}
+
+	case path == "/stats" || path == "/stats/":
 		toolName = "get_metrics"
 		toolArgs = map[string]interface{}{}
 

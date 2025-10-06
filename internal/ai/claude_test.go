@@ -75,10 +75,7 @@ func TestClaudeProvider_Chat(t *testing.T) {
 					ID:   "test-id",
 					Type: "message",
 					Role: "assistant",
-					Content: []struct {
-						Type string `json:"type"`
-						Text string `json:"text"`
-					}{
+					Content: []claudeContentBlock{
 						{Type: "text", Text: "Hello, world!"},
 					},
 				}
@@ -215,10 +212,7 @@ func TestClaudeProvider_Health(t *testing.T) {
 					ID:   "test-id",
 					Type: "message",
 					Role: "assistant",
-					Content: []struct {
-						Type string `json:"type"`
-						Text string `json:"text"`
-					}{
+					Content: []claudeContentBlock{
 						{Type: "text", Text: "Hello"},
 					},
 				}

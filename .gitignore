@@ -60,6 +60,10 @@ dist/
 bin/
 mcp-compose
 
+# Frontend build artifacts
+internal/dashboard/frontend/dist/
+internal/dashboard/frontend/node_modules/
+
 # Custom development files
 custom_mcp/
 find_code.sh

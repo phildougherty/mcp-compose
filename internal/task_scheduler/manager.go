@@ -106,9 +106,7 @@ func (m *Manager) Start() error {
 	env := m.buildEnvironment()
 
 	// Set up volumes
-	volumes := []string{
-		"task-scheduler-data:/data",
-	}
+	volumes := []string{}
 	if m.config.TaskScheduler.Workspace != "" {
 		volumes = append(volumes, fmt.Sprintf("%s:/workspace:rw", m.config.TaskScheduler.Workspace))
 	}
@@ -116,15 +114,16 @@ func (m *Manager) Start() error {
 
 	// Container options
 	opts := &container.ContainerOptions{
-		Name:     "mcp-compose-task-scheduler",
-		Image:    "mcp-compose-task-scheduler:latest",
-		Ports:    []string{fmt.Sprintf("%d:%d", m.config.TaskScheduler.Port, m.config.TaskScheduler.Port)},
-		Env:      env,
-		Networks: []string{"mcp-net"},
-		Volumes:  volumes,
-		User:     "root",
-		CPUs:     m.config.TaskScheduler.CPUs,
-		Memory:   m.config.TaskScheduler.Memory,
+		Name:      "mcp-compose-task-scheduler",
+		Image:     "mcp-compose-task-scheduler:latest",
+		Ports:     []string{fmt.Sprintf("%d:8080", m.config.TaskScheduler.Port)},
+		Env:       env,
+		Networks:  []string{"mcp-net"},
+		Volumes:   volumes,
+		User:      "root",
+		CPUs:      m.config.TaskScheduler.CPUs,
+		Memory:    m.config.TaskScheduler.Memory,
+		DNSSearch: []string{"."},
 		Security: container.SecurityConfig{
 			TrustedImage:       true,
 			AllowPrivilegedOps: true,
@@ -278,11 +277,26 @@ func (m *Manager) buildEnvironment() map[string]string {
 		"MCP_CRON_SERVER_TRANSPORT":          "sse",
 		"MCP_CRON_SERVER_ADDRESS":            m.config.TaskScheduler.Host,
 		"MCP_CRON_SERVER_PORT":               fmt.Sprintf("%d", m.config.TaskScheduler.Port),
-		"MCP_CRON_DATABASE_PATH":             m.config.TaskScheduler.DatabasePath,
-		"MCP_CRON_DATABASE_ENABLED":          "true",
 		"MCP_CRON_LOGGING_LEVEL":             m.config.TaskScheduler.LogLevel,
 		"MCP_CRON_SCHEDULER_DEFAULT_TIMEOUT": "10m",
 	}
+
+	// Database configuration - prefer PostgreSQL over SQLite
+	if m.config.TaskScheduler.PostgresEnabled && m.config.TaskScheduler.PostgresURL != "" {
+		env["MCP_CRON_POSTGRES_ENABLED"] = "true"
+		env["MCP_CRON_POSTGRES_URL"] = m.config.TaskScheduler.PostgresURL
+		env["MCP_CRON_DATABASE_ENABLED"] = "true"
+		env["SCHEDULER_STORAGE_BACKEND"] = "postgres"
+	} else if m.config.TaskScheduler.DatabasePath != "" {
+		// Fallback to SQLite for backward compatibility
+		env["MCP_CRON_DATABASE_PATH"] = m.config.TaskScheduler.DatabasePath
+		env["MCP_CRON_DATABASE_ENABLED"] = "true"
+		env["SCHEDULER_STORAGE_BACKEND"] = "sqlite"
+	}
+
+	// Add dashboard internal URL for chat integration
+	env["DASHBOARD_INTERNAL_URL"] = "http://mcp-compose-dashboard:3001"
+	env["CHAT_INTEGRATION_ENABLED"] = "true"
 
 	// Add activity broadcasting configuration
 	env["MCP_CRON_ACTIVITY_WEBHOOK"] = "http://mcp-compose-dashboard:3001/api/activity"

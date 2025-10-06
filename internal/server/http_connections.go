@@ -399,12 +399,36 @@ func (h *ProxyHandler) sendHTTPJsonRequest(conn *MCPHTTPConnection, requestPaylo
 		return nil, fmt.Errorf("failed to read response from %s: %w", targetURL, err)
 	}
 
-	h.logger.Debug("Raw response from %s: %s", conn.ServerName, string(responseData))
+	h.logger.Debug("Raw response from %s (Content-Type: %s): %s", conn.ServerName, resp.Header.Get("Content-Type"), string(responseData))
+
+	// Handle both JSON and SSE response formats (matching forwardHTTPRequest behavior)
+	contentType := resp.Header.Get("Content-Type")
+	var responseJSONData []byte
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		h.logger.Debug("Server %s responded with text/event-stream. Parsing SSE format.", conn.ServerName)
+		scanner := bufio.NewScanner(bytes.NewReader(responseData))
+		eventDataFound := false
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data:") {
+				responseJSONData = []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+				eventDataFound = true
+				break
+			}
+		}
+		if !eventDataFound {
+			return nil, fmt.Errorf("SSE stream from %s, but no 'data:' event parsed. Body: %s", conn.ServerName, string(responseData))
+		}
+	} else if strings.HasPrefix(contentType, "application/json") {
+		responseJSONData = responseData
+	} else {
+		// Try to parse as JSON anyway for backward compatibility
+		responseJSONData = responseData
+	}
 
 	var responseMap map[string]interface{}
-	if err := json.Unmarshal(responseData, &responseMap); err != nil {
-
-		return nil, fmt.Errorf("failed to parse JSON response from %s: %w. Data: %s", targetURL, err, string(responseData))
+	if err := json.Unmarshal(responseJSONData, &responseMap); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response from %s (Content-Type: %s): %w. Data: %s", targetURL, contentType, err, string(responseJSONData))
 	}
 
 	return responseMap, nil
@@ -474,7 +498,7 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
 	conn.mu.Lock()
 	if conn.SessionID != "" {
@@ -514,12 +538,36 @@ func (h *ProxyHandler) forwardHTTPRequest(conn *MCPHTTPConnection, requestData [
 		return nil, fmt.Errorf("HTTP request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(responseData))
 	}
 
-	h.logger.Debug("Raw response from %s: %s", conn.ServerName, string(responseData))
+	h.logger.Debug("Raw response from %s (Content-Type: %s): %s", conn.ServerName, resp.Header.Get("Content-Type"), string(responseData))
+
+	// Handle both JSON and SSE response formats (matching initializeHTTPConnection behavior)
+	contentType := resp.Header.Get("Content-Type")
+	var responseJSONData []byte
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		h.logger.Debug("Server %s responded with text/event-stream. Parsing SSE format.", conn.ServerName)
+		scanner := bufio.NewScanner(bytes.NewReader(responseData))
+		eventDataFound := false
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data:") {
+				responseJSONData = []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+				eventDataFound = true
+				break
+			}
+		}
+		if !eventDataFound {
+			return nil, fmt.Errorf("SSE stream from %s, but no 'data:' event parsed. Body: %s", conn.ServerName, string(responseData))
+		}
+	} else if strings.HasPrefix(contentType, "application/json") {
+		responseJSONData = responseData
+	} else {
+		// Try to parse as JSON anyway for backward compatibility
+		responseJSONData = responseData
+	}
 
 	var responseMap map[string]interface{}
-	if err := json.Unmarshal(responseData, &responseMap); err != nil {
-
-		return nil, fmt.Errorf("failed to parse JSON response from %s: %w. Data: %s", targetURL, err, string(responseData))
+	if err := json.Unmarshal(responseJSONData, &responseMap); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response from %s (Content-Type: %s): %w. Data: %s", targetURL, contentType, err, string(responseJSONData))
 	}
 
 	return responseMap, nil

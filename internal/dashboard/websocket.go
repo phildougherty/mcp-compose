@@ -733,3 +733,42 @@ func randomString(length int) string {
 
 	return string(bytes)
 }
+
+func (d *DashboardServer) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := d.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		d.logger.Error("Failed to upgrade dashboard websocket connection: %v", err)
+
+		return
+	}
+
+	safeConn := &SafeWebSocketConn{conn: conn}
+	defer func() {
+		if err := safeConn.Close(); err != nil {
+			d.logger.Debug("Warning: Failed to close dashboard WebSocket connection: %v", err)
+		}
+	}()
+
+	d.logger.Info("Dashboard WebSocket connected")
+
+	// Simple echo/ping-pong for now
+	for {
+		messageType, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				d.logger.Debug("Dashboard WebSocket closed normally")
+			} else {
+				d.logger.Error("Failed to read dashboard WebSocket message: %v", err)
+			}
+
+			break
+		}
+
+		// Echo back for now - can be extended for server updates
+		if err := conn.WriteMessage(messageType, message); err != nil {
+			d.logger.Error("Failed to write dashboard WebSocket message: %v", err)
+
+			break
+		}
+	}
+}

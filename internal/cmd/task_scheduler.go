@@ -15,6 +15,7 @@ import (
 	"github.com/phildougherty/mcp-compose/internal/config"
 	"github.com/phildougherty/mcp-compose/internal/constants"
 	"github.com/phildougherty/mcp-compose/internal/container"
+	"github.com/phildougherty/mcp-compose/internal/output"
 
 	"github.com/spf13/cobra"
 )
@@ -60,6 +61,9 @@ Examples:
   mcp-compose task-scheduler --disable          # Disable service`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configFile, _ := cmd.Flags().GetString("file")
+			verboseFlag, _ := cmd.Flags().GetBool("verbose")
+			output.SetVerbose(verboseFlag)
+
 			cfg, err := config.LoadConfig(configFile)
 			if err != nil {
 
@@ -171,15 +175,12 @@ Examples:
 				dbPath = constants.DefaultDatabasePath
 			}
 
-			fmt.Printf("Starting task scheduler with port: %d\n", port)
-
-			// Choose mode: native or containerized
 			if native {
 
-				return runNativeTaskScheduler(cfg, port, host, dbPath, workspace, logLevel, debug)
+				return runNativeTaskScheduler(cfg, port, host, dbPath, workspace, logLevel, verboseFlag, debug)
 			} else {
 
-				return runContainerizedTaskScheduler(cfg, configFile, port, host, dbPath, workspace, logLevel, mcpProxyURL, mcpProxyAPIKey, ollamaURL, ollamaModel, openrouterAPIKey, openrouterModel, cpus, memory, healthCheck, debug)
+				return runContainerizedTaskScheduler(cfg, configFile, port, host, dbPath, workspace, logLevel, mcpProxyURL, mcpProxyAPIKey, ollamaURL, ollamaModel, openrouterAPIKey, openrouterModel, cpus, memory, healthCheck, verboseFlag, debug)
 			}
 		},
 	}
@@ -203,17 +204,18 @@ Examples:
 	cmd.Flags().StringVar(&memory, "memory", constants.ResourceLimitMemory, "Memory limit")
 	cmd.Flags().BoolVar(&healthCheck, "health-check", true, "Enable health checks")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug mode")
+	cmd.Flags().Bool("verbose", false, "Enable verbose output")
 
 	return cmd
 }
 
 func enableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
-	fmt.Println("Enabling task scheduler and replacing mcp-cron-oi...")
+	serviceOutput := output.NewServiceOutput("task-scheduler", false)
+	serviceOutput.Start("enabling task scheduler")
 
-	// Remove old mcp-cron-oi if it exists
 	if cfg.Servers != nil {
 		if _, exists := cfg.Servers["mcp-cron-oi"]; exists {
-			fmt.Println("Removing old mcp-cron-oi configuration...")
+			output.Verbose("Removing old mcp-cron-oi configuration...")
 			delete(cfg.Servers, "mcp-cron-oi")
 		}
 	}
@@ -296,13 +298,19 @@ func enableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 		}
 	}
 
-	fmt.Printf("Task scheduler configuration added to config (port: %d).\n", cfg.TaskScheduler.Port)
+	err := config.SaveConfig(configFile, cfg)
+	serviceOutput.Complete(err)
 
-	return config.SaveConfig(configFile, cfg)
+	if err == nil {
+		output.SuccessMsg("task-scheduler", fmt.Sprintf("enabled (port: %d)", cfg.TaskScheduler.Port))
+	}
+
+	return err
 }
 
 func disableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
-	fmt.Println("Disabling task scheduler...")
+	serviceOutput := output.NewServiceOutput("task-scheduler", false)
+	serviceOutput.Start("disabling task scheduler")
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
@@ -310,25 +318,32 @@ func disableTaskScheduler(configFile string, cfg *config.ComposeConfig) error {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
-	// Stop the container if running
 	if err := runtime.StopContainer("mcp-compose-task-scheduler"); err != nil {
-		fmt.Printf("Warning: %v\n", err)
+		output.Verbose(fmt.Sprintf("Warning during stop: %v", err))
 	}
 
-	// Remove from config
 	if cfg.Servers != nil {
 		delete(cfg.Servers, "task-scheduler")
 	}
 
-	fmt.Println("Task scheduler removed from configuration.")
+	err = config.SaveConfig(configFile, cfg)
+	serviceOutput.Complete(err)
 
-	return config.SaveConfig(configFile, cfg)
+	if err == nil {
+		output.SuccessMsg("task-scheduler", "disabled")
+	}
+
+	return err
 }
 
-func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, workspace, logLevel string, debug bool) error {
-	fmt.Printf("Starting native task scheduler on %s:%d...\n", host, port)
-	fmt.Printf("Using workspace: %s\n", workspace)
-	fmt.Printf("Using database: %s\n", dbPath)
+func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, workspace, logLevel string, verbose, debug bool) error {
+	output.SetVerbose(verbose)
+	serviceOutput := output.NewServiceOutput("task-scheduler", verbose)
+	startTime := time.Now()
+
+	serviceOutput.Start(fmt.Sprintf("native mode on %s:%d", host, port))
+	output.Verbose(fmt.Sprintf("Workspace: %s", workspace))
+	output.Verbose(fmt.Sprintf("Database: %s", dbPath))
 
 	// Check if we're in the mcp-cron-persistent directory or if it exists as a subdirectory
 	mcpCronPaths := []string{
@@ -347,10 +362,12 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 	}
 
 	if mcpCronPath == "" {
+		serviceOutput.Complete(fmt.Errorf("mcp-cron binary not found"))
 
 		return fmt.Errorf("mcp-cron binary not found. Please build it first:\n" +
 			"cd ../mcp-cron-persistent && go build -o mcp-cron ./cmd/mcp-cron")
 	}
+	output.Verbose(fmt.Sprintf("Using binary: %s", mcpCronPath))
 
 	// Set up environment from config and parameters
 	env := os.Environ()
@@ -402,16 +419,33 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 		}
 	}()
 
-	fmt.Printf("Task scheduler running at http://%s:%d\n", host, port)
-	fmt.Printf("Available endpoints:\n")
-	fmt.Printf("  Health Check:  http://%s:%d/health\n", host, port)
-	fmt.Printf("  SSE Endpoint:  http://%s:%d/sse\n", host, port)
-
-	// Start the command
 	if err := cmd.Start(); err != nil {
+		serviceOutput.Complete(err)
 
 		return fmt.Errorf("failed to start task scheduler: %w", err)
 	}
+
+	serviceOutput.Complete(nil)
+
+	endpoints := map[string]string{
+		"Task Scheduler": fmt.Sprintf("http://%s:%d", host, port),
+		"Health Check":   fmt.Sprintf("http://%s:%d/health", host, port),
+		"SSE Endpoint":   fmt.Sprintf("http://%s:%d/sse", host, port),
+	}
+
+	if verbose {
+		info := map[string]string{
+			"Port":      fmt.Sprintf("%d", port),
+			"Host":      host,
+			"Mode":      "Native",
+			"Database":  dbPath,
+			"Workspace": workspace,
+			"Duration":  output.ShortDuration(time.Since(startTime)),
+		}
+		output.PrintServiceInfo("Task Scheduler", info)
+	}
+
+	output.PrintEndpoints("Available Endpoints", endpoints)
 
 	// Wait for completion or cancellation
 	done := make(chan error, 1)
@@ -429,8 +463,12 @@ func runNativeTaskScheduler(cfg *config.ComposeConfig, port int, host, dbPath, w
 	}
 }
 
-func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, host, dbPath, workspace, logLevel, mcpProxyURL, mcpProxyAPIKey, ollamaURL, ollamaModel, openrouterAPIKey, openrouterModel, cpus, memory string, healthCheck, debug bool) error {
-	fmt.Printf("Starting containerized task scheduler on %s:%d...\n", host, port)
+func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, host, dbPath, workspace, logLevel, mcpProxyURL, mcpProxyAPIKey, ollamaURL, ollamaModel, openrouterAPIKey, openrouterModel, cpus, memory string, healthCheck, verbose, debug bool) error {
+	output.SetVerbose(verbose)
+	serviceOutput := output.NewServiceOutput("task-scheduler", verbose)
+	startTime := time.Now()
+
+	serviceOutput.Start(fmt.Sprintf("containerized mode on %s:%d", host, port))
 
 	runtime, err := container.DetectRuntime()
 	if err != nil {
@@ -438,23 +476,24 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
-	// Build the image with better error handling
-	if err := buildTaskSchedulerImageWithRetry(debug); err != nil {
+	serviceOutput.Step("Building task scheduler image...")
+	if err := buildTaskSchedulerImageWithRetry(verbose, debug); err != nil {
+		serviceOutput.Complete(err)
 
 		return fmt.Errorf("failed to build task scheduler image: %w", err)
 	}
 
-	// Stop existing container
 	_ = runtime.StopContainer("mcp-compose-task-scheduler")
 
-	// Ensure network exists
+	serviceOutput.Step("Checking network configuration...")
 	networkExists, _ := runtime.NetworkExists("mcp-net")
 	if !networkExists {
 		if err := runtime.CreateNetwork("mcp-net"); err != nil {
+			serviceOutput.Complete(err)
 
 			return fmt.Errorf("failed to create mcp-net network: %w", err)
 		}
-		fmt.Println("Created mcp-net network for task scheduler.")
+		serviceOutput.Step("Created mcp-net network")
 	}
 
 	// Prepare environment variables with proper Docker network endpoints
@@ -590,56 +629,75 @@ func runContainerizedTaskScheduler(_ *config.ComposeConfig, _ string, port int, 
 		RestartPolicy: "unless-stopped",
 	}
 
-	// Start container with retry logic
-	containerID, err := startContainerWithRetry(runtime, opts, constants.DefaultRetryLimit)
+	serviceOutput.Step("Starting container...")
+	containerID, err := startContainerWithRetry(runtime, opts, constants.DefaultRetryLimit, verbose)
 	if err != nil {
+		serviceOutput.Complete(err)
 
 		return fmt.Errorf("failed to start task scheduler container: %w", err)
 	}
 
-	fmt.Printf("Task scheduler container started with ID: %s\n", containerID[:constants.ContainerIDDisplayLength])
-	fmt.Printf("Container using port mapping: %d:%d\n", port, port)
-
-	// Wait for container to be healthy
 	if healthCheck {
-		fmt.Printf("Waiting for task scheduler to become healthy...\n")
-		if err := waitForContainerHealth(runtime, "mcp-compose-task-scheduler", constants.ContainerHealthTimeout); err != nil {
-			fmt.Printf("Warning: Health check failed: %v\n", err)
-			// Show logs to help debug
-			showRecentLogs(runtime, "mcp-compose-task-scheduler")
+		serviceOutput.Step("Running health check...")
+		if err := waitForContainerHealth(runtime, "mcp-compose-task-scheduler", constants.ContainerHealthTimeout, verbose); err != nil {
+			if verbose {
+				output.Error(fmt.Sprintf("Health check failed: %v", err))
+				showRecentLogs(runtime, "mcp-compose-task-scheduler")
+			}
 		} else {
-			fmt.Printf("Task scheduler is healthy!\n")
+			output.Verbose("Container is healthy")
 		}
 	}
 
-	fmt.Printf("Task scheduler is running at http://%s:%d\n", host, port)
-	fmt.Printf("Available endpoints:\n")
-	fmt.Printf("  Health Check:  http://%s:%d/health\n", host, port)
-	fmt.Printf("  SSE Endpoint:  http://%s:%d/sse\n", host, port)
-	fmt.Printf("Network connectivity:\n")
-	fmt.Printf("  → MCP Proxy (main): %s\n", env["MCP_PROXY_URL"])
-	fmt.Printf("  → Memory Server: %s\n", env["MCP_MEMORY_SERVER_URL"])
-	fmt.Printf("  → Model Router: %s\n", env["MCP_CRON_OPENROUTER_MCP_PROXY_URL"])
-	fmt.Printf("  → Ollama: %s\n", env["MCP_CRON_OLLAMA_BASE_URL"])
-	fmt.Printf("  → Filesystem: %s\n", env["MCP_FILESYSTEM_URL"])
-	fmt.Printf("  → OpenRouter Gateway: %s\n", env["MCP_OPENROUTER_GATEWAY_URL"])
-	fmt.Printf("\nTo stop the task scheduler: mcp-compose stop task-scheduler\n")
+	serviceOutput.Complete(nil)
+
+	endpoints := map[string]string{
+		"Task Scheduler": fmt.Sprintf("http://%s:%d", host, port),
+		"Health Check":   fmt.Sprintf("http://%s:%d/health", host, port),
+		"SSE Endpoint":   fmt.Sprintf("http://%s:%d/sse", host, port),
+	}
+
+	if verbose {
+		info := map[string]string{
+			"Container ID": containerID[:constants.ContainerIDDisplayLength],
+			"Port":         fmt.Sprintf("%d", port),
+			"Mode":         "Containerized",
+			"Duration":     output.ShortDuration(time.Since(startTime)),
+			"Resources":    fmt.Sprintf("CPUs: %s, Memory: %s", cpus, memory),
+		}
+		output.PrintServiceInfo("Task Scheduler", info)
+
+		endpoints["MCP Proxy"] = env["MCP_PROXY_URL"]
+		endpoints["Memory Server"] = env["MCP_MEMORY_SERVER_URL"]
+		endpoints["Ollama"] = env["MCP_CRON_OLLAMA_BASE_URL"]
+		endpoints["Filesystem"] = env["MCP_FILESYSTEM_URL"]
+	}
+
+	output.PrintEndpoints("Available Endpoints", endpoints)
 
 	return nil
 }
 
-func buildTaskSchedulerImageWithRetry(debug bool) error {
+func buildTaskSchedulerImageWithRetry(verbose, debug bool) error {
 	for attempt := 1; attempt <= constants.DefaultRetryLimit; attempt++ {
-		fmt.Printf("Building task scheduler image (attempt %d/%d)...\n", attempt, constants.DefaultRetryLimit)
+		if verbose {
+			output.Verbose(fmt.Sprintf("Building task scheduler image (attempt %d/%d)...", attempt, constants.DefaultRetryLimit))
+		}
 
-		if err := buildTaskSchedulerImage(debug); err == nil {
-			fmt.Println("Task scheduler image built successfully.")
+		if err := buildTaskSchedulerImage(verbose, debug); err == nil {
+			if verbose {
+				output.Verbose("Task scheduler image built successfully")
+			}
 
 			return nil
 		} else {
-			fmt.Printf("Build attempt %d failed: %v\n", attempt, err)
+			if verbose {
+				output.Verbose(fmt.Sprintf("Build attempt %d failed: %v", attempt, err))
+				if attempt < constants.DefaultRetryLimit {
+					output.Verbose(fmt.Sprintf("Retrying in %v...", constants.ImageBuildDelay))
+				}
+			}
 			if attempt < constants.DefaultRetryLimit {
-				fmt.Printf("Retrying in %v...\n", constants.ImageBuildDelay)
 				time.Sleep(constants.ImageBuildDelay)
 			}
 		}
@@ -648,7 +706,7 @@ func buildTaskSchedulerImageWithRetry(debug bool) error {
 	return fmt.Errorf("failed to build task scheduler image after %d attempts", constants.DefaultRetryLimit)
 }
 
-func buildTaskSchedulerImage(debug bool) error {
+func buildTaskSchedulerImage(verbose, debug bool) error {
 	dockerfilePath := "dockerfiles/Dockerfile.task-scheduler"
 
 	// Check if Dockerfile exists
@@ -663,7 +721,7 @@ func buildTaskSchedulerImage(debug bool) error {
 	}
 
 	cmd := exec.Command("docker", args...)
-	if debug {
+	if verbose || debug {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
@@ -671,7 +729,7 @@ func buildTaskSchedulerImage(debug bool) error {
 	return cmd.Run()
 }
 
-func startContainerWithRetry(runtime container.Runtime, opts *container.ContainerOptions, maxRetries int) (string, error) {
+func startContainerWithRetry(runtime container.Runtime, opts *container.ContainerOptions, maxRetries int, verbose bool) (string, error) {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -682,10 +740,15 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 		}
 
 		lastErr = err
-		fmt.Printf("Container start attempt %d failed: %v\n", attempt, err)
+		if verbose {
+			output.Verbose(fmt.Sprintf("Container start attempt %d failed: %v", attempt, err))
+
+			if attempt < maxRetries {
+				output.Verbose("Retrying in 2 seconds...")
+			}
+		}
 
 		if attempt < maxRetries {
-			fmt.Printf("Retrying in 2 seconds...\n")
 			time.Sleep(constants.DefaultRetryDelay)
 		}
 	}
@@ -693,7 +756,7 @@ func startContainerWithRetry(runtime container.Runtime, opts *container.Containe
 	return "", fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-func waitForContainerHealth(runtime container.Runtime, containerName string, timeout time.Duration) error {
+func waitForContainerHealth(runtime container.Runtime, containerName string, timeout time.Duration, verbose bool) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
@@ -722,8 +785,8 @@ func waitForContainerHealth(runtime container.Runtime, containerName string, tim
 }
 
 func showRecentLogs(runtime container.Runtime, containerName string) {
-	fmt.Printf("Recent logs for %s:\n", containerName)
+	output.Info(fmt.Sprintf("Recent logs for %s:", containerName))
 	if err := runtime.ShowContainerLogs(containerName, false); err != nil {
-		fmt.Printf("Could not show logs: %v\n", err)
+		output.Error(fmt.Sprintf("Could not show logs: %v", err))
 	}
 }

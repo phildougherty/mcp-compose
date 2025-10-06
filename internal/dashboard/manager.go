@@ -164,21 +164,37 @@ func (m *Manager) startDashboardContainer() error {
 		"MCP_DASHBOARD_CONFIG_EDITOR": strconv.FormatBool(m.config.Dashboard.ConfigEditor),
 		"MCP_DASHBOARD_METRICS":       strconv.FormatBool(m.config.Dashboard.Metrics),
 		"POSTGRES_URL":                m.config.Dashboard.PostgresURL,
+		"GODEBUG":                     "netdns=go",
+	}
+
+	// Pass through AI provider API keys from host environment
+	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+		env["OPENROUTER_API_KEY"] = apiKey
+	}
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		env["ANTHROPIC_API_KEY"] = apiKey
+	}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		env["OPENAI_API_KEY"] = apiKey
+	}
+	if ollamaURL := os.Getenv("OLLAMA_BASE_URL"); ollamaURL != "" {
+		env["OLLAMA_BASE_URL"] = ollamaURL
 	}
 
 	// Prepare volumes - mount config file and docker socket
 	volumes := []string{
-		"/var/run/docker.sock:/var/run/docker.sock:ro",         // For Docker API access
-		fmt.Sprintf("%s:/app/mcp-compose.yaml:ro", configPath), // Mount config file
+		"/var/run/docker.sock:/var/run/docker.sock:ro",       // For Docker API access
+		fmt.Sprintf("%s:/app/mcp-compose.yaml", configPath), // Mount config file (rw for registry installs)
 	}
 
 	opts := &container.ContainerOptions{
-		Name:     "mcp-compose-dashboard",
-		Image:    "mcp-compose-dashboard:latest",
-		Env:      env,
-		Ports:    []string{fmt.Sprintf("%d:%d", hostPort, containerPort)}, // hostPort:3001
-		Networks: []string{"mcp-net"},
-		Volumes:  volumes,
+		Name:      "mcp-compose-dashboard",
+		Image:     "mcp-compose-dashboard:latest",
+		Env:       env,
+		Ports:     []string{fmt.Sprintf("%d:%d", hostPort, containerPort)}, // hostPort:3001
+		Networks:  []string{"mcp-net"},
+		Volumes:   volumes,
+		DNSSearch: []string{"."}, // Disable DNS search domains to prevent name resolution issues
 		// Security configuration for dashboard:
 		User: "1000:1000", // Run as non-root user
 		Security: container.SecurityConfig{

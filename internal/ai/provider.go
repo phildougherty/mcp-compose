@@ -10,11 +10,66 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+type Tool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"`
+}
+
+type ContentBlock interface {
+	BlockType() string
+}
+
+type TextBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func (t TextBlock) BlockType() string { return "text" }
+
+type ToolUseBlock struct {
+	Type  string                 `json:"type"`
+	ID    string                 `json:"id"`
+	Name  string                 `json:"name"`
+	Input map[string]interface{} `json:"input"`
+}
+
+func (t ToolUseBlock) BlockType() string { return "tool_use" }
+
+type ToolResultBlock struct {
+	Type      string `json:"type"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   string `json:"content"`
+	IsError   bool   `json:"is_error,omitempty"`
+}
+
+func (t ToolResultBlock) BlockType() string { return "tool_result" }
+
+type MessageWithContent struct {
+	Role    string         `json:"role"`
+	Content []ContentBlock `json:"content"`
+}
+
+type ChatRequest struct {
+	Messages []Message `json:"messages"`
+	Tools    []Tool    `json:"tools,omitempty"`
+}
+
+type ChatResponse struct {
+	Content      []ContentBlock `json:"content"`
+	StopReason   string         `json:"stop_reason,omitempty"`
+	ToolCalls    []ToolUseBlock `json:"tool_calls,omitempty"`
+	TextContent  string         `json:"text_content,omitempty"`
+}
+
 type Provider interface {
 	Chat(ctx context.Context, messages []Message) (string, error)
+	ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error)
 	Stream(ctx context.Context, messages []Message) (<-chan string, error)
+	StreamWithTools(ctx context.Context, messages []Message, tools []Tool) (<-chan *ChatResponse, error)
 	Health(ctx context.Context) error
 	Name() string
+	ListModels(ctx context.Context) ([]string, error)
 }
 
 type Config struct {

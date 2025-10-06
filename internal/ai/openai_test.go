@@ -61,13 +61,13 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 					Created: time.Now().Unix(),
 					Model:   "gpt-4",
 					Choices: []struct {
-						Index        int     `json:"index"`
-						Message      Message `json:"message"`
-						FinishReason string  `json:"finish_reason"`
+						Index        int           `json:"index"`
+						Message      openaiMessage `json:"message"`
+						FinishReason string        `json:"finish_reason"`
 					}{
 						{
 							Index:        0,
-							Message:      Message{Role: "assistant", Content: "Hello, world!"},
+							Message:      openaiMessage{Role: "assistant", Content: "Hello, world!"},
 							FinishReason: "stop",
 						},
 					},

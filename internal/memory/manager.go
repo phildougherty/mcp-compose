@@ -120,6 +120,7 @@ func (m *Manager) Start() error {
 		User:        "root",
 		CPUs:        cpus,
 		Memory:      memory,
+		DNSSearch:   []string{"."},
 		SecurityOpt: []string{"no-new-privileges:true"},
 		Labels: map[string]string{
 			"mcp-compose.system": "true",
@@ -179,6 +180,7 @@ func (m *Manager) startPostgres(pgPassword string) error {
 		User:        "postgres",
 		CPUs:        pgCpus,
 		Memory:      pgMemory,
+		DNSSearch:   []string{"."},
 		SecurityOpt: []string{"no-new-privileges:true"},
 		Labels: map[string]string{
 			"mcp-compose.system": "true",

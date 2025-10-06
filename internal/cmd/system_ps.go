@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
 
+	"github.com/phildougherty/mcp-compose/internal/constants"
 	"github.com/phildougherty/mcp-compose/internal/container"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -30,16 +35,32 @@ func listSystemServicesTable() error {
 		return fmt.Errorf("failed to detect container runtime: %w", err)
 	}
 
-	fmt.Println("SYSTEM SERVICES:")
-	fmt.Printf("%-20s %-30s %-10s\n", "SERVICE", "CONTAINER", "STATUS")
-	fmt.Println("--------------------------------------------------------------------------------")
+	runningColor := color.New(color.FgGreen).SprintFunc()
+	stoppedColor := color.New(color.FgRed).SprintFunc()
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, constants.TableColumnSpacing, ' ', 0)
+	if _, err := fmt.Fprintln(w, "SERVICE\tSTATUS\tCONTAINER"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 
 	for serviceName, containerName := range systemServices {
-		status, err := runtime.GetContainerStatus(containerName)
-		if err != nil || status == "stopped" {
-			status = "stopped"
+		rawStatus, err := runtime.GetContainerStatus(containerName)
+		var statusStr string
+		if err != nil || rawStatus == "stopped" {
+			statusStr = stoppedColor("stopped")
+		} else {
+			switch strings.ToLower(rawStatus) {
+			case "running":
+				statusStr = runningColor("Running")
+			default:
+				statusStr = stoppedColor(rawStatus)
+			}
 		}
-		fmt.Printf("%-20s %-30s %-10s\n", serviceName, containerName, status)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", serviceName, statusStr, containerName)
+	}
+
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("failed to flush output: %w", err)
 	}
 
 	return nil

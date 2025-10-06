@@ -160,6 +160,15 @@ func (m *Manager) getProvider(name string) Provider {
 	return nil
 }
 
+func (m *Manager) GetProvider(name string) (Provider, error) {
+	provider := m.getProvider(name)
+	if provider == nil {
+		return nil, fmt.Errorf("provider %s not found", name)
+	}
+
+	return provider, nil
+}
+
 func (m *Manager) isProviderHealthy(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

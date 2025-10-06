@@ -58,13 +58,21 @@ func TestOpenRouterProvider_Chat(t *testing.T) {
 			Object:  "chat.completion",
 			Created: time.Now().Unix(),
 			Choices: []struct {
-				Index        int     `json:"index"`
-				Message      Message `json:"message"`
-				FinishReason string  `json:"finish_reason"`
+				Index   int `json:"index"`
+				Message struct {
+					Role      string                `json:"role"`
+					Content   string                `json:"content"`
+					ToolCalls []openrouterToolCall  `json:"tool_calls,omitempty"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
 			}{
 				{
 					Index:        0,
-					Message:      Message{Role: "assistant", Content: "Hello, world!"},
+					Message:      struct {
+						Role      string                `json:"role"`
+						Content   string                `json:"content"`
+						ToolCalls []openrouterToolCall  `json:"tool_calls,omitempty"`
+					}{Role: "assistant", Content: "Hello, world!"},
 					FinishReason: "stop",
 				},
 			},

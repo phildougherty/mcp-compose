@@ -5,6 +5,8 @@ import (
 	"github.com/phildougherty/mcp-compose/internal/config"
 	"github.com/phildougherty/mcp-compose/internal/container"
 	"github.com/phildougherty/mcp-compose/internal/dashboard"
+	"github.com/phildougherty/mcp-compose/internal/memory"
+	"github.com/phildougherty/mcp-compose/internal/task_scheduler"
 
 	"github.com/spf13/cobra"
 )
@@ -95,6 +97,18 @@ func runNativeDashboard(cfg *config.ComposeConfig, runtime container.Runtime) er
 	fmt.Printf("Connecting to native proxy at: %s\n", proxyURL)
 
 	server := dashboard.NewDashboardServer(cfg, runtime, proxyURL, cfg.ProxyAuth.APIKey)
+
+	// Initialize task scheduler if enabled
+	if cfg.TaskScheduler.Enabled {
+		taskSched := task_scheduler.NewManager(cfg, runtime)
+		server.SetTaskScheduler(taskSched)
+	}
+
+	// Initialize memory manager if enabled
+	if cfg.Memory.Enabled {
+		memMgr := memory.NewManager(cfg, runtime)
+		server.SetMemoryManager(memMgr)
+	}
 
 	return server.Start(cfg.Dashboard.Port, cfg.Dashboard.Host)
 }

@@ -68,17 +68,23 @@ type claudeRequest struct {
 	MaxTokens   int              `json:"max_tokens"`
 	Temperature float64          `json:"temperature"`
 	Stream      bool             `json:"stream"`
+	Tools       []Tool           `json:"tools,omitempty"`
+}
+
+type claudeContentBlock struct {
+	Type  string                 `json:"type"`
+	Text  string                 `json:"text,omitempty"`
+	ID    string                 `json:"id,omitempty"`
+	Name  string                 `json:"name,omitempty"`
+	Input map[string]interface{} `json:"input,omitempty"`
 }
 
 type claudeResponse struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
+	ID         string               `json:"id"`
+	Type       string               `json:"type"`
+	Role       string               `json:"role"`
+	Content    []claudeContentBlock `json:"content"`
+	StopReason string               `json:"stop_reason"`
 	Error      *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
@@ -166,6 +172,64 @@ func (p *ClaudeProvider) Stream(ctx context.Context, messages []Message) (<-chan
 			case ch <- fmt.Sprintf("ERROR: %v", lastErr):
 			case <-ctx.Done():
 			}
+		}
+	}()
+
+	return ch, nil
+}
+
+func (p *ClaudeProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := initialBackoff * time.Duration(1<<uint(attempt-1))
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		response, err := p.makeRequestWithTools(ctx, messages, tools, false)
+		if err == nil {
+			return response, nil
+		}
+
+		lastErr = err
+
+		if !isRetryable(err) {
+			break
+		}
+	}
+
+	return nil, &ProviderError{
+		Provider: "claude",
+		Message:  "failed after retries",
+		Err:      lastErr,
+	}
+}
+
+func (p *ClaudeProvider) StreamWithTools(ctx context.Context, messages []Message, tools []Tool) (<-chan *ChatResponse, error) {
+	ch := make(chan *ChatResponse, 100)
+
+	go func() {
+		defer close(ch)
+
+		response, err := p.makeRequestWithTools(ctx, messages, tools, false)
+		if err != nil {
+			select {
+			case ch <- &ChatResponse{
+				TextContent: fmt.Sprintf("ERROR: %v", err),
+			}:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		select {
+		case ch <- response:
+		case <-ctx.Done():
 		}
 	}()
 
@@ -260,6 +324,127 @@ func (p *ClaudeProvider) makeRequest(ctx context.Context, messages []Message, st
 	}
 
 	return claudeResp.Content[0].Text, nil
+}
+
+func (p *ClaudeProvider) makeRequestWithTools(ctx context.Context, messages []Message, tools []Tool, stream bool) (*ChatResponse, error) {
+	reqBody := claudeRequest{
+		Model:       p.config.Model,
+		Messages:    messages,
+		MaxTokens:   p.config.MaxTokens,
+		Temperature: p.config.Temperature,
+		Stream:      stream,
+		Tools:       tools,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "failed to marshal request",
+			Err:      err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.apiURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "failed to create request",
+			Err:      err,
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", p.config.APIKey)
+	req.Header.Set("anthropic-version", claudeAPIVersion)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "request failed",
+			Err:      err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 429 {
+		retryAfter := resp.Header.Get("Retry-After")
+		if retryAfter != "" {
+			if duration, err := time.ParseDuration(retryAfter + "s"); err == nil {
+				time.Sleep(duration)
+			}
+		}
+
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "rate limit exceeded",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  fmt.Sprintf("API error (status %d): %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var claudeResp claudeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&claudeResp); err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "failed to decode response",
+			Err:      err,
+		}
+	}
+
+	if claudeResp.Error != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  claudeResp.Error.Message,
+		}
+	}
+
+	if len(claudeResp.Content) == 0 {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "empty response",
+		}
+	}
+
+	chatResp := &ChatResponse{
+		Content:    make([]ContentBlock, 0),
+		StopReason: claudeResp.StopReason,
+		ToolCalls:  make([]ToolUseBlock, 0),
+	}
+
+	var textContent strings.Builder
+
+	for _, block := range claudeResp.Content {
+		switch block.Type {
+		case "text":
+			chatResp.Content = append(chatResp.Content, TextBlock{
+				Type: "text",
+				Text: block.Text,
+			})
+			textContent.WriteString(block.Text)
+		case "tool_use":
+			toolUse := ToolUseBlock{
+				Type:  "tool_use",
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			}
+			chatResp.Content = append(chatResp.Content, toolUse)
+			chatResp.ToolCalls = append(chatResp.ToolCalls, toolUse)
+		}
+	}
+
+	chatResp.TextContent = textContent.String()
+
+	return chatResp, nil
 }
 
 func (p *ClaudeProvider) streamRequest(ctx context.Context, messages []Message, ch chan<- string) error {
@@ -378,6 +563,64 @@ func (p *ClaudeProvider) Health(ctx context.Context) error {
 	_, err := p.makeRequest(ctx, messages, false)
 
 	return err
+}
+
+func (p *ClaudeProvider) ListModels(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/v1/models", nil)
+	if err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "failed to create list models request",
+			Err:      err,
+		}
+	}
+
+	req.Header.Set("x-api-key", p.config.APIKey)
+	req.Header.Set("anthropic-version", claudeAPIVersion)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "list models request failed",
+			Err:      err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  fmt.Sprintf("API error (status %d): %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	var result struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			Type        string `json:"type"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, &ProviderError{
+			Provider: "claude",
+			Message:  "failed to decode response",
+			Err:      err,
+		}
+	}
+
+	models := make([]string, 0, len(result.Data))
+	for _, model := range result.Data {
+		if model.Type == "model" {
+			models = append(models, model.ID)
+		}
+	}
+
+	return models, nil
 }
 
 func isRetryable(err error) bool {

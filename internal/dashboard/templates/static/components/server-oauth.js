@@ -273,12 +273,12 @@ const ServerOAuthConfig = {
                     
                     if (result.success) {
                         this.$emit('show-toast', {
-                            message: `✅ OAuth test successful for ${serverName}`,
+                            message: `OAuth test successful for ${serverName}`,
                             type: 'success'
                         });
                     } else {
                         this.$emit('show-toast', {
-                            message: `❌ OAuth test failed for ${serverName}: ${result.error || 'Unknown error'}`,
+                            message: `OAuth test failed for ${serverName}: ${result.error || 'Unknown error'}`,
                             type: 'error'
                         });
                     }
@@ -287,7 +287,7 @@ const ServerOAuthConfig = {
                 }
             } catch (error) {
                 this.$emit('show-toast', {
-                    message: `❌ Failed to test OAuth for ${serverName}: ${error.message}`,
+                    message: `Failed to test OAuth for ${serverName}: ${error.message}`,
                     type: 'error'
                 });
             }

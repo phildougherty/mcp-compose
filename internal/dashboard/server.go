@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,12 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/phildougherty/mcp-compose/internal/ai"
 	"github.com/phildougherty/mcp-compose/internal/config"
 	"github.com/phildougherty/mcp-compose/internal/constants"
 	"github.com/phildougherty/mcp-compose/internal/container"
 	"github.com/phildougherty/mcp-compose/internal/logging"
 
 	"github.com/gorilla/websocket"
+	_ "github.com/lib/pq"
 )
 
 //go:embed templates/*
@@ -26,6 +29,8 @@ var templates embed.FS
 
 //go:embed templates/static/*
 var static embed.FS
+
+var reactFrontendAvailable = false
 
 type DashboardServer struct {
 	config           *config.ComposeConfig
@@ -37,6 +42,13 @@ type DashboardServer struct {
 	templates        *template.Template
 	httpClient       *http.Client
 	inspectorService *InspectorService
+	chatBroadcaster  *ChatBroadcaster
+	chatService      *ChatService
+	registryService  *RegistryService
+	serverManager    ServerManager
+	taskScheduler    TaskSchedulerManager
+	memoryManager    MemoryManager
+	mux              *http.ServeMux
 }
 
 type PageData struct {
@@ -121,13 +133,78 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 		},
 	}
 
+	// Check if React frontend is available
+	if _, err := GetFrontendFS(); err == nil {
+		reactFrontendAvailable = true
+		server.logger.Info("React frontend detected and available")
+	} else {
+		server.logger.Info("React frontend not available, using legacy Vue.js templates")
+	}
+
 	// Initialize inspector service
 	server.inspectorService = NewInspectorService(server.logger, proxyURL, apiKey)
+
+	// Initialize chat broadcaster
+	server.chatBroadcaster = NewChatBroadcaster(server.logger)
+	server.chatBroadcaster.start()
+
+	// Initialize chat service if PostgreSQL is configured
+	postgresURL := os.Getenv("POSTGRES_URL")
+	if postgresURL == "" {
+		postgresURL = cfg.Dashboard.PostgresURL
+	}
+
+	if postgresURL != "" {
+		db, err := sql.Open("postgres", postgresURL)
+		if err != nil {
+			server.logger.Error("Failed to connect to PostgreSQL: %v", err)
+		} else {
+			chatStorage, err := NewChatStorage(db)
+			if err != nil {
+				server.logger.Error("Failed to initialize chat storage: %v", err)
+				db.Close()
+			} else {
+				aiManager, err := server.initializeAIManager(cfg)
+				if err != nil {
+					server.logger.Error("Failed to initialize AI manager: %v", err)
+					db.Close()
+				} else {
+					systemTools := server.createSystemToolsManager(cfg, runtime)
+					server.chatService = NewChatService(aiManager, chatStorage, systemTools, server.logger, server.chatBroadcaster)
+					server.logger.Info("Chat service initialized successfully")
+				}
+			}
+		}
+	} else {
+		server.logger.Info("PostgreSQL not configured, chat service disabled")
+	}
+
+	if err := server.initializeRegistryService(); err != nil {
+		server.logger.Error("Failed to initialize registry service: %v", err)
+	}
 
 	// Start cleanup goroutine
 	go server.startInspectorCleanup()
 
 	return server
+}
+
+func (d *DashboardServer) SetServerManager(mgr ServerManager) {
+	d.serverManager = mgr
+}
+
+func (d *DashboardServer) SetTaskScheduler(ts TaskSchedulerManager) {
+	d.taskScheduler = ts
+}
+
+func (d *DashboardServer) SetMemoryManager(mm MemoryManager) {
+	d.memoryManager = mm
+}
+
+func (d *DashboardServer) Shutdown() {
+	if d.chatBroadcaster != nil {
+		d.chatBroadcaster.Stop()
+	}
 }
 
 func (d *DashboardServer) startInspectorCleanup() {
@@ -148,33 +225,42 @@ func (d *DashboardServer) Start(port int, host string) error {
 	// Add debug logging
 	d.logger.Info("=== REGISTERING ROUTES ===")
 
-	// Serve static files
-	staticFS, err := fs.Sub(static, "templates/static")
-	if err != nil {
-		d.logger.Warning("Failed to create embedded static file system: %v, using fallback", err)
-		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, ".css") {
-				w.Header().Set("Content-Type", "text/css")
-				if _, err := w.Write([]byte(`/* Basic fallback CSS */`)); err != nil {
-					d.logger.Error("Failed to write CSS fallback: %v", err)
-				}
-			} else if strings.HasSuffix(r.URL.Path, ".js") {
-				w.Header().Set("Content-Type", "application/javascript")
-				if _, err := w.Write([]byte(`// Basic fallback JS`)); err != nil {
-					d.logger.Error("Failed to write JS fallback: %v", err)
-				}
-			} else {
-				http.NotFound(w, r)
-			}
-		})
+	// Serve static files based on frontend availability
+	if reactFrontendAvailable {
+		// Serve React frontend
+		frontendFS, err := GetFrontendFS()
+		if err != nil {
+			d.logger.Error("Failed to get React frontend FS: %v", err)
+		} else {
+			// Serve assets directly (JS, CSS, images, etc.)
+			mux.Handle("/assets/", http.FileServer(http.FS(frontendFS)))
+			d.logger.Info("Registered: /assets/ (React frontend assets)")
+		}
 	} else {
-		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-		d.logger.Info("Registered: /static/")
+		// Serve legacy static files
+		staticFS, err := fs.Sub(static, "templates/static")
+		if err != nil {
+			d.logger.Warning("Failed to create embedded static file system: %v, using fallback", err)
+			mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, ".css") {
+					w.Header().Set("Content-Type", "text/css")
+					if _, err := w.Write([]byte(`/* Basic fallback CSS */`)); err != nil {
+						d.logger.Error("Failed to write CSS fallback: %v", err)
+					}
+				} else if strings.HasSuffix(r.URL.Path, ".js") {
+					w.Header().Set("Content-Type", "application/javascript")
+					if _, err := w.Write([]byte(`// Basic fallback JS`)); err != nil {
+						d.logger.Error("Failed to write JS fallback: %v", err)
+					}
+				} else {
+					http.NotFound(w, r)
+				}
+			})
+		} else {
+			mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+			d.logger.Info("Registered: /static/")
+		}
 	}
-
-	// Main dashboard
-	mux.HandleFunc("/", d.handleIndex)
-	d.logger.Info("Registered: /")
 
 	// CRITICAL: CONTAINERS ROUTE MUST BE FIRST - Register with explicit logging
 	d.logger.Info("Registering containers route: /api/containers/")
@@ -272,6 +358,9 @@ func (d *DashboardServer) Start(port int, host string) error {
 	d.logger.Info("Registered: /api/activity/stats")
 
 	// WebSocket endpoints
+	mux.HandleFunc("/ws/dashboard", d.handleDashboardWebSocket)
+	d.logger.Info("Registered: /ws/dashboard")
+
 	mux.HandleFunc("/ws/logs", d.handleLogWebSocket)
 	d.logger.Info("Registered: /ws/logs")
 
@@ -287,6 +376,43 @@ func (d *DashboardServer) Start(port int, host string) error {
 
 	mux.HandleFunc("/api/inspector/disconnect", d.handleInspectorDisconnect)
 	d.logger.Info("Registered: /api/inspector/disconnect")
+
+	// Memory endpoints
+	mux.HandleFunc("/api/memory/stats", d.handleMemoryStats)
+	d.logger.Info("Registered: /api/memory/stats")
+
+	mux.HandleFunc("/api/memory/entities", d.handleMemoryEntities)
+	d.logger.Info("Registered: /api/memory/entities")
+
+	mux.HandleFunc("/api/memory/entities/", d.handleMemoryEntity)
+	d.logger.Info("Registered: /api/memory/entities/")
+
+	mux.HandleFunc("/api/memory/relationships", d.handleMemoryRelationships)
+	d.logger.Info("Registered: /api/memory/relationships")
+
+	mux.HandleFunc("/api/memory/search", d.handleMemorySearch)
+	d.logger.Info("Registered: /api/memory/search")
+
+	mux.HandleFunc("/api/memory/observations", d.handleMemoryObservations)
+	d.logger.Info("Registered: /api/memory/observations")
+
+	// Chat endpoints
+	if d.chatService != nil {
+		d.mux = mux
+		d.registerChatRoutes()
+		d.logger.Info("Chat service routes registered")
+	} else {
+		d.logger.Info("Chat service not available, skipping chat routes")
+	}
+
+	// Registry endpoints
+	if d.registryService != nil {
+		d.mux = mux
+		d.registerRegistryRoutes()
+		d.logger.Info("Registry service routes registered")
+	} else {
+		d.logger.Info("Registry service not available, skipping registry routes")
+	}
 
 	// Task scheduler endpoints (if available)
 	if d.inspectorService != nil {
@@ -334,6 +460,15 @@ func (d *DashboardServer) Start(port int, host string) error {
 	d.logger.Info("2. Other specific /api/ routes")
 	d.logger.Info("3. /api/servers/ (SPECIFIC with OAuth routing)")
 	d.logger.Info("4. /api/ (CATCH-ALL - LAST)")
+
+	// Main dashboard route - SPA fallback (MUST BE LAST)
+	if reactFrontendAvailable {
+		mux.HandleFunc("/", d.handleReactIndex)
+		d.logger.Info("Registered: / (React SPA with fallback)")
+	} else {
+		mux.HandleFunc("/", d.handleIndex)
+		d.logger.Info("Registered: / (legacy Vue.js template)")
+	}
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", host, port)
@@ -527,4 +662,104 @@ func (d *DashboardServer) handleActivityStats(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(stats)
+}
+
+func (d *DashboardServer) initializeAIManager(cfg *config.ComposeConfig) (*ai.Manager, error) {
+	managerConfig := &ai.ManagerConfig{
+		Providers: []ai.Provider{},
+	}
+
+	// OpenAI
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		provider, err := ai.NewOpenAIProvider(&ai.OpenAIConfig{APIKey: apiKey})
+		if err == nil {
+			managerConfig.Providers = append(managerConfig.Providers, provider)
+		}
+	}
+
+	// Anthropic
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		provider, err := ai.NewClaudeProvider(&ai.ClaudeConfig{APIKey: apiKey})
+		if err == nil {
+			managerConfig.Providers = append(managerConfig.Providers, provider)
+		}
+	}
+
+	// OpenRouter
+	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+		provider, err := ai.NewOpenRouterProvider(&ai.OpenRouterConfig{APIKey: apiKey})
+		if err == nil {
+			managerConfig.Providers = append(managerConfig.Providers, provider)
+		}
+	}
+
+	// Ollama - always try to add with default or custom URL
+	ollamaBaseURL := os.Getenv("OLLAMA_BASE_URL")
+	if ollamaBaseURL == "" {
+		ollamaBaseURL = "http://localhost:11434"
+	}
+
+	d.logger.Info("Initializing Ollama provider with URL: %s", ollamaBaseURL)
+	ollamaProvider, err := ai.NewOllamaProvider(&ai.OllamaConfig{BaseURL: ollamaBaseURL})
+	if err == nil {
+		managerConfig.Providers = append(managerConfig.Providers, ollamaProvider)
+		d.logger.Info("Successfully added Ollama provider to AI manager")
+	} else {
+		d.logger.Error("Failed to create Ollama provider: %v", err)
+	}
+
+	d.logger.Info("Total providers configured: %d", len(managerConfig.Providers))
+	for i, p := range managerConfig.Providers {
+		d.logger.Info("  Provider %d: %s", i+1, p.Name())
+	}
+
+	if len(managerConfig.Providers) == 0 {
+		return nil, fmt.Errorf("no AI providers configured")
+	}
+
+	return ai.NewManager(managerConfig)
+}
+
+func (d *DashboardServer) createSystemToolsManager(cfg *config.ComposeConfig, runtime container.Runtime) *SystemToolsManager {
+	return NewSystemToolsManager(cfg, d.serverManager, d.taskScheduler, d.memoryManager)
+}
+
+func (d *DashboardServer) handleReactIndex(w http.ResponseWriter, r *http.Request) {
+	// For SPA routing, serve index.html for all non-API/non-WebSocket routes
+	// API and WebSocket routes should have already been handled by more specific handlers
+	// If we're here for those paths, something is wrong with route registration
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") || strings.HasPrefix(r.URL.Path, "/oauth/") {
+		d.logger.Warning("React index handler caught API/WS route: %s (route registration issue)", r.URL.Path)
+		http.NotFound(w, r)
+		return
+	}
+
+	// Get the frontend filesystem
+	frontendFS, err := GetFrontendFS()
+	if err != nil {
+		d.logger.Error("Failed to get React frontend FS: %v", err)
+		http.Error(w, "Frontend not available", http.StatusInternalServerError)
+		return
+	}
+
+	// Try to open index.html
+	indexFile, err := frontendFS.Open("index.html")
+	if err != nil {
+		d.logger.Error("Failed to open index.html: %v", err)
+		http.Error(w, "Frontend index not found", http.StatusInternalServerError)
+		return
+	}
+	defer indexFile.Close()
+
+	// Read and serve index.html
+	content, err := io.ReadAll(indexFile)
+	if err != nil {
+		d.logger.Error("Failed to read index.html: %v", err)
+		http.Error(w, "Failed to read frontend", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(content)
 }

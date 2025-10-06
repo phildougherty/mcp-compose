@@ -38,6 +38,12 @@ const DashboardApp = {
                     enabled: true
                 },
                 {
+                    id: 'chat',
+                    name: 'Chat',
+                    icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z',
+                    enabled: true
+                },
+                {
                     id: 'tasks',
                     name: 'Tasks',
                     icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
@@ -1024,11 +1030,95 @@ const DashboardApp = {
                             <!-- Server Header (Accordion Trigger) -->
                             <div
                                 @click="toggleServerExpansion(server.name)"
-                                class="p-5 cursor-pointer hover:bg-slate-700/30 transition-all"
+                                class="p-3 sm:p-5 cursor-pointer hover:bg-slate-700/30 transition-all"
                             >
-                                <div class="flex items-center justify-between">
+                                <!-- Mobile Layout (< 640px) -->
+                                <div class="sm:hidden">
+                                    <!-- Top Row: Name + Expand Button -->
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                                            <div class="flex-shrink-0 relative">
+                                                <div :class="[
+                                                    'w-3 h-3 rounded-full ring-2 ring-slate-800/50',
+                                                    isServerHealthy(server) ? 'bg-emerald-400 shadow-lg shadow-emerald-500/50' :
+                                                    isContainerRunning(server) ? 'bg-blue-400 shadow-lg shadow-blue-500/50' :
+                                                    'bg-slate-500 shadow-lg shadow-slate-500/50'
+                                                ]"></div>
+                                                <div v-if="isServerHealthy(server)" class="absolute inset-0 w-3 h-3 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
+                                            </div>
+                                            <h3 class="text-base font-bold text-white truncate flex-1">
+                                                {{ server.name }}
+                                            </h3>
+                                        </div>
+                                        <button class="text-slate-400 hover:text-white transition-all p-2 hover:bg-slate-700/50 rounded-lg -mr-2">
+                                            <svg
+                                                :class="['w-4 h-4 transition-transform duration-300', isServerExpanded(server.name) ? 'rotate-180' : '']"
+                                                fill="currentColor"
+                                                viewBox="0 0 20 20"
+                                            >
+                                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+
+                                    <!-- Second Row: Tool Count -->
+                                    <div v-if="getServerToolCount(server) > 0" class="mb-2 pl-6">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 border border-purple-500/30">
+                                            <svg class="w-2.5 h-2.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            {{ getServerToolCount(server) }} tool{{ getServerToolCount(server) !== 1 ? 's' : '' }}
+                                        </span>
+                                    </div>
+
+                                    <!-- Third Row: Protocol + Port -->
+                                    <div class="flex items-center gap-2 text-xs text-slate-400 mb-2 pl-6">
+                                        <span class="inline-flex items-center">
+                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            {{ server.configProtocol || 'stdio' }}
+                                        </span>
+                                        <span v-if="server.configHttpPort" class="inline-flex items-center">
+                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            Port {{ server.configHttpPort }}
+                                        </span>
+                                    </div>
+
+                                    <!-- Fourth Row: Status Badges -->
+                                    <div class="flex items-center gap-2 flex-wrap pl-6">
+                                        <span :class="[
+                                            'inline-flex items-center px-2 py-1 rounded text-xs font-semibold shadow transition-all',
+                                            isContainerRunning(server)
+                                                ? 'bg-gradient-to-r from-emerald-500/20 to-emerald-600/20 text-emerald-300 border border-emerald-500/30'
+                                                : 'bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-300 border border-red-500/30'
+                                        ]">
+                                            <span :class="[
+                                                'w-1.5 h-1.5 rounded-full mr-1.5',
+                                                isContainerRunning(server) ? 'bg-emerald-400' : 'bg-red-400'
+                                            ]"></span>
+                                            {{ server.containerStatus || 'Unknown' }}
+                                        </span>
+
+                                        <span :class="[
+                                            'inline-flex items-center px-2 py-1 rounded text-xs font-semibold shadow transition-all',
+                                            getConnectionStatus(server) === 'Connected'
+                                                ? 'bg-gradient-to-r from-blue-500/20 to-blue-600/20 text-blue-300 border border-blue-500/30'
+                                                : 'bg-gradient-to-r from-slate-500/20 to-slate-600/20 text-slate-400 border border-slate-600/30'
+                                        ]">
+                                            <svg class="w-2.5 h-2.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                            </svg>
+                                            {{ getConnectionStatus(server) }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <!-- Desktop Layout (>= 640px) -->
+                                <div class="hidden sm:flex items-center justify-between">
                                     <div class="flex items-center space-x-4 min-w-0 flex-1">
-                                        <!-- Modern Status Indicator -->
                                         <div class="flex-shrink-0 relative">
                                             <div :class="[
                                                 'w-4 h-4 rounded-full ring-4 ring-slate-800/50',
@@ -1038,8 +1128,7 @@ const DashboardApp = {
                                             ]"></div>
                                             <div v-if="isServerHealthy(server)" class="absolute inset-0 w-4 h-4 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
                                         </div>
-                                        
-                                        <!-- Server Info -->
+
                                         <div class="min-w-0 flex-1">
                                             <div class="flex items-center flex-wrap gap-2 mb-2">
                                                 <h3 class="text-lg font-bold text-white truncate">
@@ -1068,7 +1157,6 @@ const DashboardApp = {
                                             </div>
                                         </div>
 
-                                        <!-- Modern Status Badges -->
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <span :class="[
                                                 'inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold shadow-lg transition-all',
@@ -1096,8 +1184,7 @@ const DashboardApp = {
                                             </span>
                                         </div>
                                     </div>
-                                    
-                                    <!-- Expand/Collapse Button -->
+
                                     <div class="ml-4 flex items-center space-x-2">
                                         <div v-if="!isServerExpanded(server.name)" class="flex items-center space-x-2" @click.stop>
                                             <button
@@ -1126,77 +1213,77 @@ const DashboardApp = {
                             
                             <!-- Expanded Content -->
                             <div v-if="isServerExpanded(server.name)" class="border-t border-slate-700/50">
-                                <div class="p-6 lg:p-8 bg-slate-800/50 backdrop-blur-sm">
+                                <div class="p-3 sm:p-6 lg:p-8 bg-slate-800/50 backdrop-blur-sm">
                                     <!-- Connection Status Section -->
                                     <div class="mb-6">
-                                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center">
+                                        <h4 class="text-sm font-medium text-white mb-3 flex items-center">
                                             <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
                                             </svg>
                                             Server Status
                                         </h4>
-                                        
-                                        <div v-if="getHttpConnection(server)" class="bg-white dark:bg-gray-800 p-3 rounded-lg space-y-2 text-sm">
-                                            <div class="flex justify-between items-center">
-                                                <span class="font-medium text-gray-500 dark:text-gray-400">Proxy Status:</span>
+
+                                        <div v-if="getHttpConnection(server)" class="bg-slate-700/50 border border-slate-600/50 p-3 rounded-lg space-y-2 text-sm">
+                                            <div class="flex justify-between items-center gap-2">
+                                                <span class="font-medium text-slate-400">Proxy Status:</span>
                                                 <span :class="[
                                                     'px-2 py-1 rounded text-xs font-medium',
                                                     getHttpConnection(server).initialized && getHttpConnection(server).rawHealthyFlag
-                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                                        ? 'bg-green-900/50 text-green-200 border border-green-700/50'
+                                                        : 'bg-red-900/50 text-red-200 border border-red-700/50'
                                                 ]">
                                                     {{ getConnectionStatus(server) }}
                                                 </span>
                                             </div>
-                                            <div class="flex justify-between items-start">
-                                                <span class="font-medium text-gray-500 dark:text-gray-400">Target URL:</span>
-                                                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded break-all max-w-xs">
+                                            <div class="flex justify-between items-start gap-2">
+                                                <span class="font-medium text-slate-400 flex-shrink-0">Target URL:</span>
+                                                <code class="text-xs bg-slate-800/70 text-slate-300 px-2 py-1 rounded break-all">
                                                     {{ getHttpConnection(server).targetBaseURL }}
                                                 </code>
                                             </div>
-                                            <div v-if="getHttpConnection(server).lastUsedByProxy" class="flex justify-between items-center">
-                                                <span class="font-medium text-gray-500 dark:text-gray-400">Last Used:</span>
-                                                <span class="text-gray-700 dark:text-gray-300 text-xs">
+                                            <div v-if="getHttpConnection(server).lastUsedByProxy" class="flex justify-between items-center gap-2">
+                                                <span class="font-medium text-slate-400">Last Used:</span>
+                                                <span class="text-slate-300 text-xs">
                                                     {{ formatTimestamp(getHttpConnection(server).lastUsedByProxy) }}
                                                 </span>
                                             </div>
                                         </div>
-                                        <div v-else class="text-center py-6 text-gray-500 dark:text-gray-400">
-                                            <svg class="w-8 h-8 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <div v-else class="text-center py-6 text-slate-400 bg-slate-700/30 rounded-lg border border-slate-600/30">
+                                            <svg class="w-8 h-8 mx-auto mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192L5.636 18.364M12 12l2.828 2.828M12 12l2.828-2.828M12 12L9.172 9.172M12 12l-2.828 2.828"></path>
                                             </svg>
                                             <p class="text-sm">No active proxy connection</p>
                                         </div>
                                     </div>
-                                    
+
                                     <!-- Configuration & Tools -->
                                     <div class="responsive-grid cols-1 lg:cols-2 gap-4 mb-6">
                                         <!-- Configuration -->
-                                        <div class="bg-white dark:bg-gray-800 p-3 rounded-lg">
-                                            <h5 class="font-medium text-gray-700 dark:text-gray-300 mb-3 text-sm">Configuration</h5>
+                                        <div class="bg-slate-700/50 border border-slate-600/50 p-3 rounded-lg">
+                                            <h5 class="font-medium text-slate-300 mb-3 text-sm">Configuration</h5>
                                             <div class="space-y-2 text-sm">
                                                 <div class="flex justify-between">
-                                                    <span class="text-gray-500 dark:text-gray-400">Protocol:</span>
-                                                    <span class="text-gray-700 dark:text-gray-300">{{ server.configProtocol || 'stdio' }}</span>
+                                                    <span class="text-slate-400">Protocol:</span>
+                                                    <span class="text-slate-300">{{ server.configProtocol || 'stdio' }}</span>
                                                 </div>
                                                 <div v-if="server.configHttpPort" class="flex justify-between">
-                                                    <span class="text-gray-500 dark:text-gray-400">HTTP Port:</span>
-                                                    <span class="text-gray-700 dark:text-gray-300">{{ server.configHttpPort }}</span>
+                                                    <span class="text-slate-400">HTTP Port:</span>
+                                                    <span class="text-slate-300">{{ server.configHttpPort }}</span>
                                                 </div>
                                                 <div class="flex justify-between">
-                                                    <span class="text-gray-500 dark:text-gray-400">Container:</span>
-                                                    <span class="text-gray-700 dark:text-gray-300">{{ server.isContainer ? 'Yes' : 'No' }}</span>
+                                                    <span class="text-slate-400">Container:</span>
+                                                    <span class="text-slate-300">{{ server.isContainer ? 'Yes' : 'No' }}</span>
                                                 </div>
                                                 <div v-if="server.image" class="flex justify-between">
-                                                    <span class="text-gray-500 dark:text-gray-400">Image:</span>
-                                                    <code class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{{ server.image }}</code>
+                                                    <span class="text-slate-400">Image:</span>
+                                                    <code class="text-xs bg-slate-800/70 text-slate-300 px-2 py-1 rounded">{{ server.image }}</code>
                                                 </div>
                                             </div>
                                         </div>
-                                        
+
                                         <!-- Capabilities & Tools -->
-                                        <div class="bg-white dark:bg-gray-800 p-3 rounded-lg">
-                                            <h5 class="font-medium text-gray-700 dark:text-gray-300 mb-3 text-sm">Tools & Capabilities</h5>
+                                        <div class="bg-slate-700/50 border border-slate-600/50 p-3 rounded-lg">
+                                            <h5 class="font-medium text-slate-300 mb-3 text-sm">Tools & Capabilities</h5>
                                             <div v-if="serverTools[server.name] && serverTools[server.name].length > 0">
                                                 <div class="space-y-2 mb-3">
                                                     <div
@@ -1204,13 +1291,13 @@ const DashboardApp = {
                                                         :key="tool.name"
                                                         class="text-sm"
                                                     >
-                                                        <div class="font-medium text-gray-900 dark:text-white">{{ tool.name }}</div>
-                                                        <div v-if="tool.description" class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                        <div class="font-medium text-white">{{ tool.name }}</div>
+                                                        <div v-if="tool.description" class="text-xs text-slate-400 truncate">
                                                             {{ tool.description }}
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-if="serverTools[server.name].length > 3" class="text-xs text-gray-500 dark:text-gray-400">
+                                                <div v-if="serverTools[server.name].length > 3" class="text-xs text-slate-400">
                                                     +{{ serverTools[server.name].length - 3 }} more tools
                                                 </div>
                                             </div>
@@ -1219,14 +1306,14 @@ const DashboardApp = {
                                                     <span
                                                         v-for="(value, capability) in getServerCapabilities(server)"
                                                         :key="capability"
-                                                        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                                        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-900/50 text-blue-200 border border-blue-700/50"
                                                     >
                                                         {{ capability }}
                                                     </span>
                                                 </div>
-                                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ getServerToolCount(server) || 0 }} tools available</p>
+                                                <p class="text-xs text-slate-400 mt-2">{{ getServerToolCount(server) || 0 }} tools available</p>
                                             </div>
-                                            <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+                                            <div v-else class="text-sm text-slate-400">
                                                 No capabilities reported
                                             </div>
                                         </div>
@@ -1298,6 +1385,9 @@ const DashboardApp = {
                         </div>
                     </div>
                 </div>
+                <chat-interface
+                    v-if="activeTab === 'chat'"
+                ></chat-interface>
                 <task-scheduler
                     v-if="activeTab === 'tasks'"
                     :config="config"
@@ -1312,7 +1402,7 @@ const DashboardApp = {
                     :servers="servers"
                     :config="config"
                 ></log-viewer>
-                
+
                 <activity-viewer
                     v-if="activeTab === 'activity'"
                     :config="config"
@@ -1320,7 +1410,7 @@ const DashboardApp = {
                 <!-- Security Tab -->
                 <div v-if="activeTab === 'security'" class="space-y-6 animate-fade-in">
                     <div class="mb-6">
-                        <h2 class="text-2xl font-bold text-white mb-2">🔐 Security & OAuth Configuration</h2>
+                        <h2 class="text-2xl font-bold text-white mb-2">Security & OAuth Configuration</h2>
                         <p class="text-gray-400">Manage OAuth 2.1 authentication, users, clients, and audit logs</p>
                     </div>
                     <div class="mb-6">

@@ -78,7 +78,23 @@ func (h *ProxyHandler) getEnhancedSSEConnection(serverName string) (*EnhancedMCP
 	h.SSEMutex.RUnlock()
 
 	h.logger.Info("Creating new enhanced SSE connection for server: %s", serverName)
-	serverConfig, cfgExists := h.Manager.config.Servers[serverName]
+
+	var serverConfig config.ServerConfig
+	var cfgExists bool
+
+	// Special handling for system services
+	if serverName == "task-scheduler" && h.Manager.config.TaskScheduler.Enabled {
+		// Build serverConfig from TaskScheduler system config
+		serverConfig = config.ServerConfig{
+			Protocol: "sse",
+			HttpPort: h.Manager.config.TaskScheduler.Port,
+			SSEPath:  "/sse",
+		}
+		cfgExists = true
+	} else {
+		serverConfig, cfgExists = h.Manager.config.Servers[serverName]
+	}
+
 	if !cfgExists {
 
 		return nil, fmt.Errorf("configuration for server '%s' not found", serverName)

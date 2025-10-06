@@ -6,6 +6,7 @@ var systemServices = map[string]string{
 	"task-scheduler":  "mcp-compose-task-scheduler",
 	"memory":          "mcp-compose-memory",
 	"postgres-memory": "mcp-compose-postgres-memory",
+	"migrations":      "",
 }
 
 func IsSystemService(name string) bool {

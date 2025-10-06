@@ -291,6 +291,14 @@ func (h *ProxyHandler) handleAPIEndpoints(w http.ResponseWriter, r *http.Request
 				h.handleServerTokens(w, r)
 
 				return true
+			case "start":
+				h.handleServerStart(w, r, pathParts[2])
+
+				return true
+			case "stop":
+				h.handleServerStop(w, r, pathParts[2])
+
+				return true
 			}
 		}
 	}

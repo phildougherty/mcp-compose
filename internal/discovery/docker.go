@@ -70,7 +70,7 @@ func (w *DockerWatcher) Start(ctx context.Context) error {
 	defer ticker.Stop()
 
 	if err := w.scan(ctx); err != nil {
-		w.logger.Warnf("Initial scan failed: %v", err)
+		w.logger.Warning("Initial scan failed: %v", err)
 	}
 
 	for {
@@ -87,7 +87,7 @@ func (w *DockerWatcher) Start(ctx context.Context) error {
 
 		case <-ticker.C:
 			if err := w.scan(ctx); err != nil {
-				w.logger.Warnf("Scan failed: %v", err)
+				w.logger.Warning("Scan failed: %v", err)
 			}
 		}
 	}
@@ -106,9 +106,9 @@ func (w *DockerWatcher) scan(ctx context.Context) error {
 	seenServers := make(map[string]bool)
 
 	for _, containerID := range containers {
-		info, err := w.runtime.InspectContainer(containerID)
+		info, err := w.runtime.GetContainerInfo(containerID)
 		if err != nil {
-			w.logger.Warnf("Failed to inspect container %s: %v", containerID, err)
+			w.logger.Warning("Failed to inspect container %s: %v", containerID, err)
 
 			continue
 		}
@@ -127,7 +127,7 @@ func (w *DockerWatcher) scan(ctx context.Context) error {
 			w.servers[server.Name] = server
 			w.mu.Unlock()
 
-			w.logger.Infof("Discovered new MCP server: %s (%s)", server.Name, server.Protocol)
+			w.logger.Info("Discovered new MCP server: %s (%s)", server.Name, server.Protocol)
 
 			if w.onChange != nil {
 				w.onChange(server, ChangeTypeAdded)
@@ -139,7 +139,7 @@ func (w *DockerWatcher) scan(ctx context.Context) error {
 				existing.LastSeen = server.LastSeen
 				w.mu.Unlock()
 
-				w.logger.Infof("Server status changed: %s (%s -> %s)",
+				w.logger.Info("Server status changed: %s (%s -> %s)",
 					server.Name, existing.Status, server.Status)
 
 				if w.onChange != nil {
@@ -156,7 +156,7 @@ func (w *DockerWatcher) scan(ctx context.Context) error {
 	for name, server := range w.servers {
 		if !seenServers[name] && time.Since(server.LastSeen) > 30*time.Second {
 			delete(w.servers, name)
-			w.logger.Infof("Server removed: %s", name)
+			w.logger.Info("Server removed: %s", name)
 
 			if w.onChange != nil {
 				w.onChange(server, ChangeTypeRemoved)
@@ -168,10 +168,10 @@ func (w *DockerWatcher) scan(ctx context.Context) error {
 	return nil
 }
 
-func (w *DockerWatcher) listMCPContainers(ctx context.Context) ([]string, error) {
+func (w *DockerWatcher) listMCPContainers(_ context.Context) ([]string, error) {
 	containerIDs := []string{}
 
-	containers, err := w.runtime.ListContainers()
+	containers, err := w.runtime.ListContainers(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -202,9 +202,10 @@ func (w *DockerWatcher) parseServerInfo(info *container.ContainerInfo) *Server {
 	}
 
 	healthStatus := "unknown"
-	if info.State == "running" {
+	switch info.State {
+	case "running":
 		healthStatus = "healthy"
-	} else if info.State == "exited" || info.State == "dead" {
+	case "exited", "dead":
 		healthStatus = "unhealthy"
 	}
 

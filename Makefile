@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: build clean test test-coverage test-race lint fmt vet security-scan docker-build help
+.PHONY: build build-frontend clean test test-coverage test-race lint fmt vet security-scan docker-build help
 
 # Build variables
 BINARY_NAME=mcp-compose
@@ -7,9 +7,21 @@ GO=go
 BUILD_DIR=build
 SRC_MAIN=cmd/mcp-compose/main.go
 COVERAGE_DIR=coverage
+FRONTEND_DIR=internal/dashboard/frontend
+
+# Build the frontend
+build-frontend:
+	@echo "Building frontend..."
+	@if [ ! -d "$(FRONTEND_DIR)/node_modules" ]; then \
+		echo "Installing frontend dependencies..."; \
+		cd $(FRONTEND_DIR) && npm install; \
+	fi
+	@echo "Running frontend build..."
+	@cd $(FRONTEND_DIR) && npm run build
+	@echo "Frontend build complete: $(FRONTEND_DIR)/dist/"
 
 # Build the application
-build:
+build: build-frontend
 	@echo "Building mcp-compose..."
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build -o $(BUILD_DIR)/$(BINARY_NAME) $(SRC_MAIN)
@@ -71,12 +83,14 @@ quality: fmt vet lint test-race test-coverage security-scan
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR) $(COVERAGE_DIR)
+	rm -rf $(FRONTEND_DIR)/dist
 	@echo "Clean complete"
 
 # Help
 help:
 	@echo "Available targets:"
-	@echo "  build           - Build the application"
+	@echo "  build           - Build the application (includes frontend)"
+	@echo "  build-frontend  - Build only the React frontend"
 	@echo "  install         - Install the application"
 	@echo "  test            - Run tests"
 	@echo "  test-coverage   - Run tests with coverage"

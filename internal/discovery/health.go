@@ -70,7 +70,7 @@ func (m *HealthMonitor) AddServer(name, endpoint string) {
 			LastCheck:  time.Now(),
 		}
 
-		m.logger.Infof("Added health check for server: %s (%s)", name, endpoint)
+		m.logger.Info("Added health check for server: %s (%s)", name, endpoint)
 	}
 }
 
@@ -79,7 +79,7 @@ func (m *HealthMonitor) RemoveServer(name string) {
 	defer m.mu.Unlock()
 
 	delete(m.checks, name)
-	m.logger.Infof("Removed health check for server: %s", name)
+	m.logger.Info("Removed health check for server: %s", name)
 }
 
 func (m *HealthMonitor) Start(ctx context.Context) error {
@@ -173,7 +173,7 @@ func (m *HealthMonitor) handleSuccess(check *HealthCheck) {
 	check.LastError = ""
 
 	if oldStatus != HealthStatusHealthy {
-		m.logger.Infof("Server %s is now healthy", check.ServerName)
+		m.logger.Info("Server %s is now healthy", check.ServerName)
 
 		if m.onStatusChange != nil {
 			go m.onStatusChange(check.ServerName, HealthStatusHealthy)
@@ -194,7 +194,7 @@ func (m *HealthMonitor) handleFailure(check *HealthCheck, reason string) {
 		check.Status = HealthStatusUnhealthy
 
 		if oldStatus != HealthStatusUnhealthy {
-			m.logger.Warnf("Server %s is now unhealthy after %d failures: %s",
+			m.logger.Warning("Server %s is now unhealthy after %d failures: %s",
 				check.ServerName, check.ConsecutiveFailures, reason)
 
 			if m.onStatusChange != nil {
@@ -202,7 +202,7 @@ func (m *HealthMonitor) handleFailure(check *HealthCheck, reason string) {
 			}
 		}
 	} else {
-		m.logger.Debugf("Health check failed for %s (%d/%d): %s",
+		m.logger.Debug("Health check failed for %s (%d/%d): %s",
 			check.ServerName, check.ConsecutiveFailures, MaxConsecutiveFailures, reason)
 	}
 }

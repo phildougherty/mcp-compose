@@ -1,6 +1,6 @@
 // /static/components/inspector.js
 const MCPInspector = {
-    props: ['serverName', 'serverConfig'],
+    props: ['serverName', 'serverConfig', 'isExpanded'],
     emits: ['tools-discovered'],
     data() {
         return {
@@ -48,16 +48,21 @@ const MCPInspector = {
         }
     },
     watch: {
-        // This would need to be passed as a prop from parent
         isExpanded: {
             handler(newVal) {
-                if (newVal && !this.connected && this.inspectorAvailable === true) {
-                    this.connect();
-                } else if (!newVal && this.connected) {
-                    this.disconnect();
+                if (newVal && !this.connected) {
+                    if (this.inspectorAvailable === true) {
+                        this.connect();
+                    } else if (this.inspectorAvailable === null) {
+                        this.checkInspectorAvailability().then(() => {
+                            if (this.inspectorAvailable === true && this.isExpanded) {
+                                this.connect();
+                            }
+                        });
+                    }
                 }
             },
-            immediate: true
+            immediate: false
         }
     },
     computed: {
@@ -67,8 +72,7 @@ const MCPInspector = {
     },
     async mounted() {
         await this.checkInspectorAvailability();
-        // Auto-connect when component mounts if inspector is available
-        if (this.inspectorAvailable === true) {
+        if (this.inspectorAvailable === true && this.isExpanded) {
             await this.connect();
         }
     },    
@@ -285,40 +289,40 @@ const MCPInspector = {
     <div v-if="inspectorAvailable !== false" class="space-y-4">
         <!-- Inspector Header -->
         <div class="flex items-center justify-between">
-            <h4 class="text-sm font-medium text-gray-900 dark:text-white flex items-center">
+            <h4 class="text-sm font-medium text-white flex items-center">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                 </svg>
                 MCP Inspector
             </h4>
             <div>
-                <span v-if="connected" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200">
-                    <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                <span v-if="connected" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-900/50 text-green-200 border border-green-700/50">
+                    <span class="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
                     Connected
                 </span>
-                <span v-else-if="loading" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+                <span v-else-if="loading" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/50 text-yellow-200 border border-yellow-700/50">
                     <div class="w-3 h-3 mr-2">
                         <div class="spinner"></div>
                     </div>
                     Connecting...
                 </span>
-                <span v-else-if="inspectorAvailable === null" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                <span v-else-if="inspectorAvailable === null" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700/50 text-slate-400 border border-slate-600/50">
                     <div class="w-3 h-3 mr-2">
                         <div class="spinner"></div>
                     </div>
                     Checking...
                 </span>
-                <span v-else class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                <span v-else class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700/50 text-slate-400 border border-slate-600/50">
                     Disconnected
                 </span>
             </div>
         </div>
         <!-- Connection Section -->
-        <div v-if="!connected && !loading && inspectorAvailable !== null" class="text-center py-6 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <svg class="mx-auto h-8 w-8 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div v-if="!connected && !loading && inspectorAvailable !== null" class="text-center py-6 bg-slate-700/50 rounded-lg border border-slate-600/50">
+            <svg class="mx-auto h-8 w-8 text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
             </svg>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">Start an inspector session to test MCP methods</p>
+            <p class="text-sm text-slate-400 mb-3">Start an inspector session to test MCP methods</p>
             <button
                 @click="connect"
                 :disabled="loading || inspectorAvailable === false"
@@ -331,23 +335,23 @@ const MCPInspector = {
             </button>
         </div>
         <!-- Checking Status -->
-        <div v-if="inspectorAvailable === null" class="text-center py-6 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div v-if="inspectorAvailable === null" class="text-center py-6 bg-slate-700/50 rounded-lg border border-slate-600/50">
             <div class="w-6 h-6 mx-auto mb-3">
                 <div class="spinner"></div>
             </div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Checking inspector availability...</p>
+            <p class="text-sm text-slate-400">Checking inspector availability...</p>
         </div>
         <!-- Connected Interface -->
         <div v-if="connected" class="space-y-4">
             <!-- Quick Methods -->
             <div>
-                <h6 class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Quick Actions</h6>
+                <h6 class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Quick Actions</h6>
                 <div class="flex flex-wrap gap-2">
                     <button
                         v-for="method in availableMethods"
                         :key="method"
                         @click="executeTemplate(method)"
-                        class="touch-target inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                        class="touch-target inline-flex items-center px-3 py-1.5 border border-slate-600 shadow-sm text-xs font-medium rounded text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors"
                     >
                         {{ method }}
                     </button>
@@ -356,10 +360,10 @@ const MCPInspector = {
             <!-- Custom Request -->
             <div>
                 <div class="flex items-center justify-between mb-2">
-                    <h6 class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Custom Request</h6>
+                    <h6 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Custom Request</h6>
                     <select
                         @change="loadTemplate($event.target.value); $event.target.value = ''"
-                        class="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        class="text-xs border border-slate-600 rounded px-2 py-1 bg-slate-700 text-slate-300"
                     >
                         <option value="">Load template...</option>
                         <option v-for="(template, name) in requestTemplates" :key="name" :value="name">
@@ -371,7 +375,7 @@ const MCPInspector = {
                     <textarea
                         v-model="request"
                         placeholder='{"method": "tools/list", "params": {}}'
-                        class="w-full h-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 font-mono text-xs resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full h-20 px-3 py-2 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-500 font-mono text-xs resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     ></textarea>
                     <button
                         @click="executeCustomRequest"
@@ -403,23 +407,23 @@ const MCPInspector = {
             </div>
             <!-- Discovered Tools Display -->
             <div v-if="discoveredTools.length > 0">
-                <h6 class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Discovered Tools ({{ discoveredTools.length }})</h6>
+                <h6 class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Discovered Tools ({{ discoveredTools.length }})</h6>
                 <div class="space-y-2">
                     <div
                         v-for="tool in discoveredTools"
                         :key="tool.name"
-                        class="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700"
+                        class="bg-slate-700/50 p-3 rounded-lg border border-slate-600/50"
                     >
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <div class="font-medium text-sm text-gray-900 dark:text-white">{{ tool.name }}</div>
-                                <div v-if="tool.description" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="font-medium text-sm text-white">{{ tool.name }}</div>
+                                <div v-if="tool.description" class="text-xs text-slate-400 mt-1 truncate">
                                     {{ tool.description }}
                                 </div>
                             </div>
                             <button
                                 @click="executeTemplate('tools/get')"
-                                class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 touch-target px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                class="text-xs text-blue-400 hover:text-blue-200 touch-target px-2 py-1 rounded hover:bg-blue-900/20 flex-shrink-0"
                             >
                                 Test
                             </button>
@@ -434,22 +438,22 @@ const MCPInspector = {
                 </div>
             </div>
             <!-- Disconnect Button -->
-            <div class="pt-2 border-t border-gray-200 dark:border-gray-700">
+            <div class="pt-2 border-t border-slate-700">
                 <button
                     @click="disconnect"
-                    class="touch-target w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                    class="touch-target w-full inline-flex items-center justify-center px-3 py-2 border border-slate-600 text-sm font-medium rounded-lg text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors"
                 >
                     Disconnect Inspector
                 </button>
             </div>
         </div>
         <!-- Inspector Not Available Message -->
-        <div v-else-if="inspectorAvailable === false" class="text-center py-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <svg class="mx-auto h-6 w-6 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div v-else-if="inspectorAvailable === false" class="text-center py-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
+            <svg class="mx-auto h-6 w-6 text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Inspector endpoints not available</p>
-            <p class="text-xs text-gray-400 mt-1">MCP inspection requires additional setup</p>
+            <p class="text-xs text-slate-400">Inspector endpoints not available</p>
+            <p class="text-xs text-slate-500 mt-1">MCP inspection requires additional setup</p>
         </div>
     `
 };

@@ -355,11 +355,17 @@ func (h *ProxyHandler) sendMCPError(w http.ResponseWriter, id interface{}, code 
 func (h *ProxyHandler) getServerHTTPURL(serverName string, serverConfig config.ServerConfig) string {
 	var targetHost string
 
-	// Special case for built-in task-scheduler
+	// Special case for built-in system services
+	// If proxy has container runtime, always use container hostnames for system services
 	if serverName == "task-scheduler" {
-		// Check if it's running as a container or external process
-		if h.isTaskSchedulerContainer() {
+		if h.Manager != nil && h.Manager.containerRuntime != nil {
 			targetHost = "mcp-compose-task-scheduler"
+		} else {
+			targetHost = "localhost" // Running natively
+		}
+	} else if serverName == "memory" {
+		if h.Manager != nil && h.Manager.containerRuntime != nil {
+			targetHost = "mcp-compose-memory"
 		} else {
 			targetHost = "localhost" // Running natively
 		}
@@ -437,6 +443,19 @@ func (h *ProxyHandler) isTaskSchedulerContainer() bool {
 
 	// Check if container exists
 	status, err := h.Manager.containerRuntime.GetContainerStatus("mcp-compose-task-scheduler")
+
+	return err == nil && status == "running"
+}
+
+// Helper function to check if memory is running as container
+func (h *ProxyHandler) isMemoryContainer() bool {
+	if h.Manager == nil || h.Manager.containerRuntime == nil {
+
+		return false
+	}
+
+	// Check if container exists
+	status, err := h.Manager.containerRuntime.GetContainerStatus("mcp-compose-memory")
 
 	return err == nil && status == "running"
 }

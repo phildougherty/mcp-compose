@@ -528,7 +528,9 @@ type TaskScheduler struct {
 	Enabled          bool              `yaml:"enabled"`
 	Port             int               `yaml:"port"`
 	Host             string            `yaml:"host"`
-	DatabasePath     string            `yaml:"database_path"`
+	PostgresEnabled  bool              `yaml:"postgres_enabled"`
+	PostgresURL      string            `yaml:"postgres_url"`
+	DatabasePath     string            `yaml:"database_path,omitempty"`
 	LogLevel         string            `yaml:"log_level"`
 	OpenRouterAPIKey string            `yaml:"openrouter_api_key"`
 	OpenRouterModel  string            `yaml:"openrouter_model"`

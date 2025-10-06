@@ -48,6 +48,41 @@ func (m *mockProvider) Health(ctx context.Context) error {
 	return m.healthError
 }
 
+func (m *mockProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	if m.chatError != nil {
+		return nil, m.chatError
+	}
+
+	return &ChatResponse{
+		TextContent: m.chatResponse,
+		Content: []ContentBlock{
+			TextBlock{Type: "text", Text: m.chatResponse},
+		},
+	}, nil
+}
+
+func (m *mockProvider) StreamWithTools(ctx context.Context, messages []Message, tools []Tool) (<-chan *ChatResponse, error) {
+	ch := make(chan *ChatResponse, 10)
+
+	if m.chatError != nil {
+		close(ch)
+
+		return ch, m.chatError
+	}
+
+	go func() {
+		defer close(ch)
+		ch <- &ChatResponse{
+			TextContent: m.chatResponse,
+			Content: []ContentBlock{
+				TextBlock{Type: "text", Text: m.chatResponse},
+			},
+		}
+	}()
+
+	return ch, nil
+}
+
 func TestNewManager(t *testing.T) {
 	tests := []struct {
 		name    string

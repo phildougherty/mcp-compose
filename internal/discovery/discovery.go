@@ -57,7 +57,7 @@ func (s *DiscoveryService) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		if err := s.watcher.Start(ctx); err != nil && err != context.Canceled {
-			s.logger.Errorf("Docker watcher error: %v", err)
+			s.logger.Error("Docker watcher error: %v", err)
 		}
 	}()
 
@@ -65,7 +65,7 @@ func (s *DiscoveryService) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		if err := s.health.Start(ctx); err != nil && err != context.Canceled {
-			s.logger.Errorf("Health monitor error: %v", err)
+			s.logger.Error("Health monitor error: %v", err)
 		}
 	}()
 
@@ -95,29 +95,29 @@ func (s *DiscoveryService) handleServerChange(server *Server, changeType ChangeT
 			endpoint := fmt.Sprintf("http://localhost:%d", server.Port)
 
 			if err := s.registry.RegisterServer(server.Name, endpoint, server.Protocol); err != nil {
-				s.logger.Errorf("Failed to register server %s: %v", server.Name, err)
+				s.logger.Error("Failed to register server %s: %v", server.Name, err)
 			} else {
 				s.watcher.MarkRegistered(server.Name)
 				s.health.AddServer(server.Name, endpoint+"/health")
-				s.logger.Infof("Registered server %s with proxy", server.Name)
+				s.logger.Info("Registered server %s with proxy", server.Name)
 			}
 		}
 
 	case ChangeTypeRemoved:
 		if err := s.registry.UnregisterServer(server.Name); err != nil {
-			s.logger.Errorf("Failed to unregister server %s: %v", server.Name, err)
+			s.logger.Error("Failed to unregister server %s: %v", server.Name, err)
 		} else {
 			s.health.RemoveServer(server.Name)
-			s.logger.Infof("Unregistered server %s from proxy", server.Name)
+			s.logger.Info("Unregistered server %s from proxy", server.Name)
 		}
 
 	case ChangeTypeUpdated:
 		if server.Status != "running" && server.Registered {
 			if err := s.registry.UnregisterServer(server.Name); err != nil {
-				s.logger.Errorf("Failed to unregister unhealthy server %s: %v", server.Name, err)
+				s.logger.Error("Failed to unregister unhealthy server %s: %v", server.Name, err)
 			} else {
 				s.watcher.MarkUnregistered(server.Name)
-				s.logger.Infof("Unregistered unhealthy server %s", server.Name)
+				s.logger.Info("Unregistered unhealthy server %s", server.Name)
 			}
 		}
 	}
@@ -143,20 +143,20 @@ func (s *DiscoveryService) handleHealthChange(serverName string, status HealthSt
 			endpoint := fmt.Sprintf("http://localhost:%d", server.Port)
 
 			if err := s.registry.RegisterServer(server.Name, endpoint, server.Protocol); err != nil {
-				s.logger.Errorf("Failed to re-register healthy server %s: %v", server.Name, err)
+				s.logger.Error("Failed to re-register healthy server %s: %v", server.Name, err)
 			} else {
 				s.watcher.MarkRegistered(server.Name)
-				s.logger.Infof("Re-registered healthy server %s", server.Name)
+				s.logger.Info("Re-registered healthy server %s", server.Name)
 			}
 		}
 
 	case HealthStatusUnhealthy:
 		if server.Registered {
 			if err := s.registry.UnregisterServer(server.Name); err != nil {
-				s.logger.Errorf("Failed to unregister unhealthy server %s: %v", server.Name, err)
+				s.logger.Error("Failed to unregister unhealthy server %s: %v", server.Name, err)
 			} else {
 				s.watcher.MarkUnregistered(server.Name)
-				s.logger.Infof("Unregistered unhealthy server %s", server.Name)
+				s.logger.Info("Unregistered unhealthy server %s", server.Name)
 			}
 		}
 	}

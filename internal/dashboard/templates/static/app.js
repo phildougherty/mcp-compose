@@ -19,7 +19,8 @@ if (typeof window.mcpApp === 'undefined') {
   window.mcpApp.component('oauth-config', OAuthConfig);
   window.mcpApp.component('audit-log', AuditLog);
   window.mcpApp.component('server-oauth-config', ServerOAuthConfig);
-  
+  window.mcpApp.component('chat-interface', ChatComponent);
+
   // Mount the app
   window.mcpApp.mount('#app');
 }

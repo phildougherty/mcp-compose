@@ -564,6 +564,9 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 	for _, dns := range opts.DNS {
 		runArgs = append(runArgs, "--dns", dns)
 	}
+	for _, dnsSearch := range opts.DNSSearch {
+		runArgs = append(runArgs, "--dns-search", dnsSearch)
+	}
 	for _, host := range opts.ExtraHosts {
 		runArgs = append(runArgs, "--add-host", host)
 	}
@@ -672,7 +675,7 @@ func (d *DockerRuntime) StartContainer(opts *ContainerOptions) (string, error) {
 			}
 		}
 
-		return "", fmt.Errorf("failed to start container '%s': %w", opts.Name, err)
+		return "", fmt.Errorf("failed to start container '%s': %w. Output: %s", opts.Name, err, string(output))
 	}
 
 	containerID := strings.TrimSpace(string(output))

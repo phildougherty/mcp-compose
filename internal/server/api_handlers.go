@@ -68,12 +68,26 @@ func (h *ProxyHandler) handleAPIReload(w http.ResponseWriter, r *http.Request) {
 	h.toolCache = make(map[string]string)
 	h.toolCacheMu.Unlock()
 
+	if h.Manager != nil && h.ConfigFile != "" {
+		h.logger.Info("Reloading config from %s", h.ConfigFile)
+		if err := h.Manager.ReloadConfig(h.ConfigFile); err != nil {
+			h.logger.Error("Failed to reload config: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "error",
+				"message": fmt.Sprintf("Failed to reload config: %v", err),
+			})
+
+			return
+		}
+	}
+
 	h.logger.Info("Proxy reload completed: cleared %d HTTP, %d SSE, %d STDIO connections",
 		oldHTTPConnCount, oldSSEConnCount, oldSTDIOConnCount)
 
 	response := map[string]interface{}{
 		"status":  "success",
-		"message": "Proxy connections and cache reloaded",
+		"message": "Proxy connections and cache reloaded, config refreshed",
 		"cleared": map[string]int{
 			"httpConnections":  oldHTTPConnCount,
 			"sseConnections":   oldSSEConnCount,
@@ -1102,4 +1116,94 @@ func (h *ProxyHandler) handleContainerStats(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (h *ProxyHandler) handleServerStart(w http.ResponseWriter, r *http.Request, serverName string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Method not allowed - use POST",
+		})
+
+		return
+	}
+
+	if h.Manager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Server manager not available",
+		})
+
+		return
+	}
+
+	h.logger.Info("Starting server '%s' via API request from %s", serverName, r.RemoteAddr)
+
+	if err := h.Manager.StartServer(serverName); err != nil {
+		h.logger.Error("Failed to start server '%s': %v", serverName, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   fmt.Sprintf("Failed to start server: %v", err),
+			"server":  serverName,
+			"success": "false",
+		})
+
+		return
+	}
+
+	h.logger.Info("Successfully started server '%s'", serverName)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Server '%s' started successfully", serverName),
+		"server":  serverName,
+	})
+}
+
+func (h *ProxyHandler) handleServerStop(w http.ResponseWriter, r *http.Request, serverName string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Method not allowed - use POST",
+		})
+
+		return
+	}
+
+	if h.Manager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Server manager not available",
+		})
+
+		return
+	}
+
+	h.logger.Info("Stopping server '%s' via API request from %s", serverName, r.RemoteAddr)
+
+	if err := h.Manager.StopServer(serverName); err != nil {
+		h.logger.Error("Failed to stop server '%s': %v", serverName, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   fmt.Sprintf("Failed to stop server: %v", err),
+			"server":  serverName,
+			"success": "false",
+		})
+
+		return
+	}
+
+	h.logger.Info("Successfully stopped server '%s'", serverName)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Server '%s' stopped successfully", serverName),
+		"server":  serverName,
+	})
 }

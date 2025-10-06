@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,11 @@ func NewOllamaProvider(config *OllamaConfig) (*OllamaProvider, error) {
 	if config.BaseURL == "" {
 		config.BaseURL = defaultOllamaBaseURL
 	}
+
+	if !strings.HasPrefix(config.BaseURL, "http://") && !strings.HasPrefix(config.BaseURL, "https://") {
+		config.BaseURL = "http://" + config.BaseURL
+	}
+
 	if config.Model == "" {
 		config.Model = defaultOllamaModel
 	}
@@ -311,6 +317,50 @@ func (p *OllamaProvider) streamRequest(ctx context.Context, messages []Message, 
 	}
 
 	return nil
+}
+
+func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	response, err := p.Chat(ctx, messages)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChatResponse{
+		Content: []ContentBlock{
+			TextBlock{Type: "text", Text: response},
+		},
+		TextContent: response,
+	}, nil
+}
+
+func (p *OllamaProvider) StreamWithTools(ctx context.Context, messages []Message, tools []Tool) (<-chan *ChatResponse, error) {
+	ch := make(chan *ChatResponse, 100)
+
+	go func() {
+		defer close(ch)
+
+		streamCh, err := p.Stream(ctx, messages)
+		if err != nil {
+			ch <- &ChatResponse{
+				TextContent: fmt.Sprintf("ERROR: %v", err),
+			}
+			return
+		}
+
+		var fullText strings.Builder
+		for chunk := range streamCh {
+			fullText.WriteString(chunk)
+		}
+
+		ch <- &ChatResponse{
+			Content: []ContentBlock{
+				TextBlock{Type: "text", Text: fullText.String()},
+			},
+			TextContent: fullText.String(),
+		}
+	}()
+
+	return ch, nil
 }
 
 func (p *OllamaProvider) Health(ctx context.Context) error {

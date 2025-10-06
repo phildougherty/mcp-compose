@@ -3,10 +3,12 @@ package cmd
 
 import (
 	"fmt"
+
 	"github.com/phildougherty/mcp-compose/internal/config"
 	"github.com/phildougherty/mcp-compose/internal/constants"
 	"github.com/phildougherty/mcp-compose/internal/container"
 	"github.com/phildougherty/mcp-compose/internal/memory"
+	"github.com/phildougherty/mcp-compose/internal/output"
 
 	"github.com/spf13/cobra"
 )
@@ -14,6 +16,7 @@ import (
 func NewMemoryCommand() *cobra.Command {
 	var enable bool
 	var disable bool
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "memory",
@@ -28,9 +31,13 @@ The memory server provides persistent knowledge graph storage with:
 Examples:
   mcp-compose memory                    # Start memory server
   mcp-compose memory --enable           # Enable in config
-  mcp-compose memory --disable          # Disable service`,
+  mcp-compose memory --disable          # Disable service
+  mcp-compose memory --verbose          # Start with verbose output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configFile, _ := cmd.Flags().GetString("file")
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			output.SetVerbose(verbose)
+
 			cfg, err := config.LoadConfig(configFile)
 			if err != nil {
 
@@ -56,28 +63,48 @@ Examples:
 				return disableMemoryServer(configFile, cfg, memoryManager)
 			}
 
-			// Check if memory is enabled in config
 			if !cfg.Memory.Enabled {
-				fmt.Println("Memory server is not enabled in configuration.")
-				fmt.Println("Use --enable flag to enable it first.")
+				output.Info("Memory server is not enabled in configuration.")
+				output.Info("Use --enable flag to enable it first.")
 
 				return nil
 			}
 
-			// Start the memory server
+			serviceOutput := output.NewServiceOutput("memory", verbose)
+			serviceOutput.Start("PostgreSQL-backed knowledge graph")
 
-			return memoryManager.Start()
+			err = memoryManager.Start()
+			serviceOutput.Complete(err)
+
+			if err == nil && verbose {
+				info := map[string]string{
+					"Port":     fmt.Sprintf("%d", cfg.Memory.Port),
+					"Database": cfg.Memory.DatabaseURL,
+					"Host":     cfg.Memory.Host,
+				}
+				output.PrintServiceInfo("Memory Server", info)
+
+				endpoints := map[string]string{
+					"Memory Server": fmt.Sprintf("http://%s:%d", cfg.Memory.Host, cfg.Memory.Port),
+					"Health Check":  fmt.Sprintf("http://%s:%d/health", cfg.Memory.Host, cfg.Memory.Port),
+				}
+				output.PrintEndpoints("Available Endpoints", endpoints)
+			}
+
+			return err
 		},
 	}
 
 	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the memory server in config")
 	cmd.Flags().BoolVar(&disable, "disable", false, "Disable the memory server")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose output")
 
 	return cmd
 }
 
 func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
-	fmt.Println("Enabling postgres-backed memory server...")
+	serviceOutput := output.NewServiceOutput("memory", false)
+	serviceOutput.Start("enabling PostgreSQL-backed memory server")
 
 	// 1. Enable in the built-in memory section
 	cfg.Memory.Enabled = true
@@ -190,23 +217,32 @@ func enableMemoryServer(configFile string, cfg *config.ComposeConfig) error {
 		},
 	}
 
-	fmt.Printf("Memory server enabled in both built-in config and servers list (port: %d).\n", cfg.Memory.Port)
+	err := config.SaveConfig(configFile, cfg)
+	serviceOutput.Complete(err)
 
-	return config.SaveConfig(configFile, cfg)
+	if err == nil {
+		output.SuccessMsg("memory", fmt.Sprintf("enabled (port: %d)", cfg.Memory.Port))
+	}
+
+	return err
 }
 
 func disableMemoryServer(configFile string, cfg *config.ComposeConfig, memoryManager *memory.Manager) error {
-	fmt.Println("Disabling memory server...")
+	serviceOutput := output.NewServiceOutput("memory", false)
+	serviceOutput.Start("disabling memory server")
 
-	// Stop the containers
 	if err := memoryManager.Stop(); err != nil {
-		fmt.Printf("Warning: %v\n", err)
+		output.Verbose(fmt.Sprintf("Warning during stop: %v", err))
 	}
 
-	// Disable in config
 	cfg.Memory.Enabled = false
 
-	fmt.Println("Memory server disabled.")
+	err := config.SaveConfig(configFile, cfg)
+	serviceOutput.Complete(err)
 
-	return config.SaveConfig(configFile, cfg)
+	if err == nil {
+		output.SuccessMsg("memory", "disabled")
+	}
+
+	return err
 }
