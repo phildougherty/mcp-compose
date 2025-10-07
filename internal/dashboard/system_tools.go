@@ -927,9 +927,9 @@ func (stm *SystemToolsManager) taskSchedulerPauseTask(ctx context.Context, argum
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "pause_task",
+			"name": "disable_task",
 			"arguments": map[string]interface{}{
-				"task_id": taskID,
+				"id": taskID,
 			},
 		},
 	}
@@ -955,9 +955,9 @@ func (stm *SystemToolsManager) taskSchedulerResumeTask(ctx context.Context, argu
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "resume_task",
+			"name": "enable_task",
 			"arguments": map[string]interface{}{
-				"task_id": taskID,
+				"id": taskID,
 			},
 		},
 	}
@@ -983,9 +983,9 @@ func (stm *SystemToolsManager) taskSchedulerDeleteTask(ctx context.Context, argu
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "delete_task",
+			"name": "remove_task",
 			"arguments": map[string]interface{}{
-				"task_id": taskID,
+				"id": taskID,
 			},
 		},
 	}
@@ -1016,9 +1016,9 @@ func (stm *SystemToolsManager) taskSchedulerUpdateSchedule(ctx context.Context, 
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "update_schedule",
+			"name": "update_task",
 			"arguments": map[string]interface{}{
-				"task_id":  taskID,
+				"id":       taskID,
 				"schedule": schedule,
 			},
 		},
@@ -1045,9 +1045,9 @@ func (stm *SystemToolsManager) taskSchedulerRunNow(ctx context.Context, argument
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "run_now",
+			"name": "run_task",
 			"arguments": map[string]interface{}{
-				"task_id": taskID,
+				"id": taskID,
 			},
 		},
 	}

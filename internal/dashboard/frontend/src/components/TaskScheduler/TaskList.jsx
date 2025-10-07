@@ -7,7 +7,7 @@ import React from 'react';
 import { EmptyState, Button } from '../shared';
 import TaskGroup from './TaskGroup';
 
-export default function TaskList({ groups, onRun, onToggle, onDelete, onViewOutput, onViewRunOutput, onCreateTask }) {
+export default function TaskList({ groups, onRun, onToggle, onDelete, onViewOutput, onViewRunOutput, onCreateTask, onCreateChat }) {
   if (Object.keys(groups).length === 0) {
     return (
       <EmptyState
@@ -44,6 +44,7 @@ export default function TaskList({ groups, onRun, onToggle, onDelete, onViewOutp
           onDelete={onDelete}
           onViewOutput={onViewOutput}
           onViewRunOutput={onViewRunOutput}
+          onCreateChat={onCreateChat}
         />
       ))}
     </div>

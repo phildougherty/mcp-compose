@@ -16,7 +16,7 @@ export default function MCPServerSelector({ sessionId }) {
 
   useEffect(() => {
     if (activeSession) {
-      setEnabledServers(activeSession.mcpServers || []);
+      setEnabledServers(activeSession.mcp_servers || activeSession.mcpServers || []);
     }
   }, [activeSession]);
 
@@ -69,7 +69,7 @@ export default function MCPServerSelector({ sessionId }) {
     try {
       await chatApi.updateChatSession(sessionId, { mcp_servers: newServers });
       setEnabledServers(newServers);
-      updateSession(sessionId, { mcpServers: newServers });
+      updateSession(sessionId, { mcp_servers: newServers });
     } catch (err) {
       console.error('Failed to update MCP servers:', err);
     }
@@ -83,7 +83,7 @@ export default function MCPServerSelector({ sessionId }) {
     try {
       await chatApi.updateChatSession(sessionId, { mcp_servers: allServerNames });
       setEnabledServers(allServerNames);
-      updateSession(sessionId, { mcpServers: allServerNames });
+      updateSession(sessionId, { mcp_servers: allServerNames });
     } catch (err) {
       console.error('Failed to update MCP servers:', err);
     }
@@ -95,7 +95,7 @@ export default function MCPServerSelector({ sessionId }) {
     try {
       await chatApi.updateChatSession(sessionId, { mcp_servers: [] });
       setEnabledServers([]);
-      updateSession(sessionId, { mcpServers: [] });
+      updateSession(sessionId, { mcp_servers: [] });
     } catch (err) {
       console.error('Failed to update MCP servers:', err);
     }
@@ -164,12 +164,26 @@ export default function MCPServerSelector({ sessionId }) {
                       />
 
                       <div className="mcp-server-info-dropdown flex-1">
-                        <span className="mcp-server-name-dropdown block text-sm font-medium text-gray-900 dark:text-white">
-                          {server.name}
-                        </span>
-                        {server.tool_count !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className="mcp-server-name-dropdown block text-sm font-medium text-gray-900 dark:text-white">
+                            {server.name}
+                          </span>
+                          {server.protocol === 'sse' && (
+                            <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded">
+                              SSE
+                            </span>
+                          )}
+                        </div>
+                        {server.tool_count !== undefined ? (
                           <span className="mcp-server-tools-count block text-xs text-gray-500 dark:text-gray-400">
                             {server.tool_count} tool{server.tool_count !== 1 ? 's' : ''}
+                            {server.tools_available === false && server.protocol === 'sse' && (
+                              <span className="ml-1 text-gray-400 dark:text-gray-500">(available on connection)</span>
+                            )}
+                          </span>
+                        ) : server.protocol === 'sse' && (
+                          <span className="block text-xs text-gray-500 dark:text-gray-400">
+                            Tools available on connection
                           </span>
                         )}
                       </div>

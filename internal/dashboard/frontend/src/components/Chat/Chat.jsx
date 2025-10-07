@@ -11,7 +11,7 @@ import { Modal } from '../shared';
 import Button from '../shared/Button';
 import clsx from 'clsx';
 
-export default function Chat() {
+export default function Chat({ initialSessionId }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -28,6 +28,7 @@ export default function Chat() {
   const isConnected = useChatStore((state) => state.isConnected);
   const setSessions = useChatStore((state) => state.setSessions);
   const setActiveSession = useChatStore((state) => state.setActiveSession);
+  const updateSession = useChatStore((state) => state.updateSession);
   const setMessages = useChatStore((state) => state.setMessages);
   const addMessage = useChatStore((state) => state.addMessage);
   const addMessageToSession = useChatStore((state) => state.addMessageToSession);
@@ -58,36 +59,46 @@ export default function Chat() {
       console.log('[Chat] Initializing chat...');
       await loadProviders();
 
-      const savedSessionId = localStorage.getItem('activeSessionId');
-      console.log('[Chat] Saved session from localStorage:', savedSessionId);
+      const sessionToLoad = initialSessionId || localStorage.getItem('activeSessionId');
+      console.log('[Chat] Session to load:', sessionToLoad, '(initial:', initialSessionId, ')');
 
-      if (savedSessionId) {
+      if (sessionToLoad) {
         try {
-          console.log('[Chat] Loading saved session:', savedSessionId);
-          const sessionData = await chatApi.getChatSession(savedSessionId);
+          console.log('[Chat] Loading session:', sessionToLoad);
+          const sessionData = await chatApi.getChatSession(sessionToLoad);
           console.log('[Chat] Session data loaded:', sessionData);
 
-          setActiveSession(savedSessionId);
-          setMessages(savedSessionId, sessionData.messages || []);
-          clearUnreadCount(savedSessionId);
+          updateSession(sessionToLoad, {
+            provider: sessionData.provider,
+            model: sessionData.model,
+            title: sessionData.title,
+            mcp_servers: sessionData.mcp_servers || [],
+            metadata: sessionData.metadata,
+          });
+
+          setActiveSession(sessionToLoad);
+          setMessages(sessionToLoad, sessionData.messages || []);
+          clearUnreadCount(sessionToLoad);
 
           await loadSessions(false);
-          console.log('[Chat] Successfully loaded saved session');
+          console.log('[Chat] Successfully loaded session');
         } catch (err) {
-          console.log('[Chat] Failed to load saved session, loading sessions list');
-          localStorage.removeItem('activeSessionId');
+          console.log('[Chat] Failed to load session, loading sessions list');
+          if (!initialSessionId) {
+            localStorage.removeItem('activeSessionId');
+          }
           setActiveSession(null);
           await loadSessions(true);
         }
       } else {
-        console.log('[Chat] No saved session, loading sessions list');
+        console.log('[Chat] No session to load, loading sessions list');
         await loadSessions(true);
       }
       console.log('[Chat] Initialization complete');
     };
 
     initializeChat();
-  }, []);
+  }, [initialSessionId]);
 
   const sendRef = useRef(null);
 
@@ -158,6 +169,14 @@ export default function Chat() {
       console.log('[Chat] loadSession called for:', sessionId);
       const data = await chatApi.getChatSession(sessionId);
       console.log('[Chat] Session data loaded, messages:', data.messages?.length);
+
+      updateSession(sessionId, {
+        provider: data.provider,
+        model: data.model,
+        title: data.title,
+        mcp_servers: data.mcp_servers || [],
+        metadata: data.metadata,
+      });
 
       setMessages(sessionId, data.messages || []);
 

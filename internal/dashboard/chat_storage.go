@@ -16,16 +16,18 @@ type ChatStorage struct {
 }
 
 type ChatSession struct {
-	ID          string                 `json:"id"`
-	UserID      string                 `json:"user_id"`
-	Provider    string                 `json:"provider"`
-	Model       string                 `json:"model"`
-	CreatedAt   time.Time              `json:"created_at"`
-	LastUsed    time.Time              `json:"last_used"`
-	Title       string                 `json:"title"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	Messages    []ChatMessage          `json:"messages,omitempty"`
-	MCPServers  []string               `json:"mcp_servers,omitempty"`
+	ID                  string                 `json:"id"`
+	UserID              string                 `json:"user_id"`
+	Provider            string                 `json:"provider"`
+	Model               string                 `json:"model"`
+	CreatedAt           time.Time              `json:"created_at"`
+	LastUsed            time.Time              `json:"last_used"`
+	Title               string                 `json:"title"`
+	Metadata            map[string]interface{} `json:"metadata,omitempty"`
+	Messages            []ChatMessage          `json:"messages,omitempty"`
+	MCPServers          []string               `json:"mcp_servers,omitempty"`
+	UnreadMessageCount  int                    `json:"unread_message_count"`
+	HasActiveAgents     bool                   `json:"has_active_agents"`
 }
 
 
@@ -188,13 +190,13 @@ func (s *ChatStorage) ListSessions(ctx context.Context, userID string, limit int
 	var err error
 
 	if userID == "" {
-		query = `SELECT s.id, s.user_id, s.provider, s.model, s.created_at, s.last_used, s.title, s.metadata
+		query = `SELECT s.id, s.user_id, s.provider, s.model, s.created_at, s.last_used, s.title, s.metadata, s.unread_message_count, s.has_active_agents
 		          FROM chat_sessions s
 		          ORDER BY s.last_used DESC
 		          LIMIT $1`
 		rows, err = s.db.QueryContext(ctx, query, limit)
 	} else {
-		query = `SELECT s.id, s.user_id, s.provider, s.model, s.created_at, s.last_used, s.title, s.metadata
+		query = `SELECT s.id, s.user_id, s.provider, s.model, s.created_at, s.last_used, s.title, s.metadata, s.unread_message_count, s.has_active_agents
 		          FROM chat_sessions s
 		          WHERE s.user_id = $1
 		          ORDER BY s.last_used DESC
@@ -220,6 +222,8 @@ func (s *ChatStorage) ListSessions(ctx context.Context, userID string, limit int
 			&session.LastUsed,
 			&session.Title,
 			&metadataJSON,
+			&session.UnreadMessageCount,
+			&session.HasActiveAgents,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan session: %w", err)

@@ -24,7 +24,7 @@ const getIconBgClass = (color) => {
   return colorMap[color] || 'bg-gray-500';
 };
 
-export default function TaskGroup({ groupKey, group, onRun, onToggle, onDelete, onViewOutput, onViewRunOutput }) {
+export default function TaskGroup({ groupKey, group, onRun, onToggle, onDelete, onViewOutput, onViewRunOutput, onCreateChat }) {
   const { toggleGroupExpansion, isGroupExpanded } = useTaskStore();
   const expanded = isGroupExpanded(groupKey);
   const typeConfig = getTaskTypeConfig(groupKey);
@@ -80,6 +80,7 @@ export default function TaskGroup({ groupKey, group, onRun, onToggle, onDelete, 
               onDelete={onDelete}
               onViewOutput={onViewOutput}
               onViewRunOutput={onViewRunOutput}
+              onCreateChat={onCreateChat}
             />
           ))}
         </div>

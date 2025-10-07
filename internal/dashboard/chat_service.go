@@ -223,16 +223,18 @@ func (cs *ChatService) ListSessions(userID string) ([]ChatSession, error) {
 		sessions := make([]ChatSession, len(storageSessions))
 		for i, s := range storageSessions {
 			sessions[i] = ChatSession{
-				ID:         s.ID,
-				UserID:     s.UserID,
-				Provider:   s.Provider,
-				Model:      s.Model,
-				CreatedAt:  s.CreatedAt,
-				LastUsed:   s.LastUsed,
-				Title:      s.Title,
-				Metadata:   s.Metadata,
-				Messages:   []ChatMessage{},
-				MCPServers: s.MCPServers,
+				ID:                 s.ID,
+				UserID:             s.UserID,
+				Provider:           s.Provider,
+				Model:              s.Model,
+				CreatedAt:          s.CreatedAt,
+				LastUsed:           s.LastUsed,
+				Title:              s.Title,
+				Metadata:           s.Metadata,
+				Messages:           []ChatMessage{},
+				MCPServers:         s.MCPServers,
+				UnreadMessageCount: s.UnreadMessageCount,
+				HasActiveAgents:    s.HasActiveAgents,
 			}
 		}
 
@@ -735,9 +737,38 @@ func (cs *ChatService) convertToAIMessages(messages []ChatMessage) []ai.Message 
 	aiMessages := make([]ai.Message, 0, len(messages))
 
 	for _, msg := range messages {
+		content := msg.Content
+
+		if len(msg.ToolCalls) > 0 {
+			content += "\n\n[Tool Calls: "
+			for i, tc := range msg.ToolCalls {
+				if i > 0 {
+					content += ", "
+				}
+				argsJSON, _ := json.Marshal(tc.Args)
+				content += fmt.Sprintf("%s(%s)", tc.Name, string(argsJSON))
+			}
+			content += "]"
+		}
+
+		if len(msg.ToolResults) > 0 {
+			content += "\n\n[Tool Results: "
+			for i, tr := range msg.ToolResults {
+				if i > 0 {
+					content += "; "
+				}
+				if tr.Error != "" {
+					content += fmt.Sprintf("%s: ERROR - %s", tr.Name, tr.Error)
+				} else {
+					content += fmt.Sprintf("%s: %s", tr.Name, tr.Result)
+				}
+			}
+			content += "]"
+		}
+
 		aiMessages = append(aiMessages, ai.Message{
 			Role:    msg.Role,
-			Content: msg.Content,
+			Content: content,
 		})
 	}
 
@@ -830,11 +861,15 @@ func (cs *ChatService) BuildSystemContextForSession(sessionID string) string {
 	ctx.WriteString("Format: minute hour day month weekday\n\n")
 
 	ctx.WriteString("## Task Management\n\n")
-	ctx.WriteString("List tasks: Use task_scheduler_list_tasks\n")
-	ctx.WriteString("Pause: Use task_scheduler_pause_task\n")
-	ctx.WriteString("Resume: Use task_scheduler_resume_task\n")
-	ctx.WriteString("Delete: Use task_scheduler_delete_task\n")
-	ctx.WriteString("Update schedule: Use task_scheduler_update_schedule\n\n")
+	ctx.WriteString("After creating a task, you can manage it:\n\n")
+	ctx.WriteString("- **List tasks**: Use task_scheduler_list_tasks to see all tasks\n")
+	ctx.WriteString("- **Update schedule**: Use task_scheduler_update_schedule(task_id, schedule) to change when a task runs\n")
+	ctx.WriteString("  Example: Change to daily at 8am: task_scheduler_update_schedule(\"task_123\", \"0 8 * * *\")\n")
+	ctx.WriteString("- **Pause**: Use task_scheduler_pause_task(task_id) to temporarily stop a task\n")
+	ctx.WriteString("- **Resume**: Use task_scheduler_resume_task(task_id) to restart a paused task\n")
+	ctx.WriteString("- **Delete**: Use task_scheduler_delete_task(task_id) to permanently remove a task\n")
+	ctx.WriteString("- **Run now**: Use task_scheduler_run_now(task_id) to execute immediately\n\n")
+	ctx.WriteString("**Important**: Get the task_id from task_scheduler_list_tasks first!\n\n")
 
 	ctx.WriteString("## Important Guidelines\n\n")
 	ctx.WriteString("1. Always confirm task creation with user-friendly language\n")

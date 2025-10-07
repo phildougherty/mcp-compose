@@ -8,13 +8,14 @@ import { Button, SearchInput, Select, Card, Spinner } from '../shared';
 import { useToast } from '../../hooks';
 import useTaskStore from '../../store/taskStore';
 import * as taskApi from '../../api/tasks';
+import * as chatApi from '../../api/chat';
 import TaskStats from './TaskStats';
 import TaskList from './TaskList';
 import TaskForm from './TaskForm';
 import TaskOutput from './TaskOutput';
 import { getTaskTypeConfig } from './constants';
 
-export default function TaskScheduler() {
+export default function TaskScheduler({ onNavigateToChat }) {
   const {
     tasks,
     taskRuns,
@@ -163,6 +164,61 @@ export default function TaskScheduler() {
     }
   };
 
+  const handleCreateChat = async (task) => {
+    try {
+      const provider = task.providerHint || 'openrouter';
+      const model = task.modelHint || 'anthropic/claude-sonnet-4.5';
+      const mcpServers = task.mcpServers || [];
+
+      const sessionData = {
+        title: task.name,
+        provider,
+        model,
+      };
+
+      const session = await chatApi.createChatSession(sessionData);
+
+      const updates = {
+        title: task.name,
+        mcp_servers: mcpServers,
+      };
+
+      if (task.id) {
+        const metadata = session.metadata || {};
+        metadata.task_id = task.id;
+        metadata.task_name = task.name;
+        metadata.task_type = task.type;
+        metadata.task_schedule = task.schedule;
+        metadata.task_description = task.description;
+        if (task.prompt) {
+          metadata.task_prompt = task.prompt;
+        }
+        if (task.command) {
+          metadata.task_command = task.command;
+        }
+        updates.metadata = metadata;
+      }
+
+      await chatApi.updateChatSession(session.id, updates);
+
+      if (task.id) {
+        await taskApi.updateTask(task.id, {
+          chat_session_id: session.id,
+          output_to_chat: true,
+          inherit_session_context: task.type === 'ai',
+        });
+      }
+
+      success(`Chat session created and linked to "${task.name}"`);
+
+      if (onNavigateToChat) {
+        onNavigateToChat(session.id);
+      }
+    } catch (err) {
+      showError(`Failed to create chat session: ${err.message}`);
+    }
+  };
+
   return (
     <div className="space-y-4 animate-fade-in max-w-full overflow-x-hidden">
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 lg:p-6">
@@ -308,6 +364,7 @@ export default function TaskScheduler() {
           onViewOutput={handleViewTaskOutput}
           onViewRunOutput={(taskId, runId) => handleViewTaskOutput(taskId, runId)}
           onCreateTask={() => setShowCreateTask(true)}
+          onCreateChat={handleCreateChat}
         />
       )}
 

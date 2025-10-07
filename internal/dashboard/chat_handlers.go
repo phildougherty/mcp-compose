@@ -20,10 +20,11 @@ type CreateSessionRequest struct {
 }
 
 type UpdateSessionRequest struct {
-	Title      string   `json:"title,omitempty"`
-	Provider   string   `json:"provider,omitempty"`
-	Model      string   `json:"model,omitempty"`
-	MCPServers []string `json:"mcp_servers,omitempty"`
+	Title      string                 `json:"title,omitempty"`
+	Provider   string                 `json:"provider,omitempty"`
+	Model      string                 `json:"model,omitempty"`
+	MCPServers []string               `json:"mcp_servers,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type SendMessageRequest struct {
@@ -241,6 +242,9 @@ func (s *DashboardServer) updateChatSession(w http.ResponseWriter, r *http.Reque
 	}
 	if req.Model != "" {
 		updates["model"] = req.Model
+	}
+	if req.Metadata != nil {
+		updates["metadata"] = req.Metadata
 	}
 
 	if err := s.chatService.UpdateSession(sessionID, updates); err != nil {

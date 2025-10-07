@@ -44,6 +44,7 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setThemeState] = useState('light');
   const [servers, setServers] = useState([]);
+  const [chatSessionId, setChatSessionId] = useState(null);
 
   useEffect(() => {
     const initialTheme = initializeTheme();
@@ -77,11 +78,22 @@ function App() {
     setActiveTab(tabId);
     localStorage.setItem('activeTab', tabId);
     setMobileMenuOpen(false);
+
+    if (tabId !== 'chat') {
+      setChatSessionId(null);
+    }
   };
 
   const handleThemeToggle = () => {
     const newTheme = toggleTheme();
     setThemeState(newTheme);
+  };
+
+  const handleNavigateToChat = (sessionId) => {
+    setChatSessionId(sessionId);
+    setActiveTab('chat');
+    localStorage.setItem('activeTab', 'chat');
+    setMobileMenuOpen(false);
   };
 
   const activeTabConfig = TABS.find((tab) => tab.id === activeTab);
@@ -209,7 +221,15 @@ function App() {
               </div>
             }
           >
-            {ActiveComponent && <ActiveComponent servers={servers} />}
+            {ActiveComponent && activeTab === 'chat' && (
+              <ActiveComponent servers={servers} initialSessionId={chatSessionId} />
+            )}
+            {ActiveComponent && activeTab === 'tasks' && (
+              <ActiveComponent servers={servers} onNavigateToChat={handleNavigateToChat} />
+            )}
+            {ActiveComponent && activeTab !== 'chat' && activeTab !== 'tasks' && (
+              <ActiveComponent servers={servers} />
+            )}
           </Suspense>
         </main>
       </div>
