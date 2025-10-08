@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -45,9 +46,11 @@ type DashboardServer struct {
 	chatBroadcaster  *ChatBroadcaster
 	chatService      *ChatService
 	registryService  *RegistryService
+	workflowHandler  *WorkflowHandler
 	serverManager    ServerManager
 	taskScheduler    TaskSchedulerManager
 	memoryManager    MemoryManager
+	aiManager        *ai.Manager
 	mux              *http.ServeMux
 }
 
@@ -169,6 +172,7 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 					server.logger.Error("Failed to initialize AI manager: %v", err)
 					db.Close()
 				} else {
+					server.aiManager = aiManager
 					systemTools := server.createSystemToolsManager(cfg, runtime)
 					server.chatService = NewChatService(aiManager, chatStorage, systemTools, server.logger, server.chatBroadcaster)
 					server.logger.Info("Chat service initialized successfully")
@@ -181,6 +185,26 @@ func NewDashboardServer(cfg *config.ComposeConfig, runtime container.Runtime, pr
 
 	if err := server.initializeRegistryService(); err != nil {
 		server.logger.Error("Failed to initialize registry service: %v", err)
+	}
+
+	var aiManager *ai.Manager
+	if postgresURL != "" {
+		db, err := sql.Open("postgres", postgresURL)
+		if err == nil {
+			aiMgr, err := server.initializeAIManager(cfg)
+			if err != nil {
+				server.logger.Warning("Failed to initialize AI manager for workflows: %v", err)
+			} else {
+				aiManager = aiMgr
+				if server.aiManager == nil {
+					server.aiManager = aiMgr
+				}
+			}
+
+			if err := server.initializeWorkflowHandler(db, aiManager); err != nil {
+				server.logger.Error("Failed to initialize workflow handler: %v", err)
+			}
+		}
 	}
 
 	// Start cleanup goroutine
@@ -204,6 +228,10 @@ func (d *DashboardServer) SetMemoryManager(mm MemoryManager) {
 func (d *DashboardServer) Shutdown() {
 	if d.chatBroadcaster != nil {
 		d.chatBroadcaster.Stop()
+	}
+
+	if d.workflowHandler != nil {
+		d.workflowHandler.Shutdown()
 	}
 }
 
@@ -405,6 +433,12 @@ func (d *DashboardServer) Start(port int, host string) error {
 		d.logger.Info("Chat service not available, skipping chat routes")
 	}
 
+	// AI models endpoint
+	if d.aiManager != nil {
+		mux.HandleFunc("/api/ai/models", d.handleListModels)
+		d.logger.Info("Registered: /api/ai/models")
+	}
+
 	// Registry endpoints
 	if d.registryService != nil {
 		d.mux = mux
@@ -412,6 +446,15 @@ func (d *DashboardServer) Start(port int, host string) error {
 		d.logger.Info("Registry service routes registered")
 	} else {
 		d.logger.Info("Registry service not available, skipping registry routes")
+	}
+
+	// Workflow endpoints
+	if d.workflowHandler != nil {
+		d.mux = mux
+		d.registerWorkflowRoutes()
+		d.logger.Info("Workflow service routes registered")
+	} else {
+		d.logger.Info("Workflow service not available, skipping workflow routes")
 	}
 
 	// Task scheduler endpoints (if available)
@@ -724,6 +767,45 @@ func (d *DashboardServer) createSystemToolsManager(cfg *config.ComposeConfig, ru
 	return NewSystemToolsManager(cfg, d.serverManager, d.taskScheduler, d.memoryManager)
 }
 
+func (d *DashboardServer) initializeWorkflowHandler(db *sql.DB, aiManager *ai.Manager) error {
+	workflowStorage, err := NewWorkflowStorage(db)
+	if err != nil {
+		return fmt.Errorf("failed to create workflow storage: %w", err)
+	}
+
+	d.workflowHandler = NewWorkflowHandler(workflowStorage, d.logger)
+
+	if aiManager != nil {
+		d.workflowHandler.SetAIManager(aiManager)
+		d.logger.Info("Workflow handler initialized with AI manager")
+	} else {
+		d.logger.Warning("Workflow handler initialized without AI manager - deployment API will not be available")
+	}
+
+	d.workflowHandler.SetMCPProxyURL(d.proxyURL)
+	d.workflowHandler.SetMCPAPIKey(d.apiKey)
+	d.logger.Info("Workflow handler configured with proxy URL: %s", d.proxyURL)
+
+	templateStorage, err := NewTemplateStorage(db)
+	if err != nil {
+		d.logger.Warning("Failed to create template storage: %v", err)
+	} else {
+		d.workflowHandler.SetTemplateStorage(templateStorage)
+		d.logger.Info("Template storage initialized successfully")
+	}
+
+	d.logger.Info("Workflow handler initialized successfully")
+
+	return nil
+}
+
+func (d *DashboardServer) registerWorkflowRoutes() {
+	if d.workflowHandler != nil {
+		d.workflowHandler.RegisterRoutes(d.mux)
+		d.logger.Info("Workflow routes registered")
+	}
+}
+
 func (d *DashboardServer) handleReactIndex(w http.ResponseWriter, r *http.Request) {
 	// For SPA routing, serve index.html for all non-API/non-WebSocket routes
 	// API and WebSocket routes should have already been handled by more specific handlers
@@ -762,4 +844,63 @@ func (d *DashboardServer) handleReactIndex(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write(content)
+}
+
+func (d *DashboardServer) handleListModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		http.Error(w, "Provider parameter is required", http.StatusBadRequest)
+
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var models []string
+	var err error
+
+	var providerName string
+	switch provider {
+	case "openrouter":
+		providerName = "openrouter"
+	case "openai":
+		providerName = "openai"
+	case "anthropic":
+		providerName = "claude"
+	case "local":
+		providerName = "ollama"
+	default:
+		http.Error(w, "Unknown provider: "+provider, http.StatusBadRequest)
+
+		return
+	}
+
+	p, err := d.aiManager.GetProvider(providerName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%s provider not configured: %v", provider, err), http.StatusBadRequest)
+
+		return
+	}
+
+	models, err = p.ListModels(ctx)
+
+	if err != nil {
+		d.logger.Error("Failed to list models for provider %s: %v", provider, err)
+		http.Error(w, "Failed to fetch models: "+err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"provider": provider,
+		"models":   models,
+	})
 }

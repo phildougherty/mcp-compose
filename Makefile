@@ -73,8 +73,8 @@ security-scan:
 # Build Docker images
 docker-build:
 	@echo "Building Docker images..."
-	docker build -f Dockerfile.proxy -t mcp-compose-proxy:latest .
-	docker build -f Dockerfile.stdio-bridge -t mcp-compose-stdio-bridge:latest .
+	docker build -f dockerfiles/Dockerfile.proxy -t mcp-compose-proxy:latest .
+	docker build -f dockerfiles/Dockerfile.stdio-bridge -t mcp-compose-stdio-bridge:latest .
 
 # Run all quality checks
 quality: fmt vet lint test-race test-coverage security-scan

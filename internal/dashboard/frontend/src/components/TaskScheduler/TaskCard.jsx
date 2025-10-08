@@ -101,6 +101,27 @@ export default function TaskCard({
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{task.description}</p>
               )}
 
+              {task.type === 'workflow' && task.workflowName && (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Workflow:</span>
+                  <span className="text-sm font-medium text-blue-600 dark:text-blue-400">{task.workflowName}</span>
+                  {task.workflowId && (
+                    <a
+                      href={`/workflow-builder?id=${task.workflowId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      View Workflow
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                 {task.schedule && (
                   <span className="flex items-center">
@@ -294,6 +315,39 @@ export default function TaskCard({
                 </div>
               )}
 
+              {task.type === 'workflow' && task.workflowId && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wide">
+                      Workflow Execution
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-sm">
+                      <span className="font-medium text-blue-700 dark:text-blue-300">Workflow ID:</span>
+                      <span className="ml-2 text-blue-600 dark:text-blue-400 font-mono text-xs">{task.workflowId}</span>
+                    </div>
+                    {task.workflowName && (
+                      <div className="text-sm">
+                        <span className="font-medium text-blue-700 dark:text-blue-300">Name:</span>
+                        <span className="ml-2 text-blue-900 dark:text-blue-100">{task.workflowName}</span>
+                      </div>
+                    )}
+                    <a
+                      href={`/workflow-builder?id=${task.workflowId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium underline mt-2"
+                    >
+                      Open in Workflow Builder
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white dark:bg-gray-700 rounded-lg p-4 space-y-3 border border-gray-200 dark:border-gray-600">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
@@ -347,6 +401,20 @@ export default function TaskCard({
                     <div>
                       <span className="font-medium text-gray-500 dark:text-gray-400">Max Cost:</span>
                       <span className="ml-2 text-gray-900 dark:text-gray-100">${task.maxCost}</span>
+                    </div>
+                  )}
+
+                  {task.type === 'workflow' && task.workflowId && (
+                    <div className="sm:col-span-2">
+                      <span className="font-medium text-gray-500 dark:text-gray-400">Workflow ID:</span>
+                      <span className="ml-2 text-gray-900 dark:text-gray-100 font-mono text-xs">{task.workflowId}</span>
+                    </div>
+                  )}
+
+                  {task.type === 'workflow' && task.workflowName && (
+                    <div className="sm:col-span-2">
+                      <span className="font-medium text-gray-500 dark:text-gray-400">Workflow Name:</span>
+                      <span className="ml-2 text-gray-900 dark:text-gray-100">{task.workflowName}</span>
                     </div>
                   )}
                 </div>

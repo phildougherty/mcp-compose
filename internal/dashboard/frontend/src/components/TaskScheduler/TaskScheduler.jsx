@@ -166,8 +166,8 @@ export default function TaskScheduler({ onNavigateToChat }) {
 
   const handleCreateChat = async (task) => {
     try {
-      const provider = task.providerHint || 'openrouter';
-      const model = task.modelHint || 'anthropic/claude-sonnet-4.5';
+      const provider = task.provider || task.config?.provider || task.providerHint || 'openrouter';
+      const model = task.model || task.config?.model || task.modelHint || 'anthropic/claude-sonnet-4.5';
       const mcpServers = task.mcpServers || [];
 
       const sessionData = {
@@ -195,6 +195,9 @@ export default function TaskScheduler({ onNavigateToChat }) {
         }
         if (task.command) {
           metadata.task_command = task.command;
+        }
+        if (task.workflowId) {
+          metadata.workflow_id = task.workflowId;
         }
         updates.metadata = metadata;
       }
@@ -292,30 +295,41 @@ export default function TaskScheduler({ onNavigateToChat }) {
             </div>
             <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-3 sm:space-y-0">
               <div className="sm:w-40">
-                <Select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-                  <option value="all">All Types</option>
-                  {uniqueTaskTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {getTaskTypeConfig(type).label}
-                    </option>
-                  ))}
-                </Select>
+                <Select
+                  value={filterType}
+                  onChange={setFilterType}
+                  options={[
+                    { value: 'all', label: 'All Types' },
+                    ...uniqueTaskTypes.map(type => ({
+                      value: type,
+                      label: getTaskTypeConfig(type).label
+                    }))
+                  ]}
+                />
               </div>
               <div className="sm:w-32">
-                <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                  <option value="all">All Status</option>
-                  <option value="enabled">Enabled</option>
-                  <option value="disabled">Disabled</option>
-                </Select>
+                <Select
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  options={[
+                    { value: 'all', label: 'All Status' },
+                    { value: 'enabled', label: 'Enabled' },
+                    { value: 'disabled', label: 'Disabled' }
+                  ]}
+                />
               </div>
               <div className="sm:w-40">
-                <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="name">Sort by Name</option>
-                  <option value="type">Sort by Type</option>
-                  <option value="status">Sort by Status</option>
-                  <option value="schedule">Sort by Schedule</option>
-                  <option value="lastRun">Sort by Last Run</option>
-                </Select>
+                <Select
+                  value={sortBy}
+                  onChange={setSortBy}
+                  options={[
+                    { value: 'name', label: 'Sort by Name' },
+                    { value: 'type', label: 'Sort by Type' },
+                    { value: 'status', label: 'Sort by Status' },
+                    { value: 'schedule', label: 'Sort by Schedule' },
+                    { value: 'lastRun', label: 'Sort by Last Run' }
+                  ]}
+                />
               </div>
             </div>
           </div>

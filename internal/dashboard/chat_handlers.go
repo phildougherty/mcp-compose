@@ -96,14 +96,6 @@ func (s *DashboardServer) createChatSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if req.Provider == "" {
-		req.Provider = "openrouter"
-	}
-
-	if req.Model == "" {
-		req.Model = "z-ai/glm-4.6"
-	}
-
 	if req.UserID == "" {
 		req.UserID = "default"
 	}
@@ -111,6 +103,16 @@ func (s *DashboardServer) createChatSession(w http.ResponseWriter, r *http.Reque
 	if req.Title == "" {
 		req.Title = "New Chat"
 	}
+
+	if req.Provider == "" {
+		req.Provider = "openrouter"
+	}
+
+	if req.Model == "" {
+		req.Model = "anthropic/claude-sonnet-4.5"
+	}
+
+	s.logger.Info("Creating chat session: user_id=%s, provider=%s, model=%s, title=%s", req.UserID, req.Provider, req.Model, req.Title)
 
 	session, err := s.chatService.CreateSession(req.UserID, req.Provider, req.Model)
 	if err != nil {

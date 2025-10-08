@@ -219,14 +219,9 @@ export default function TaskForm({ isOpen, onClose, onSubmit }) {
               <Select
                 label="Model Hint"
                 value={formData.modelHint}
-                onChange={(e) => handleChange('modelHint', e.target.value)}
-              >
-                {MODEL_HINTS.map((hint) => (
-                  <option key={hint} value={hint}>
-                    {hint}
-                  </option>
-                ))}
-              </Select>
+                onChange={(value) => handleChange('modelHint', value)}
+                options={MODEL_HINTS.map(hint => ({ value: hint, label: hint }))}
+              />
               <Input
                 label="Max Cost ($)"
                 type="number"

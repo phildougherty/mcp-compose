@@ -1,12 +1,15 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useChatStore } from '../../store/chatStore';
-import { chatApi } from '../../api';
+import { chatApi, apiClient } from '../../api';
 import { useWebSocket } from '../../hooks';
 import SessionList from './SessionList';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import MCPServerSelector from './MCPServerSelector';
 import ConnectionStatus from './ConnectionStatus';
+import WorkflowDeploymentPanel from './WorkflowDeploymentPanel';
+import WorkflowSuggestionCard from './WorkflowSuggestionCard';
+import DeploymentWizard from './DeploymentWizard';
 import { Modal } from '../shared';
 import Button from '../shared/Button';
 import clsx from 'clsx';
@@ -20,6 +23,10 @@ export default function Chat({ initialSessionId }) {
   const [loadingSystemPrompt, setLoadingSystemPrompt] = useState(false);
   const [savingSystemPrompt, setSavingSystemPrompt] = useState(false);
   const [error, setError] = useState(null);
+  const [showWorkflowDeployment, setShowWorkflowDeployment] = useState(false);
+  const [suggestedWorkflow, setSuggestedWorkflow] = useState(null);
+  const [workflowSuggestions, setWorkflowSuggestions] = useState([]);
+  const [showDeploymentWizard, setShowDeploymentWizard] = useState(false);
 
   const sessions = useChatStore((state) => state.sessions);
   const activeSessionId = useChatStore((state) => state.activeSessionId);
@@ -219,13 +226,61 @@ export default function Chat({ initialSessionId }) {
 
   const lastProcessedMessageRef = useRef(null);
 
+  const detectWorkflowSuggestion = (content) => {
+    try {
+      const workflowMatch = content.match(/WORKFLOW_SUGGESTION:(.*?)(?:END_WORKFLOW|$)/s);
+
+      if (workflowMatch) {
+        const workflowData = JSON.parse(workflowMatch[1].trim());
+
+        return workflowData;
+      }
+    } catch (err) {
+      console.error('Failed to parse workflow suggestion:', err);
+    }
+
+    return null;
+  };
+
+  const handleWorkflowDeploy = async (workflow) => {
+    try {
+      console.log('Deploying workflow:', workflow);
+
+      const result = await apiClient.post('/workflows/deploy', workflow);
+      showError('Workflow deployed successfully!');
+      setShowWorkflowDeployment(false);
+      setSuggestedWorkflow(null);
+
+      return result;
+    } catch (err) {
+      console.error('Failed to deploy workflow:', err);
+      showError('Failed to deploy workflow: ' + err.message);
+      throw err;
+    }
+  };
+
+  const handleWorkflowCustomize = (workflow) => {
+    console.log('Customizing workflow:', workflow);
+    setShowWorkflowDeployment(false);
+    setSuggestedWorkflow(null);
+  };
+
   const handleWebSocketMessage = (data) => {
     if (data.type === 'chunk') {
       if (!data.done) {
         if (!streaming.isStreaming) {
           startStreaming('');
         }
+
+        const currentContent = streaming.currentContent + (data.content || '');
         updateStreamingContent(data.content || '');
+
+        const workflowData = detectWorkflowSuggestion(currentContent);
+
+        if (workflowData) {
+          setSuggestedWorkflow(workflowData);
+          setShowWorkflowDeployment(true);
+        }
       } else {
         // Streaming is done - stop streaming and store the message ID to prevent duplicate from new_message
         if (streaming.isStreaming) {
@@ -274,6 +329,13 @@ export default function Chat({ initialSessionId }) {
 
       if (targetSessionId === activeSessionId) {
         addMessage(message);
+
+        const workflowData = detectWorkflowSuggestion(message.content);
+
+        if (workflowData) {
+          setSuggestedWorkflow(workflowData);
+          setShowWorkflowDeployment(true);
+        }
       } else {
         addMessageToSession(targetSessionId, message);
         incrementUnreadCount(targetSessionId);
@@ -585,6 +647,34 @@ export default function Chat({ initialSessionId }) {
           onRegenerate={regenerateMessage}
           activeSession={activeSession}
         />
+
+        {showWorkflowDeployment && suggestedWorkflow && (
+          <div className="px-4">
+            <WorkflowDeploymentPanel
+              workflow={suggestedWorkflow}
+              onDeploy={handleWorkflowDeploy}
+              onCustomize={handleWorkflowCustomize}
+              onCancel={() => {
+                setShowWorkflowDeployment(false);
+                setSuggestedWorkflow(null);
+              }}
+            />
+          </div>
+        )}
+
+        {showDeploymentWizard && (
+          <div className="px-4">
+            <DeploymentWizard
+              suggestedWorkflows={workflowSuggestions}
+              onDeploy={handleWorkflowDeploy}
+              onCancel={() => {
+                setShowDeploymentWizard(false);
+                setWorkflowSuggestions([]);
+              }}
+              onCustomize={handleWorkflowCustomize}
+            />
+          </div>
+        )}
 
         <div className="input-container border-t border-gray-200 dark:border-gray-700 p-4 w-full max-w-full overflow-x-hidden">
           {error && (

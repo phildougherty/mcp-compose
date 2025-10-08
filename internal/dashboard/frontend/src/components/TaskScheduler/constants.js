@@ -19,6 +19,13 @@ export const TASK_TYPES = [
     description: 'AI-powered tasks using LLMs',
   },
   {
+    value: 'workflow',
+    label: 'Workflow',
+    icon: 'M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13h4v1H4v-1z M14 13h1v1h-1v-1z M11 13h1v1h-1v-1z',
+    color: 'blue',
+    description: 'Multi-step workflow executions',
+  },
+  {
     value: 'manual',
     label: 'Manual Task',
     icon: 'M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z',
@@ -45,14 +52,31 @@ export const MODEL_HINTS = ['fast', 'cheap', 'powerful', 'local', 'balanced'];
 
 export const CRON_PRESETS = [
   { label: 'Every minute', value: '* * * * *' },
+  { label: 'Every 2 minutes', value: '*/2 * * * *' },
   { label: 'Every 5 minutes', value: '*/5 * * * *' },
+  { label: 'Every 10 minutes', value: '*/10 * * * *' },
   { label: 'Every 15 minutes', value: '*/15 * * * *' },
+  { label: 'Every 30 minutes', value: '*/30 * * * *' },
   { label: 'Every hour', value: '0 * * * *' },
+  { label: 'Every 2 hours', value: '0 */2 * * *' },
+  { label: 'Every 3 hours', value: '0 */3 * * *' },
   { label: 'Every 6 hours', value: '0 */6 * * *' },
+  { label: 'Every 12 hours', value: '0 */12 * * *' },
   { label: 'Daily at midnight', value: '0 0 * * *' },
+  { label: 'Daily at 6 AM', value: '0 6 * * *' },
   { label: 'Daily at 9 AM', value: '0 9 * * *' },
+  { label: 'Daily at noon', value: '0 12 * * *' },
+  { label: 'Daily at 6 PM', value: '0 18 * * *' },
   { label: 'Weekly on Monday', value: '0 0 * * 1' },
+  { label: 'Weekly on Tuesday', value: '0 0 * * 2' },
+  { label: 'Weekly on Wednesday', value: '0 0 * * 3' },
+  { label: 'Weekly on Thursday', value: '0 0 * * 4' },
+  { label: 'Weekly on Friday', value: '0 0 * * 5' },
+  { label: 'Weekly on Saturday', value: '0 0 * * 6' },
+  { label: 'Weekly on Sunday', value: '0 0 * * 0' },
   { label: 'Monthly on 1st', value: '0 0 1 * *' },
+  { label: 'Monthly on 15th', value: '0 0 15 * *' },
+  { label: 'Yearly on Jan 1st', value: '0 0 1 1 *' },
 ];
 
 export const CRON_DESCRIPTIONS = {

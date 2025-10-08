@@ -884,6 +884,170 @@ func (cs *ChatService) BuildSystemContextForSession(sessionID string) string {
 	ctx.WriteString("Example:\n")
 	ctx.WriteString("\"I've set up Glucose Monitor to check your levels every 30 minutes. You'll see updates here in chat. Next run: 2:30 PM\"\n\n")
 
+	ctx.WriteString("# Workflow System Integration\n\n")
+	ctx.WriteString("You have access to a unified task scheduling system that can execute three types of tasks:\n")
+	ctx.WriteString("1. **Shell commands** (type: \"shell\") - Execute shell scripts and commands\n")
+	ctx.WriteString("2. **AI prompts** (type: \"ai\") - Execute AI prompts with access to MCP tools\n")
+	ctx.WriteString("3. **Multi-step workflows** (type: \"workflow\") - Execute visual workflows created in the Workflow Builder\n\n")
+
+	ctx.WriteString("## About Workflows\n\n")
+	ctx.WriteString("Workflows are visual, multi-step processes created in the Workflow Builder UI. When a workflow has a schedule trigger with a cron expression, it is automatically registered as a task in the task scheduler.\n\n")
+
+	ctx.WriteString("All task scheduler features work with workflows:\n")
+	ctx.WriteString("- Scheduled execution via cron\n")
+	ctx.WriteString("- Manual execution via run_task tool\n")
+	ctx.WriteString("- Execution history and logging\n")
+	ctx.WriteString("- Output to chat sessions (OutputToChat)\n")
+	ctx.WriteString("- Retry policies and error handling\n")
+	ctx.WriteString("- Metrics and monitoring\n\n")
+
+	ctx.WriteString("## Managing Workflows as Tasks\n\n")
+	ctx.WriteString("Use these MCP tools to work with all task types including workflows:\n")
+	ctx.WriteString("- **list_tasks**: List all scheduled tasks (shell, ai, workflow)\n")
+	ctx.WriteString("- **get_task**: Get details of any task type\n")
+	ctx.WriteString("- **run_task**: Manually trigger any task including workflows\n")
+	ctx.WriteString("- **add_workflow_task**: Schedule a workflow for automatic execution\n")
+	ctx.WriteString("- **enable_task/disable_task**: Control task execution\n")
+	ctx.WriteString("- **list_run_status**: View execution history for all task types\n\n")
+
+	ctx.WriteString("## When Users Ask About Workflows\n\n")
+	ctx.WriteString("- To schedule a workflow: Use add_workflow_task with the workflow ID and cron schedule\n")
+	ctx.WriteString("- To view scheduled workflows: Use list_tasks and filter by type \"workflow\"\n")
+	ctx.WriteString("- To execute a workflow now: Use run_task with the workflow task ID\n")
+	ctx.WriteString("- To see workflow execution history: Use list_run_status\n\n")
+
+	ctx.WriteString("The workflow system and task scheduler are fully integrated - workflows are just another type of scheduled task.\n\n")
+
+	ctx.WriteString("# Workflow Builder System\n\n")
+	ctx.WriteString("The Workflow Builder is a visual, node-based workflow designer that allows creating complex multi-step automation. Workflows can be created, edited, executed, and scheduled.\n\n")
+
+	ctx.WriteString("## Available Workflow Node Types\n\n")
+
+	ctx.WriteString("### 1. Trigger Node (type: \"trigger\")\n")
+	ctx.WriteString("Defines how the workflow is initiated.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Schedule Trigger\",\n")
+	ctx.WriteString("  \"triggerType\": \"cron\",\n")
+	ctx.WriteString("  \"cronSchedule\": \"*/5 * * * *\",\n")
+	ctx.WriteString("  \"enabled\": true\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("### 2. AI Task Node (type: \"ai-task\")\n")
+	ctx.WriteString("Executes an AI prompt with access to configured MCP tools.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Analyze Data\",\n")
+	ctx.WriteString("  \"prompt\": \"Analyze the glucose readings and provide insights\",\n")
+	ctx.WriteString("  \"provider\": \"openrouter\",\n")
+	ctx.WriteString("  \"model\": \"anthropic/claude-sonnet-4.5\",\n")
+	ctx.WriteString("  \"mcpServers\": [\"dexcom\", \"memory\"]\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("### 3. MCP Server Node (type: \"mcp-server\")\n")
+	ctx.WriteString("Calls a specific MCP tool directly.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Get Glucose\",\n")
+	ctx.WriteString("  \"mcpServer\": \"dexcom\",\n")
+	ctx.WriteString("  \"tool\": \"get_current_glucose\",\n")
+	ctx.WriteString("  \"arguments\": {}\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("### 4. Decision Node (type: \"decision\")\n")
+	ctx.WriteString("Conditional branching based on an expression.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Check if High\",\n")
+	ctx.WriteString("  \"condition\": \"input.glucose > 180\",\n")
+	ctx.WriteString("  \"description\": \"Branch based on glucose level\"\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n")
+	ctx.WriteString("Outputs: Two handles - 'true' and 'false' for conditional paths.\n\n")
+
+	ctx.WriteString("### 5. Transform Node (type: \"transform\")\n")
+	ctx.WriteString("Transforms data using JavaScript expressions.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Extract Value\",\n")
+	ctx.WriteString("  \"expression\": \"input.result.glucose\",\n")
+	ctx.WriteString("  \"description\": \"Extract glucose value from result\"\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("### 6. Code Node (type: \"code\")\n")
+	ctx.WriteString("Executes custom JavaScript code.\n\n")
+	ctx.WriteString("Configuration:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"label\": \"Format Message\",\n")
+	ctx.WriteString("  \"code\": \"return `Glucose: ${input.value} mg/dL at ${new Date().toLocaleString()}`;\",\n")
+	ctx.WriteString("  \"description\": \"Format notification message\"\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("## Creating Workflows\n\n")
+	ctx.WriteString("To create a workflow, you need:\n")
+	ctx.WriteString("1. A name and description\n")
+	ctx.WriteString("2. An array of nodes with their configurations\n")
+	ctx.WriteString("3. An array of edges connecting the nodes\n\n")
+
+	ctx.WriteString("Example workflow structure:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("{\n")
+	ctx.WriteString("  \"name\": \"Glucose Monitor\",\n")
+	ctx.WriteString("  \"description\": \"Monitor glucose levels every 5 minutes\",\n")
+	ctx.WriteString("  \"nodes\": [\n")
+	ctx.WriteString("    {\n")
+	ctx.WriteString("      \"id\": \"trigger-1\",\n")
+	ctx.WriteString("      \"type\": \"trigger\",\n")
+	ctx.WriteString("      \"position\": {\"x\": 100, \"y\": 100},\n")
+	ctx.WriteString("      \"data\": {\"label\": \"Every 5min\", \"triggerType\": \"cron\", \"cronSchedule\": \"*/5 * * * *\"}\n")
+	ctx.WriteString("    },\n")
+	ctx.WriteString("    {\n")
+	ctx.WriteString("      \"id\": \"mcp-1\",\n")
+	ctx.WriteString("      \"type\": \"mcp-server\",\n")
+	ctx.WriteString("      \"position\": {\"x\": 300, \"y\": 100},\n")
+	ctx.WriteString("      \"data\": {\"label\": \"Get Glucose\", \"mcpServer\": \"dexcom\", \"tool\": \"get_current_glucose\"}\n")
+	ctx.WriteString("    }\n")
+	ctx.WriteString("  ],\n")
+	ctx.WriteString("  \"edges\": [\n")
+	ctx.WriteString("    {\"id\": \"e1\", \"source\": \"trigger-1\", \"target\": \"mcp-1\"}\n")
+	ctx.WriteString("  ]\n")
+	ctx.WriteString("}\n")
+	ctx.WriteString("```\n\n")
+
+	ctx.WriteString("## Editing Workflows\n\n")
+	ctx.WriteString("Use these tools to modify workflows conversationally:\n")
+	ctx.WriteString("- **workflow_get_details**: Get complete workflow structure\n")
+	ctx.WriteString("- **workflow_update**: Update entire workflow\n")
+	ctx.WriteString("- **workflow_add_node**: Add a single node\n")
+	ctx.WriteString("- **workflow_update_node**: Update a node's configuration\n")
+	ctx.WriteString("- **workflow_delete_node**: Remove a node and its connections\n")
+	ctx.WriteString("- **workflow_connect_nodes**: Create an edge between two nodes\n\n")
+
+	ctx.WriteString("## Connecting Nodes\n\n")
+	ctx.WriteString("Edges define the execution flow:\n")
+	ctx.WriteString("- Most nodes have a single output that connects to the next node's input\n")
+	ctx.WriteString("- Decision nodes have two outputs: 'true' and 'false' (use sourceHandle)\n")
+	ctx.WriteString("- Data flows from source to target through edges\n\n")
+
+	ctx.WriteString("Example decision node connection:\n")
+	ctx.WriteString("```json\n")
+	ctx.WriteString("// True path\n")
+	ctx.WriteString("{\"source\": \"decision-1\", \"target\": \"action-high\", \"sourceHandle\": \"true\"}\n")
+	ctx.WriteString("// False path\n")
+	ctx.WriteString("{\"source\": \"decision-1\", \"target\": \"action-normal\", \"sourceHandle\": \"false\"}\n")
+	ctx.WriteString("```\n\n")
+
 	ctx.WriteString("# Tool Usage\n\n")
 	ctx.WriteString("You have access to tools via native function calling. When you need to use a tool, simply call it using the native tool calling interface.\n\n")
 	ctx.WriteString("Important:\n")
@@ -918,10 +1082,60 @@ func (cs *ChatService) BuildSystemContextForSession(sessionID string) string {
 	}
 
 	enabledMCPServers := []string{}
+	var session *ChatSession
 	if sessionID != "" {
-		session, err := cs.GetSession(sessionID)
+		var err error
+		session, err = cs.GetSession(sessionID)
 		if err == nil && len(session.MCPServers) > 0 {
 			enabledMCPServers = session.MCPServers
+		}
+	}
+
+	if session != nil && session.Metadata != nil {
+		if taskID, ok := session.Metadata["task_id"].(string); ok && taskID != "" {
+			ctx.WriteString("\n# Current Task Context\n\n")
+			ctx.WriteString("This chat session is linked to a scheduled task. Here are the task details:\n\n")
+
+			if taskName, ok := session.Metadata["task_name"].(string); ok && taskName != "" {
+				ctx.WriteString(fmt.Sprintf("**Task Name**: %s\n", taskName))
+			}
+
+			if taskID != "" {
+				ctx.WriteString(fmt.Sprintf("**Task ID**: %s\n", taskID))
+			}
+
+			if taskType, ok := session.Metadata["task_type"].(string); ok && taskType != "" {
+				ctx.WriteString(fmt.Sprintf("**Task Type**: %s\n", taskType))
+			}
+
+			if taskSchedule, ok := session.Metadata["task_schedule"].(string); ok && taskSchedule != "" {
+				ctx.WriteString(fmt.Sprintf("**Schedule**: %s\n", taskSchedule))
+			}
+
+			if taskDescription, ok := session.Metadata["task_description"].(string); ok && taskDescription != "" {
+				ctx.WriteString(fmt.Sprintf("**Description**: %s\n", taskDescription))
+			}
+
+			if taskPrompt, ok := session.Metadata["task_prompt"].(string); ok && taskPrompt != "" {
+				ctx.WriteString(fmt.Sprintf("**AI Prompt**: %s\n", taskPrompt))
+			}
+
+			if taskCommand, ok := session.Metadata["task_command"].(string); ok && taskCommand != "" {
+				ctx.WriteString(fmt.Sprintf("**Command**: %s\n", taskCommand))
+			}
+
+			ctx.WriteString("\nThis chat is for discussing, monitoring, and managing this specific task. The task will post its execution results to this chat when it runs.\n")
+		ctx.WriteString("To view complete task details including execution history and recent output, use the `get_task` tool with this task ID.\n")
+		ctx.WriteString("To view task execution history, use the `list_run_status` tool.\n\n")
+		}
+
+		if workflowIDRaw, ok := session.Metadata["workflow_id"]; ok {
+			if workflowID, ok := workflowIDRaw.(string); ok && workflowID != "" {
+				ctx.WriteString("\n# Associated Workflow\n\n")
+				ctx.WriteString(fmt.Sprintf("This chat is linked to workflow ID: `%s`\n\n", workflowID))
+				ctx.WriteString("To view the complete workflow structure with all nodes, edges, and configurations, use the `workflow_get_details` tool with this workflow ID.\n")
+				ctx.WriteString("You can modify workflows using the workflow tools: workflow_update, workflow_add_node, workflow_update_node, workflow_delete_node, workflow_connect_nodes.\n\n")
+			}
 		}
 	}
 
@@ -1092,14 +1306,7 @@ func (cs *ChatService) GetProviders() ([]ProviderInfo, error) {
 			Name:    "ollama",
 			Enabled: false,
 			Healthy: false,
-			Models: []string{
-				"llama2",
-				"mistral",
-				"codellama",
-				"llama3",
-				"gemma",
-				"qwen",
-			},
+			Models:  []string{},
 		},
 	}
 
@@ -1542,15 +1749,31 @@ func (cs *ChatService) streamResponseWithTools(session *ChatSession, messages []
 		ctx, cancel := context.WithTimeout(cs.ctx, 5*time.Minute)
 		defer cancel()
 
-		provider, err := cs.aiManager.GetHealthyProvider()
-		if err != nil {
-			errorMsg := fmt.Sprintf("Error: no healthy provider available: %v", err)
+		if cs.aiManager == nil {
+			cs.logger.Error("AI manager is nil - cannot process chat message for session %s", session.ID)
+			errorMsg := "Error: AI service not initialized. Please check server configuration."
 			select {
 			case outCh <- errorMsg:
 			case <-ctx.Done():
 			}
 			return
 		}
+
+		providerName := cs.normalizeProviderName(session.Provider)
+		cs.logger.Info("Getting provider for session %s: original=%s, normalized=%s, model=%s", session.ID, session.Provider, providerName, session.Model)
+
+		provider, err := cs.getProviderWithModel(providerName, session.Model)
+		if err != nil {
+			cs.logger.Error("Failed to get provider %s with model %s for session %s: %v", providerName, session.Model, session.ID, err)
+			errorMsg := fmt.Sprintf("Error: Failed to get AI provider. Provider: %s, model: %s. Error: %v", session.Provider, session.Model, err)
+			select {
+			case outCh <- errorMsg:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		cs.logger.Info("Using provider %s with model %s for session %s", provider.Name(), session.Model, session.ID)
 
 		chatResp, err := provider.ChatWithTools(ctx, messages, tools)
 		if err != nil {
@@ -1718,15 +1941,31 @@ func (cs *ChatService) chatResponseWithTools(session *ChatSession, messages []ai
 		ctx, cancel := context.WithTimeout(cs.ctx, 5*time.Minute)
 		defer cancel()
 
-		provider, err := cs.aiManager.GetHealthyProvider()
-		if err != nil {
-			errorMsg := fmt.Sprintf("Error: no healthy provider available: %v", err)
+		if cs.aiManager == nil {
+			cs.logger.Error("AI manager is nil - cannot process chat message for session %s", session.ID)
+			errorMsg := "Error: AI service not initialized. Please check server configuration."
 			select {
 			case outCh <- errorMsg:
 			case <-ctx.Done():
 			}
 			return
 		}
+
+		providerName := cs.normalizeProviderName(session.Provider)
+		cs.logger.Info("Getting provider for session %s: original=%s, normalized=%s, model=%s", session.ID, session.Provider, providerName, session.Model)
+
+		provider, err := cs.getProviderWithModel(providerName, session.Model)
+		if err != nil {
+			cs.logger.Error("Failed to get provider %s with model %s for session %s: %v", providerName, session.Model, session.ID, err)
+			errorMsg := fmt.Sprintf("Error: Failed to get AI provider. Provider: %s, model: %s. Error: %v", session.Provider, session.Model, err)
+			select {
+			case outCh <- errorMsg:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		cs.logger.Info("Using provider %s with model %s for session %s", provider.Name(), session.Model, session.ID)
 
 		chatResp, err := provider.ChatWithTools(ctx, messages, tools)
 		if err != nil {
@@ -2174,4 +2413,149 @@ func (cs *ChatService) getDefaultMCPServers() []string {
 	}
 
 	return defaultServers
+}
+
+func (cs *ChatService) normalizeProviderName(provider string) string {
+	switch provider {
+	case "local":
+		return "ollama"
+	case "anthropic":
+		return "claude"
+	default:
+		return provider
+	}
+}
+
+func (cs *ChatService) getProviderWithModel(providerName, model string) (ai.Provider, error) {
+	if cs.aiManager == nil {
+		return nil, fmt.Errorf("AI manager not available")
+	}
+
+	if model == "" {
+		return cs.aiManager.GetProvider(providerName)
+	}
+
+	switch providerName {
+	case "ollama":
+		return ai.NewOllamaProvider(&ai.OllamaConfig{
+			BaseURL: cs.getOllamaBaseURL(),
+			Model:   model,
+		})
+	case "openrouter":
+		return ai.NewOpenRouterProvider(&ai.OpenRouterConfig{
+			APIKey: cs.getOpenRouterAPIKey(),
+			Model:  model,
+		})
+	case "openai":
+		return ai.NewOpenAIProvider(&ai.OpenAIConfig{
+			APIKey: cs.getOpenAIAPIKey(),
+			Model:  model,
+		})
+	case "claude":
+		return ai.NewClaudeProvider(&ai.ClaudeConfig{
+			APIKey: cs.getClaudeAPIKey(),
+			Model:  model,
+		})
+	default:
+		return cs.aiManager.GetProvider(providerName)
+	}
+}
+
+func (cs *ChatService) getOllamaBaseURL() string {
+	if url := os.Getenv("OLLAMA_BASE_URL"); url != "" {
+		return url
+	}
+
+	return "http://localhost:11434"
+}
+
+func (cs *ChatService) getOpenRouterAPIKey() string {
+	return os.Getenv("OPENROUTER_API_KEY")
+}
+
+func (cs *ChatService) getOpenAIAPIKey() string {
+	return os.Getenv("OPENAI_API_KEY")
+}
+
+func (cs *ChatService) getClaudeAPIKey() string {
+	return os.Getenv("ANTHROPIC_API_KEY")
+}
+
+type WorkflowDetails struct {
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Nodes       []WorkflowNode `json:"nodes"`
+	Edges       []WorkflowEdge `json:"edges"`
+}
+
+type WorkflowNode struct {
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Position NodePosition    `json:"position"`
+	Data     json.RawMessage `json:"data"`
+}
+
+type WorkflowEdge struct {
+	ID           string `json:"id"`
+	Source       string `json:"source"`
+	Target       string `json:"target"`
+	SourceHandle string `json:"sourceHandle,omitempty"`
+}
+
+type NodePosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+func (cs *ChatService) fetchWorkflowDetails(workflowID string) (*WorkflowDetails, error) {
+	url := "http://mcp-compose-dashboard:3001/api/workflows/" + workflowID
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var workflow WorkflowDetails
+	if err := json.NewDecoder(resp.Body).Decode(&workflow); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &workflow, nil
+}
+
+func (cs *ChatService) findNodeLabel(nodes []WorkflowNode, nodeID string) string {
+	for _, node := range nodes {
+		if node.ID == nodeID {
+			var nodeData map[string]interface{}
+			if err := json.Unmarshal(node.Data, &nodeData); err == nil {
+				if label, ok := nodeData["label"].(string); ok {
+					return label
+				}
+			}
+
+			return node.Type
+		}
+	}
+
+	return "Unknown"
 }

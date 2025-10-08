@@ -320,6 +320,200 @@ func (stm *SystemToolsManager) GetSystemTools() []ToolDefinition {
 				"required": []string{"task_id"},
 			},
 		},
+
+		{
+			Name:        "workflow_get_details",
+			Description: "Get complete workflow configuration including all nodes, edges, and settings",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow to retrieve",
+					},
+				},
+				"required": []string{"workflow_id"},
+			},
+		},
+		{
+			Name:        "workflow_list",
+			Description: "List all workflows with basic information",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "workflow_create",
+			Description: "Create a new workflow with nodes and edges",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the workflow",
+					},
+					"description": map[string]interface{}{
+						"type":        "string",
+						"description": "Description of what the workflow does",
+					},
+					"nodes": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of workflow nodes with their configurations",
+					},
+					"edges": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of edges connecting nodes",
+					},
+				},
+				"required": []string{"name", "nodes", "edges"},
+			},
+		},
+		{
+			Name:        "workflow_update",
+			Description: "Update an existing workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow to update",
+					},
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "New name for the workflow",
+					},
+					"description": map[string]interface{}{
+						"type":        "string",
+						"description": "New description for the workflow",
+					},
+					"nodes": map[string]interface{}{
+						"type":        "array",
+						"description": "Updated array of workflow nodes",
+					},
+					"edges": map[string]interface{}{
+						"type":        "array",
+						"description": "Updated array of edges",
+					},
+				},
+				"required": []string{"workflow_id"},
+			},
+		},
+		{
+			Name:        "workflow_add_node",
+			Description: "Add a new node to an existing workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow",
+					},
+					"node_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of node: trigger, ai-task, mcp-server, decision, transform, or code",
+					},
+					"node_data": map[string]interface{}{
+						"type":        "object",
+						"description": "Node configuration data",
+					},
+					"position_x": map[string]interface{}{
+						"type":        "number",
+						"description": "X coordinate for node position",
+					},
+					"position_y": map[string]interface{}{
+						"type":        "number",
+						"description": "Y coordinate for node position",
+					},
+				},
+				"required": []string{"workflow_id", "node_type", "node_data"},
+			},
+		},
+		{
+			Name:        "workflow_update_node",
+			Description: "Update a node's configuration in a workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow",
+					},
+					"node_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the node to update",
+					},
+					"node_data": map[string]interface{}{
+						"type":        "object",
+						"description": "Updated node configuration data",
+					},
+				},
+				"required": []string{"workflow_id", "node_id", "node_data"},
+			},
+		},
+		{
+			Name:        "workflow_delete_node",
+			Description: "Delete a node from a workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow",
+					},
+					"node_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the node to delete",
+					},
+				},
+				"required": []string{"workflow_id", "node_id"},
+			},
+		},
+		{
+			Name:        "workflow_connect_nodes",
+			Description: "Create an edge connecting two nodes in a workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow",
+					},
+					"source_node_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the source node",
+					},
+					"target_node_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the target node",
+					},
+					"source_handle": map[string]interface{}{
+						"type":        "string",
+						"description": "Source handle identifier (for decision nodes: 'true' or 'false')",
+					},
+				},
+				"required": []string{"workflow_id", "source_node_id", "target_node_id"},
+			},
+		},
+		{
+			Name:        "workflow_get_execution_history",
+			Description: "Get execution history for a workflow",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"workflow_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the workflow",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of executions to return (default: 50)",
+						"default":     50,
+					},
+				},
+				"required": []string{"workflow_id"},
+			},
+		},
 	}
 }
 
@@ -370,6 +564,25 @@ func (stm *SystemToolsManager) ExecuteSystemTool(ctx context.Context, toolName s
 		return stm.taskSchedulerUpdateSchedule(ctx, arguments)
 	case "task_scheduler_run_now":
 		return stm.taskSchedulerRunNow(ctx, arguments)
+
+	case "workflow_get_details":
+		return stm.workflowGetDetails(ctx, arguments)
+	case "workflow_list":
+		return stm.workflowList(ctx, arguments)
+	case "workflow_create":
+		return stm.workflowCreate(ctx, arguments)
+	case "workflow_update":
+		return stm.workflowUpdate(ctx, arguments)
+	case "workflow_add_node":
+		return stm.workflowAddNode(ctx, arguments)
+	case "workflow_update_node":
+		return stm.workflowUpdateNode(ctx, arguments)
+	case "workflow_delete_node":
+		return stm.workflowDeleteNode(ctx, arguments)
+	case "workflow_connect_nodes":
+		return stm.workflowConnectNodes(ctx, arguments)
+	case "workflow_get_execution_history":
+		return stm.workflowGetExecutionHistory(ctx, arguments)
 
 	default:
 		return nil, fmt.Errorf("unknown system tool: %s", toolName)
@@ -751,6 +964,15 @@ func IsSystemTool(toolName string) bool {
 		"server_stop",
 		"server_restart",
 		"server_logs",
+		"workflow_get_details",
+		"workflow_list",
+		"workflow_create",
+		"workflow_update",
+		"workflow_add_node",
+		"workflow_update_node",
+		"workflow_delete_node",
+		"workflow_connect_nodes",
+		"workflow_get_execution_history",
 	}
 
 	for _, tool := range systemTools {
@@ -1116,4 +1338,372 @@ func getBoolArg(args map[string]interface{}, key string, defaultVal bool) bool {
 	}
 
 	return defaultVal
+}
+
+func (stm *SystemToolsManager) workflowGetDetails(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	url := "http://mcp-compose-dashboard:3001/api/workflows/" + workflowID
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+func (stm *SystemToolsManager) workflowList(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	url := "http://mcp-compose-dashboard:3001/api/workflows"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workflows: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+func (stm *SystemToolsManager) workflowCreate(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	url := "http://mcp-compose-dashboard:3001/api/workflows"
+
+	requestBody, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(requestBody)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create workflow: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+func (stm *SystemToolsManager) workflowUpdate(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	url := "http://mcp-compose-dashboard:3001/api/workflows/" + workflowID
+
+	requestBody, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(requestBody)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update workflow: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+func (stm *SystemToolsManager) workflowAddNode(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	workflow, err := stm.workflowGetDetails(ctx, map[string]interface{}{"workflow_id": workflowID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	workflowMap, ok := workflow.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid workflow data")
+	}
+
+	nodes, _ := workflowMap["nodes"].([]interface{})
+	nodeType := getStringArg(arguments, "node_type")
+	nodeData := arguments["node_data"]
+
+	nodeDataJSON, err := json.Marshal(nodeData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal node data: %w", err)
+	}
+
+	newNode := map[string]interface{}{
+		"id":   fmt.Sprintf("node-%d", time.Now().UnixNano()),
+		"type": nodeType,
+		"data": nodeDataJSON,
+		"position": map[string]interface{}{
+			"x": arguments["position_x"],
+			"y": arguments["position_y"],
+		},
+	}
+
+	nodes = append(nodes, newNode)
+	workflowMap["nodes"] = nodes
+
+	return stm.workflowUpdate(ctx, workflowMap)
+}
+
+func (stm *SystemToolsManager) workflowUpdateNode(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	nodeID := getStringArg(arguments, "node_id")
+	if nodeID == "" {
+		return nil, fmt.Errorf("node_id is required")
+	}
+
+	workflow, err := stm.workflowGetDetails(ctx, map[string]interface{}{"workflow_id": workflowID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	workflowMap, ok := workflow.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid workflow data")
+	}
+
+	nodes, _ := workflowMap["nodes"].([]interface{})
+	nodeData := arguments["node_data"]
+
+	nodeDataJSON, err := json.Marshal(nodeData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal node data: %w", err)
+	}
+
+	found := false
+	for i, nodeInterface := range nodes {
+		node, _ := nodeInterface.(map[string]interface{})
+		if node["id"] == nodeID {
+			node["data"] = nodeDataJSON
+			nodes[i] = node
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, fmt.Errorf("node not found: %s", nodeID)
+	}
+
+	workflowMap["nodes"] = nodes
+
+	return stm.workflowUpdate(ctx, workflowMap)
+}
+
+func (stm *SystemToolsManager) workflowDeleteNode(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	nodeID := getStringArg(arguments, "node_id")
+	if nodeID == "" {
+		return nil, fmt.Errorf("node_id is required")
+	}
+
+	workflow, err := stm.workflowGetDetails(ctx, map[string]interface{}{"workflow_id": workflowID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	workflowMap, ok := workflow.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid workflow data")
+	}
+
+	nodes, _ := workflowMap["nodes"].([]interface{})
+	edges, _ := workflowMap["edges"].([]interface{})
+
+	filteredNodes := []interface{}{}
+	for _, nodeInterface := range nodes {
+		node, _ := nodeInterface.(map[string]interface{})
+		if node["id"] != nodeID {
+			filteredNodes = append(filteredNodes, nodeInterface)
+		}
+	}
+
+	filteredEdges := []interface{}{}
+	for _, edgeInterface := range edges {
+		edge, _ := edgeInterface.(map[string]interface{})
+		if edge["source"] != nodeID && edge["target"] != nodeID {
+			filteredEdges = append(filteredEdges, edgeInterface)
+		}
+	}
+
+	workflowMap["nodes"] = filteredNodes
+	workflowMap["edges"] = filteredEdges
+
+	return stm.workflowUpdate(ctx, workflowMap)
+}
+
+func (stm *SystemToolsManager) workflowConnectNodes(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	sourceNodeID := getStringArg(arguments, "source_node_id")
+	if sourceNodeID == "" {
+		return nil, fmt.Errorf("source_node_id is required")
+	}
+
+	targetNodeID := getStringArg(arguments, "target_node_id")
+	if targetNodeID == "" {
+		return nil, fmt.Errorf("target_node_id is required")
+	}
+
+	workflow, err := stm.workflowGetDetails(ctx, map[string]interface{}{"workflow_id": workflowID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	workflowMap, ok := workflow.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid workflow data")
+	}
+
+	edges, _ := workflowMap["edges"].([]interface{})
+
+	newEdge := map[string]interface{}{
+		"id":     fmt.Sprintf("edge-%d", time.Now().UnixNano()),
+		"source": sourceNodeID,
+		"target": targetNodeID,
+	}
+
+	if sourceHandle, ok := arguments["source_handle"].(string); ok && sourceHandle != "" {
+		newEdge["sourceHandle"] = sourceHandle
+	}
+
+	edges = append(edges, newEdge)
+	workflowMap["edges"] = edges
+
+	return stm.workflowUpdate(ctx, workflowMap)
+}
+
+func (stm *SystemToolsManager) workflowGetExecutionHistory(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	workflowID := getStringArg(arguments, "workflow_id")
+	if workflowID == "" {
+		return nil, fmt.Errorf("workflow_id is required")
+	}
+
+	url := "http://mcp-compose-dashboard:3001/api/workflows/" + workflowID + "/executions"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	apiKey := os.Getenv("MCP_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get execution history: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
 }

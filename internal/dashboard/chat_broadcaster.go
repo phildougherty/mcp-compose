@@ -250,8 +250,11 @@ func (s *DashboardServer) chatWritePump(conn *SafeWebSocketConn, clientChan <-ch
 }
 
 func (s *DashboardServer) streamChatResponseViaBroadcaster(broadcaster *ChatBroadcaster, sessionID, userMessage string, done <-chan struct{}) {
+	s.logger.Debug("streamChatResponseViaBroadcaster: Starting for session %s", sessionID)
+
 	streamCh, err := s.chatService.SendMessage(sessionID, userMessage, true)
 	if err != nil {
+		s.logger.Error("Failed to start message streaming for session %s: %v", sessionID, err)
 		errMsg := StreamChunk{
 			Type:  "error",
 			Error: fmt.Sprintf("%v", err),
@@ -262,16 +265,33 @@ func (s *DashboardServer) streamChatResponseViaBroadcaster(broadcaster *ChatBroa
 		return
 	}
 
+	s.logger.Debug("streamChatResponseViaBroadcaster: Message streaming started for session %s", sessionID)
+
 	messageID := ""
 	var allToolCalls []ToolCall
 	var allToolResults []ToolCall
+	hasContent := false
 
 	for chunk := range streamCh {
 		select {
 		case <-done:
+			s.logger.Debug("streamChatResponseViaBroadcaster: Received done signal for session %s", sessionID)
 			return
 		default:
 		}
+
+		if strings.HasPrefix(chunk, "Error:") {
+			s.logger.Error("Received error in stream for session %s: %s", sessionID, chunk)
+			errMsg := StreamChunk{
+				Type:  "error",
+				Error: chunk,
+				Done:  true,
+			}
+			broadcaster.BroadcastChunkToSession(sessionID, errMsg)
+			return
+		}
+
+		hasContent = true
 
 		if strings.HasPrefix(chunk, "__TOOL_CALLS__") {
 			toolCallsJSON := strings.TrimPrefix(chunk, "__TOOL_CALLS__")
@@ -320,6 +340,10 @@ func (s *DashboardServer) streamChatResponseViaBroadcaster(broadcaster *ChatBroa
 		}
 
 		broadcaster.BroadcastChunkToSession(sessionID, streamMsg)
+	}
+
+	if !hasContent {
+		s.logger.Warning("Stream completed with no content for session %s", sessionID)
 	}
 
 	s.logger.Info("Sending done message with %d tool calls and %d tool results", len(allToolCalls), len(allToolResults))

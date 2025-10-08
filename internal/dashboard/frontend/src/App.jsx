@@ -12,6 +12,8 @@ import {
   XMarkIcon,
   SunIcon,
   MoonIcon,
+  ArrowPathRoundedSquareIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { ToastProvider } from './components/shared/Toast';
 import Spinner from './components/shared/Spinner';
@@ -25,10 +27,14 @@ const Activity = lazy(() => import('./components/Activity'));
 const Logs = lazy(() => import('./components/Logs'));
 const OAuth = lazy(() => import('./components/OAuth'));
 const Audit = lazy(() => import('./components/Audit'));
+const WorkflowBuilder = lazy(() => import('./components/WorkflowBuilder'));
+const TemplateMarketplace = lazy(() => import('./components/TemplateMarketplace'));
 
 const TABS = [
   { id: 'dashboard', label: 'Servers', Icon: Squares2X2Icon, Component: Dashboard },
   { id: 'chat', label: 'Chat', Icon: ChatBubbleLeftRightIcon, Component: Chat },
+  { id: 'workflows', label: 'Workflows', Icon: ArrowPathRoundedSquareIcon, Component: WorkflowBuilder },
+  { id: 'templates', label: 'Templates', Icon: SparklesIcon, Component: TemplateMarketplace },
   { id: 'tasks', label: 'Tasks', Icon: ClockIcon, Component: TaskScheduler },
   { id: 'memory', label: 'Memory', Icon: CircleStackIcon, Component: Memory },
   { id: 'activity', label: 'Activity', Icon: BoltIcon, Component: Activity },
@@ -227,7 +233,13 @@ function App() {
             {ActiveComponent && activeTab === 'tasks' && (
               <ActiveComponent servers={servers} onNavigateToChat={handleNavigateToChat} />
             )}
-            {ActiveComponent && activeTab !== 'chat' && activeTab !== 'tasks' && (
+            {ActiveComponent && activeTab === 'workflows' && (
+              <ActiveComponent servers={servers} />
+            )}
+            {ActiveComponent && activeTab === 'templates' && (
+              <ActiveComponent servers={servers} />
+            )}
+            {ActiveComponent && activeTab !== 'chat' && activeTab !== 'tasks' && activeTab !== 'workflows' && activeTab !== 'templates' && (
               <ActiveComponent servers={servers} />
             )}
           </Suspense>

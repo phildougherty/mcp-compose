@@ -39,6 +39,7 @@ func NewRootCommand(version string) *cobra.Command {
 	rootCmd.AddCommand(NewMemoryCommand())
 	rootCmd.AddCommand(NewRotateSecretCommand())
 	rootCmd.AddCommand(NewSystemCommand())
+	rootCmd.AddCommand(NewWorkflowCommand())
 
 	return rootCmd
 }
