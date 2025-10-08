@@ -36,6 +36,7 @@ type NodeConfig struct {
 	ErrorMode   string                 `json:"errorMode,omitempty"`
 	Default     interface{}            `json:"default,omitempty"`
 	Streaming   bool                   `json:"streaming,omitempty"`
+	PassContext bool                   `json:"passContext,omitempty"`
 }
 
 type NodeData struct {
@@ -85,6 +86,10 @@ func (ne *NodeExecutor) ExecuteNode(ctx context.Context, node *WorkflowNode, exe
 }
 
 func (ne *NodeExecutor) executeTrigger(ctx context.Context, data NodeData, execCtx *ExecutionContext) (map[string]interface{}, error) {
+	if !data.Config.PassContext {
+		return map[string]interface{}{}, nil
+	}
+
 	return map[string]interface{}{
 		"triggered": true,
 		"timestamp": time.Now().Format(time.RFC3339),
