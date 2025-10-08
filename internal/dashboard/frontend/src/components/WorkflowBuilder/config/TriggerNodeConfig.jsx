@@ -10,6 +10,7 @@ export default function TriggerNodeConfig({ node, onUpdate, onClose }) {
     webhookPath: node.data?.webhookPath || '/webhook',
     eventType: node.data?.eventType || 'custom',
     enabled: node.data?.enabled !== false,
+    passContext: node.data?.config?.passContext !== false,
   });
 
   const [hasChanges, setHasChanges] = useState(false);
@@ -26,6 +27,10 @@ export default function TriggerNodeConfig({ node, onUpdate, onClose }) {
     const updatedData = {
       ...node.data,
       ...formData,
+      config: {
+        ...node.data?.config,
+        passContext: formData.passContext,
+      },
     };
 
     if (formData.triggerType === 'cron') {
@@ -48,6 +53,7 @@ export default function TriggerNodeConfig({ node, onUpdate, onClose }) {
       webhookPath: node.data?.webhookPath || '/webhook',
       eventType: node.data?.eventType || 'custom',
       enabled: node.data?.enabled !== false,
+      passContext: node.data?.config?.passContext !== false,
     });
     setHasChanges(false);
   };
@@ -146,6 +152,21 @@ export default function TriggerNodeConfig({ node, onUpdate, onClose }) {
         </label>
         <p className="mt-1 ml-6 text-xs text-gray-500 dark:text-gray-400">
           Disabled triggers will not execute the workflow
+        </p>
+      </div>
+
+      <div>
+        <label className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            checked={formData.passContext}
+            onChange={(e) => handleChange('passContext', e.target.checked)}
+            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300">Pass context to next nodes</span>
+        </label>
+        <p className="mt-1 ml-6 text-xs text-gray-500 dark:text-gray-400">
+          When enabled, trigger metadata (timestamp, trigger data) will be passed to downstream nodes. Disable to prevent context pollution in AI prompts.
         </p>
       </div>
 
