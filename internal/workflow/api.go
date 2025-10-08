@@ -304,6 +304,7 @@ func (h *APIHandler) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Reques
 	if execution != nil {
 		response["executionId"] = execution.ID
 		response["output"] = execution.Result
+		response["nodeStates"] = execution.NodeStates
 		if err == nil {
 			response["status"] = execution.Status
 		}
