@@ -345,7 +345,7 @@ func (stm *SystemToolsManager) GetSystemTools() []ToolDefinition {
 		},
 		{
 			Name:        "workflow_create",
-			Description: "Create a new workflow with nodes and edges",
+			Description: "Create a new workflow with nodes and edges. Each node has: id (unique string), type (trigger/ai-task/mcp-server/decision/transform/code), position {x, y}, and data (node-specific config). Edges connect nodes with: id, source (node id), target (node id). Example trigger node data: {\"label\": \"Every 5 min\", \"triggerType\": \"cron\", \"cronSchedule\": \"*/5 * * * *\", \"config\": {\"passContext\": false}}. Example AI task node data: {\"label\": \"Say yo\", \"config\": {\"prompt\": \"yo dude\", \"provider\": \"ollama\", \"model\": \"gpt-oss:latest\"}}",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -359,11 +359,55 @@ func (stm *SystemToolsManager) GetSystemTools() []ToolDefinition {
 					},
 					"nodes": map[string]interface{}{
 						"type":        "array",
-						"description": "Array of workflow nodes with their configurations",
+						"description": "Array of workflow nodes. Each node must have: id (string), type (string), position (object with x and y numbers), data (object with node config). Node types: trigger, ai-task, mcp-server, decision, transform, code",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "string",
+									"description": "Unique identifier for the node",
+								},
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Node type: trigger, ai-task, mcp-server, decision, transform, or code",
+								},
+								"position": map[string]interface{}{
+									"type":        "object",
+									"description": "Node position on canvas",
+									"properties": map[string]interface{}{
+										"x": map[string]interface{}{"type": "number"},
+										"y": map[string]interface{}{"type": "number"},
+									},
+								},
+								"data": map[string]interface{}{
+									"type":        "object",
+									"description": "Node configuration data - structure depends on node type",
+								},
+							},
+							"required": []string{"id", "type", "position", "data"},
+						},
 					},
 					"edges": map[string]interface{}{
 						"type":        "array",
-						"description": "Array of edges connecting nodes",
+						"description": "Array of edges connecting nodes. Each edge connects a source node to a target node",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "string",
+									"description": "Unique identifier for the edge",
+								},
+								"source": map[string]interface{}{
+									"type":        "string",
+									"description": "ID of the source node",
+								},
+								"target": map[string]interface{}{
+									"type":        "string",
+									"description": "ID of the target node",
+								},
+							},
+							"required": []string{"id", "source", "target"},
+						},
 					},
 				},
 				"required": []string{"name", "nodes", "edges"},
