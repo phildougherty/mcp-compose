@@ -38,6 +38,16 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ servers = [] }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+
+  useEffect(() => {
+    console.log('Nodes state updated:', nodes);
+    console.log('Current node count:', nodes.length);
+  }, [nodes]);
+
+  useEffect(() => {
+    console.log('Edges state updated:', edges);
+    console.log('Current edge count:', edges.length);
+  }, [edges]);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [workflowName, setWorkflowName] = useState('Untitled Workflow');
   const [isExecutionView, setIsExecutionView] = useState(false);
@@ -68,11 +78,37 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ servers = [] }) => {
       const response = await fetch(`/api/workflows/${id}`);
       if (response.ok) {
         const workflow = await response.json();
+        console.log('Loaded workflow from API:', workflow);
+        console.log('Nodes:', workflow.nodes);
+        console.log('Edges:', workflow.edges);
+        console.log('Node count:', workflow.nodes?.length);
+        console.log('Edge count:', workflow.edges?.length);
+
+        if (workflow.nodes && workflow.nodes.length > 0) {
+          workflow.nodes.forEach((node: any, idx: number) => {
+            console.log(`Node ${idx}:`, {
+              id: node.id,
+              type: node.type,
+              position: node.position,
+              data: node.data,
+              hasData: !!node.data,
+              dataKeys: node.data ? Object.keys(node.data) : []
+            });
+          });
+        }
+
         setNodes(workflow.nodes || []);
         setEdges(workflow.edges || []);
         setWorkflowName(workflow.name || 'Untitled Workflow');
         setWorkflowId(workflow.id);
         setShowWorkflowList(false);
+
+        setTimeout(() => {
+          if (reactFlowInstance) {
+            console.log('Calling fitView after loading workflow');
+            reactFlowInstance.fitView({ padding: 0.2, duration: 200 });
+          }
+        }, 100);
       }
     } catch (error) {
       console.error('Failed to load workflow:', error);
@@ -163,6 +199,35 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ servers = [] }) => {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  const calculateSmartPosition = useCallback(() => {
+    if (!reactFlowInstance) return { x: 0, y: 0 };
+
+    if (nodes.length === 0) {
+      const viewport = reactFlowInstance.getViewport();
+      const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+
+      if (bounds) {
+        const centerX = (bounds.width / 2 - viewport.x) / viewport.zoom;
+        const centerY = (bounds.height / 2 - viewport.y) / viewport.zoom;
+
+        return { x: centerX, y: centerY };
+      }
+
+      return { x: 250, y: 100 };
+    }
+
+    const bottomMostNode = nodes.reduce((bottom, node) => {
+      return node.position.y > bottom.position.y ? node : bottom;
+    }, nodes[0]);
+
+    const avgX = nodes.reduce((sum, node) => sum + node.position.x, 0) / nodes.length;
+
+    return {
+      x: avgX,
+      y: bottomMostNode.position.y + 150,
+    };
+  }, [nodes, reactFlowInstance]);
+
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
@@ -176,10 +241,7 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ servers = [] }) => {
         return;
       }
 
-      const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
-      });
+      const position = calculateSmartPosition();
 
       const defaultData: any = {
         label: label || type,
@@ -202,7 +264,7 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ servers = [] }) => {
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, setNodes, calculateSmartPosition]
   );
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: WorkflowNode) => {

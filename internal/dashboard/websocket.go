@@ -44,6 +44,11 @@ type ActivityMessage struct {
 	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
+type ServerStatusMessage struct {
+	Timestamp string                            `json:"timestamp"`
+	Servers   map[string]map[string]interface{} `json:"servers"`
+}
+
 // SafeWebSocketConn - WebSocket connection wrapper with mutex for safe concurrent writes
 type SafeWebSocketConn struct {
 	conn *websocket.Conn
@@ -98,6 +103,26 @@ var activityBroadcaster = &ActivityBroadcaster{
 	register:   make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
 	unregister: make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
 	broadcast:  make(chan ActivityMessage, constants.ActivityChannelSize),
+	shutdown:   make(chan struct{}),
+}
+
+// ServerStatusBroadcaster handles server status WebSocket connections
+type ServerStatusBroadcaster struct {
+	clients    map[*SafeWebSocketConn]bool
+	mu         sync.RWMutex
+	register   chan *SafeWebSocketConn
+	unregister chan *SafeWebSocketConn
+	shutdown   chan struct{}
+	running    bool
+	runMutex   sync.Mutex
+	dashboard  *DashboardServer
+}
+
+// Global server status broadcaster instance
+var serverStatusBroadcaster = &ServerStatusBroadcaster{
+	clients:    make(map[*SafeWebSocketConn]bool),
+	register:   make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
+	unregister: make(chan *SafeWebSocketConn, constants.WebSocketChannelSize),
 	shutdown:   make(chan struct{}),
 }
 
@@ -749,26 +774,200 @@ func (d *DashboardServer) handleDashboardWebSocket(w http.ResponseWriter, r *htt
 		}
 	}()
 
-	d.logger.Info("Dashboard WebSocket connected")
+	d.logger.Info("Dashboard WebSocket connected for server status updates")
 
-	// Simple echo/ping-pong for now
+	conn.SetPongHandler(func(string) error {
+		d.logger.Debug("Received pong from dashboard client")
+
+		return nil
+	})
+
+	if !serverStatusBroadcaster.running {
+		serverStatusBroadcaster.dashboard = d
+		serverStatusBroadcaster.start()
+	}
+
+	serverStatusBroadcaster.register <- safeConn
+
+	defer func() {
+		serverStatusBroadcaster.unregister <- safeConn
+	}()
+
 	for {
-		messageType, message, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				d.logger.Debug("Dashboard WebSocket closed normally")
-			} else {
-				d.logger.Error("Failed to read dashboard WebSocket message: %v", err)
-			}
+		if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			d.logger.Debug("Failed to send ping to dashboard client: %v", err)
 
 			break
 		}
+		time.Sleep(constants.WebSocketPingInterval)
+	}
+}
 
-		// Echo back for now - can be extended for server updates
-		if err := conn.WriteMessage(messageType, message); err != nil {
-			d.logger.Error("Failed to write dashboard WebSocket message: %v", err)
+func (ssb *ServerStatusBroadcaster) start() {
+	ssb.runMutex.Lock()
+	if ssb.running {
+		ssb.runMutex.Unlock()
 
-			break
+		return
+	}
+	ssb.running = true
+	ssb.runMutex.Unlock()
+
+	go ssb.run()
+}
+
+func (ssb *ServerStatusBroadcaster) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			time.Sleep(time.Second)
+			ssb.runMutex.Lock()
+			ssb.running = false
+			ssb.runMutex.Unlock()
+			ssb.start()
+		}
+	}()
+
+	ticker := time.NewTicker(constants.MetricsUpdateInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case client := <-ssb.register:
+			ssb.handleClientRegistration(client)
+
+		case client := <-ssb.unregister:
+			ssb.handleClientUnregistration(client)
+
+		case <-ticker.C:
+			ssb.broadcastServerStatus()
+
+		case <-ssb.shutdown:
+			ssb.handleShutdown()
+
+			return
 		}
 	}
+}
+
+func (ssb *ServerStatusBroadcaster) handleClientRegistration(client *SafeWebSocketConn) {
+	ssb.mu.Lock()
+	ssb.clients[client] = true
+	clientCount := len(ssb.clients)
+	ssb.mu.Unlock()
+
+	ssb.dashboard.logger.Info("Server status client registered (total: %d)", clientCount)
+
+	go ssb.sendServerStatusToClient(client)
+}
+
+func (ssb *ServerStatusBroadcaster) handleClientUnregistration(client *SafeWebSocketConn) {
+	ssb.mu.Lock()
+	if _, exists := ssb.clients[client]; exists {
+		delete(ssb.clients, client)
+		_ = client.Close()
+	}
+	clientCount := len(ssb.clients)
+	ssb.mu.Unlock()
+
+	ssb.dashboard.logger.Info("Server status client unregistered (remaining: %d)", clientCount)
+}
+
+func (ssb *ServerStatusBroadcaster) broadcastServerStatus() {
+	ssb.mu.RLock()
+	clientCount := len(ssb.clients)
+	ssb.mu.RUnlock()
+
+	if clientCount == 0 {
+
+		return
+	}
+
+	statusData, err := ssb.dashboard.proxyRequest("/api/servers")
+	if err != nil {
+		ssb.dashboard.logger.Error("Failed to get server status: %v", err)
+
+		return
+	}
+
+	var servers map[string]map[string]interface{}
+	if err := json.Unmarshal(statusData, &servers); err != nil {
+		ssb.dashboard.logger.Error("Failed to parse server status: %v", err)
+
+		return
+	}
+
+	message := ServerStatusMessage{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Servers:   servers,
+	}
+
+	ssb.mu.Lock()
+	defer ssb.mu.Unlock()
+
+	for client := range ssb.clients {
+		if !ssb.sendToClient(client, message) {
+			delete(ssb.clients, client)
+		}
+	}
+}
+
+func (ssb *ServerStatusBroadcaster) sendServerStatusToClient(client *SafeWebSocketConn) {
+	statusData, err := ssb.dashboard.proxyRequest("/api/servers")
+	if err != nil {
+		ssb.dashboard.logger.Error("Failed to get initial server status: %v", err)
+
+		return
+	}
+
+	var servers map[string]map[string]interface{}
+	if err := json.Unmarshal(statusData, &servers); err != nil {
+		ssb.dashboard.logger.Error("Failed to parse initial server status: %v", err)
+
+		return
+	}
+
+	message := ServerStatusMessage{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Servers:   servers,
+	}
+
+	_ = client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout))
+	if err := client.WriteJSON(message); err != nil {
+		ssb.dashboard.logger.Debug("Failed to send initial server status: %v", err)
+	}
+}
+
+func (ssb *ServerStatusBroadcaster) sendToClient(client *SafeWebSocketConn, message ServerStatusMessage) bool {
+	done := make(chan bool, 1)
+	go func() {
+		_ = client.SetWriteDeadline(time.Now().Add(constants.DefaultWebSocketTimeout))
+		err := client.WriteJSON(message)
+		done <- (err == nil)
+		if err != nil {
+			_ = client.Close()
+		}
+	}()
+
+	select {
+	case success := <-done:
+
+		return success
+	case <-time.After(constants.DefaultConnectionTimeout):
+		_ = client.Close()
+
+		return false
+	}
+}
+
+func (ssb *ServerStatusBroadcaster) handleShutdown() {
+	ssb.mu.Lock()
+	for client := range ssb.clients {
+		_ = client.Close()
+	}
+	ssb.clients = make(map[*SafeWebSocketConn]bool)
+	ssb.mu.Unlock()
+}
+
+func (ssb *ServerStatusBroadcaster) Stop() {
+	close(ssb.shutdown)
 }

@@ -18,6 +18,7 @@ import {
 import { ToastProvider } from './components/shared/Toast';
 import Spinner from './components/shared/Spinner';
 import { initializeTheme, toggleTheme, getTheme } from './utils/theme';
+import { useServerStatus } from './hooks/useServerStatus';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Chat = lazy(() => import('./components/Chat'));
@@ -49,35 +50,13 @@ function App() {
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setThemeState] = useState('light');
-  const [servers, setServers] = useState([]);
   const [chatSessionId, setChatSessionId] = useState(null);
+
+  const { servers, isConnected, error: wsError } = useServerStatus();
 
   useEffect(() => {
     const initialTheme = initializeTheme();
     setThemeState(initialTheme);
-  }, []);
-
-  useEffect(() => {
-    const fetchServers = async () => {
-      try {
-        const response = await fetch('/api/servers');
-        if (response.ok) {
-          const data = await response.json();
-          const serversArray = Object.keys(data || {}).map(name => ({
-            name,
-            ...data[name]
-          }));
-          setServers(serversArray);
-        }
-      } catch (error) {
-        console.error('Failed to fetch servers:', error);
-      }
-    };
-
-    fetchServers();
-    const interval = setInterval(fetchServers, 10000);
-
-    return () => clearInterval(interval);
   }, []);
 
   const handleTabChange = (tabId) => {
@@ -129,18 +108,29 @@ function App() {
                 </h1>
               </div>
 
-              <button
-                type="button"
-                onClick={handleThemeToggle}
-                className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] flex-shrink-0 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              >
-                {theme === 'dark' ? (
-                  <SunIcon className="h-5 w-5" aria-hidden="true" />
-                ) : (
-                  <MoonIcon className="h-5 w-5" aria-hidden="true" />
-                )}
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs"
+                  title={isConnected ? 'WebSocket Connected' : 'WebSocket Disconnected'}
+                >
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-gray-600 dark:text-gray-400 hidden sm:inline">
+                    {isConnected ? 'Live' : 'Offline'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleThemeToggle}
+                  className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] flex-shrink-0 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                  aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                >
+                  {theme === 'dark' ? (
+                    <SunIcon className="h-5 w-5" aria-hidden="true" />
+                  ) : (
+                    <MoonIcon className="h-5 w-5" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 

@@ -271,5 +271,15 @@ export function createLogsWebSocket() {
   });
 }
 
+/**
+ * Create server status WebSocket connection
+ * @returns {WebSocketManager} WebSocket manager for server status
+ */
+export function createServerStatusWebSocket() {
+  return createWebSocketManager('/ws/dashboard', {
+    debug: process.env.NODE_ENV === 'development',
+  });
+}
+
 export default WebSocketManager;
 export { WebSocketManager };

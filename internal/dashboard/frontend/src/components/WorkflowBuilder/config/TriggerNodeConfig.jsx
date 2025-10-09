@@ -26,7 +26,12 @@ export default function TriggerNodeConfig({ node, onUpdate, onClose }) {
   const handleSave = () => {
     const updatedData = {
       ...node.data,
-      ...formData,
+      label: formData.label,
+      triggerType: formData.triggerType,
+      cronSchedule: formData.cronSchedule,
+      webhookPath: formData.webhookPath,
+      eventType: formData.eventType,
+      enabled: formData.enabled,
       config: {
         ...node.data?.config,
         passContext: formData.passContext,

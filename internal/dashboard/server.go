@@ -230,6 +230,10 @@ func (d *DashboardServer) Shutdown() {
 		d.chatBroadcaster.Stop()
 	}
 
+	if serverStatusBroadcaster.running {
+		serverStatusBroadcaster.Stop()
+	}
+
 	if d.workflowHandler != nil {
 		d.workflowHandler.Shutdown()
 	}
