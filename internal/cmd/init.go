@@ -91,9 +91,7 @@ type stepMsg int
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4")).
-			MarginTop(1).
-			MarginBottom(1)
+			Foreground(lipgloss.Color("#7D56F4"))
 
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#7D56F4")).
@@ -278,11 +276,13 @@ func (m initModel) View() string {
 			cursor := " "
 			if m.cursor == i {
 				cursor = ">"
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, p.name)))
+				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, p.name)))
 			} else {
-				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s\n", cursor, p.name)))
+				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, p.name)))
 			}
-			s.WriteString(dimStyle.Render(fmt.Sprintf("   %s\n", p.desc)))
+			s.WriteString("\n")
+			s.WriteString(dimStyle.Render(fmt.Sprintf("  %s", p.desc)))
+			s.WriteString("\n")
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • enter: select • q: quit"))
@@ -299,11 +299,13 @@ func (m initModel) View() string {
 			}
 			if m.cursor == i {
 				cursor = ">"
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s %s\n", cursor, checkbox, srv.name)))
+				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, srv.name)))
 			} else {
-				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s %s\n", cursor, checkbox, srv.name)))
+				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s %s", cursor, checkbox, srv.name)))
 			}
-			s.WriteString(dimStyle.Render(fmt.Sprintf("    %s\n", srv.description)))
+			s.WriteString("\n")
+			s.WriteString(dimStyle.Render(fmt.Sprintf("     %s", srv.description)))
+			s.WriteString("\n")
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • space: toggle • n: next • q: quit"))
@@ -333,11 +335,13 @@ func (m initModel) View() string {
 			cursor := " "
 			if m.cursor == i {
 				cursor = ">"
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, auth.name)))
+				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, auth.name)))
 			} else {
-				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s\n", cursor, auth.name)))
+				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, auth.name)))
 			}
-			s.WriteString(dimStyle.Render(fmt.Sprintf("   %s\n", auth.desc)))
+			s.WriteString("\n")
+			s.WriteString(dimStyle.Render(fmt.Sprintf("  %s", auth.desc)))
+			s.WriteString("\n")
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • enter: select • q: quit"))
