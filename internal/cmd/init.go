@@ -279,10 +279,10 @@ func (m initModel) View() string {
 			if m.cursor == i {
 				cursor = ">"
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, p.name)))
-				s.WriteString(dimStyle.Render(fmt.Sprintf("  %s\n", p.desc)))
 			} else {
 				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s\n", cursor, p.name)))
 			}
+			s.WriteString(dimStyle.Render(fmt.Sprintf("   %s\n", p.desc)))
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • enter: select • q: quit"))
@@ -300,10 +300,10 @@ func (m initModel) View() string {
 			if m.cursor == i {
 				cursor = ">"
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s %s\n", cursor, checkbox, srv.name)))
-				s.WriteString(dimStyle.Render(fmt.Sprintf("   %s\n", srv.description)))
 			} else {
 				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s %s\n", cursor, checkbox, srv.name)))
 			}
+			s.WriteString(dimStyle.Render(fmt.Sprintf("    %s\n", srv.description)))
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • space: toggle • n: next • q: quit"))
@@ -334,10 +334,10 @@ func (m initModel) View() string {
 			if m.cursor == i {
 				cursor = ">"
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s\n", cursor, auth.name)))
-				s.WriteString(dimStyle.Render(fmt.Sprintf("  %s\n", auth.desc)))
 			} else {
 				s.WriteString(normalStyle.Render(fmt.Sprintf("%s %s\n", cursor, auth.name)))
 			}
+			s.WriteString(dimStyle.Render(fmt.Sprintf("   %s\n", auth.desc)))
 		}
 
 		s.WriteString("\n" + dimStyle.Render("↑/↓: navigate • enter: select • q: quit"))
