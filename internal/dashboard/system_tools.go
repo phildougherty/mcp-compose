@@ -289,7 +289,7 @@ func (stm *SystemToolsManager) GetSystemTools() []ToolDefinition {
 
 		{
 			Name:        "task_scheduler_update_schedule",
-			Description: "Change the schedule of an existing task",
+			Description: "Update the schedule, provider, and model of an existing task",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -299,10 +299,18 @@ func (stm *SystemToolsManager) GetSystemTools() []ToolDefinition {
 					},
 					"schedule": map[string]interface{}{
 						"type":        "string",
-						"description": "New cron schedule expression",
+						"description": "New cron schedule expression (optional if updating provider/model)",
+					},
+					"provider": map[string]interface{}{
+						"type":        "string",
+						"description": "New AI provider (e.g., 'ollama', 'openrouter')",
+					},
+					"model": map[string]interface{}{
+						"type":        "string",
+						"description": "New model name (e.g., 'gpt-oss:latest', 'claude-3-5-sonnet-20241022')",
 					},
 				},
-				"required": []string{"task_id", "schedule"},
+				"required": []string{"task_id"},
 			},
 		},
 
@@ -1265,11 +1273,6 @@ func (stm *SystemToolsManager) taskSchedulerUpdateSchedule(ctx context.Context, 
 		return nil, fmt.Errorf("task_id is required")
 	}
 
-	schedule := getStringArg(arguments, "schedule")
-	if schedule == "" {
-		return nil, fmt.Errorf("schedule is required")
-	}
-
 	proxyURL := os.Getenv("MCP_PROXY_URL")
 	if proxyURL == "" {
 		proxyURL = "http://localhost:9876"
@@ -1277,16 +1280,33 @@ func (stm *SystemToolsManager) taskSchedulerUpdateSchedule(ctx context.Context, 
 
 	url := fmt.Sprintf("%s/task-scheduler", proxyURL)
 
+	updateArgs := map[string]interface{}{
+		"id": taskID,
+	}
+
+	if schedule := getStringArg(arguments, "schedule"); schedule != "" {
+		updateArgs["schedule"] = schedule
+	}
+
+	if provider := getStringArg(arguments, "provider"); provider != "" {
+		updateArgs["_provider"] = provider
+	}
+
+	if model := getStringArg(arguments, "model"); model != "" {
+		updateArgs["_model"] = model
+	}
+
+	if len(updateArgs) == 1 {
+		return nil, fmt.Errorf("at least one of schedule, provider, or model must be provided")
+	}
+
 	mcpRequest := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "update_task",
-			"arguments": map[string]interface{}{
-				"id":       taskID,
-				"schedule": schedule,
-			},
+			"name":      "update_task",
+			"arguments": updateArgs,
 		},
 	}
 
@@ -1456,6 +1476,22 @@ func (stm *SystemToolsManager) workflowList(ctx context.Context, arguments map[s
 func (stm *SystemToolsManager) workflowCreate(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
 	url := "http://mcp-compose-dashboard:3001/api/workflows"
 
+	if nodes, ok := arguments["nodes"].([]interface{}); ok {
+		for i, nodeInterface := range nodes {
+			if nodeMap, ok := nodeInterface.(map[string]interface{}); ok {
+				if data, exists := nodeMap["data"]; exists {
+					if _, isRawMessage := data.(json.RawMessage); !isRawMessage {
+						dataBytes, err := json.Marshal(data)
+						if err != nil {
+							return nil, fmt.Errorf("failed to marshal node data at index %d: %w", i, err)
+						}
+						nodeMap["data"] = json.RawMessage(dataBytes)
+					}
+				}
+			}
+		}
+	}
+
 	requestBody, err := json.Marshal(arguments)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -1480,7 +1516,8 @@ func (stm *SystemToolsManager) workflowCreate(ctx context.Context, arguments map
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("workflow API returned status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("workflow API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var result map[string]interface{}

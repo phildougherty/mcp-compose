@@ -306,6 +306,58 @@ func (s *Storage) ListWorkflows(ctx context.Context, limit int) ([]*Workflow, er
 			}
 		}
 
+		nodesQuery := `SELECT id, type, position_x, position_y, data
+		               FROM workflows.workflow_nodes WHERE workflow_id = $1`
+
+		nodeRows, err := s.db.QueryContext(ctx, nodesQuery, workflow.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get nodes for workflow %s: %w", workflow.ID, err)
+		}
+
+		workflow.Nodes = []WorkflowNode{}
+		for nodeRows.Next() {
+			node := WorkflowNode{}
+			err := nodeRows.Scan(
+				&node.ID,
+				&node.Type,
+				&node.Position.X,
+				&node.Position.Y,
+				&node.Data,
+			)
+			if err != nil {
+				nodeRows.Close()
+				return nil, fmt.Errorf("failed to scan node: %w", err)
+			}
+			workflow.Nodes = append(workflow.Nodes, node)
+		}
+		nodeRows.Close()
+
+		edgesQuery := `SELECT id, source, target, source_handle, target_handle
+		               FROM workflows.workflow_edges WHERE workflow_id = $1`
+
+		edgeRows, err := s.db.QueryContext(ctx, edgesQuery, workflow.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get edges for workflow %s: %w", workflow.ID, err)
+		}
+
+		workflow.Edges = []WorkflowEdge{}
+		for edgeRows.Next() {
+			edge := WorkflowEdge{}
+			err := edgeRows.Scan(
+				&edge.ID,
+				&edge.Source,
+				&edge.Target,
+				&edge.SourceHandle,
+				&edge.TargetHandle,
+			)
+			if err != nil {
+				edgeRows.Close()
+				return nil, fmt.Errorf("failed to scan edge: %w", err)
+			}
+			workflow.Edges = append(workflow.Edges, edge)
+		}
+		edgeRows.Close()
+
 		workflows = append(workflows, workflow)
 	}
 
