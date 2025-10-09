@@ -12,7 +12,7 @@ FRONTEND_DIR=internal/dashboard/frontend
 # Build the frontend
 build-frontend:
 	@echo "Building frontend..."
-	@if [ ! -d "$(FRONTEND_DIR)/node_modules" ]; then \
+	@if [ ! -d "$(FRONTEND_DIR)/node_modules" ] || [ "$(FRONTEND_DIR)/package.json" -nt "$(FRONTEND_DIR)/node_modules" ]; then \
 		echo "Installing frontend dependencies..."; \
 		cd $(FRONTEND_DIR) && npm install; \
 	fi
